@@ -1,0 +1,56 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Business {
+  id        String    @id @default(cuid())
+  name      String
+  taxRate   Float     @default(8.25)
+  createdAt DateTime  @default(now())
+  products  Product[]
+  orders    Order[]
+}
+
+model Product {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+  name       String
+  category   String?
+  price      Float
+  stock      Int      @default(0)
+  createdAt  DateTime @default(now())
+}
+
+model Order {
+  id         String      @id @default(cuid())
+  businessId String
+  business   Business    @relation(fields: [businessId], references: [id])
+  subtotal   Float
+  tax        Float
+  tip        Float        @default(0)
+  discount   Float        @default(0)
+  total      Float
+  status     OrderStatus  @default(OPEN)
+  payment    PaymentType  @default(CASH)
+  createdAt  DateTime     @default(now())
+}
+
+enum OrderStatus {
+  OPEN
+  PAID
+  REFUNDED
+  CANCELED
+}
+
+enum PaymentType {
+  CASH
+  CARD
+  MANUAL
+  PENDING
+}
