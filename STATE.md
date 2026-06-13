@@ -45,9 +45,14 @@ DB is live on **Neon**; `prisma migrate dev` (migration `init`) + `db:seed` ran.
 - Fixed latent bug: register query now queries items directly so **uncategorized items still appear**
 - Verified create/list/delete against live DB
 
+## Settings (branch `phase-1/settings`)
+- `updateBusinessSettings` action (OWNER-only): business name, tax rate (% → basis points), currency, tax-inclusive toggle; revalidates the business layout
+- `SettingsForm` UI; non-owners see a read-only notice
+- **Tax-inclusive mode is now real:** `money.ts` `computeTotals` handles inclusive (embedded) tax via `embeddedTaxOf`, threaded through the register (display) and checkout (server-authoritative). Verified: $10 @ 8.25% → exclusive total $10.83 / inclusive total $10.00 with 76¢ embedded
+- The register no longer hardcodes tax — it reads `taxRateBps` + `taxInclusive` from the business
+
 ## Still TODO in Phase 1
 - **Manual UI click-through** of sign-up → ring-up-a-sale in a browser (HTTP + DB paths verified; the in-browser UX itself not yet eyeballed)
-- Settings (tax rate, business info)
 - Orders list (real data) + receipt email; Z-report / cash drawer session
 - Modifiers in cart + per-line tax detail (action has hooks, not wired)
 - PWA service worker (Serwist) + offline IndexedDB queue (checkout already idempotent)
