@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import type { Role } from "@prisma/client";
+import { roleAtLeast } from "@/lib/roles";
 
 /**
  * The multi-tenancy choke point.
@@ -44,11 +45,9 @@ export async function requireMembership(businessId: string): Promise<TenantConte
   };
 }
 
-const ROLE_RANK: Record<Role, number> = { CASHIER: 0, MANAGER: 1, OWNER: 2 };
-
 /** Gate an action by minimum role (e.g. refunds require MANAGER). */
 export function assertRole(ctx: TenantContext, min: Role): void {
-  if (ROLE_RANK[ctx.role] < ROLE_RANK[min]) {
+  if (!roleAtLeast(ctx.role, min)) {
     throw new ForbiddenError(`REQUIRES_${min}`);
   }
 }
