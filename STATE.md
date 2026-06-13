@@ -2,11 +2,11 @@
 
 > **Read this first.** This is the single source of truth for what exists, what's wired, and what's next. Update it as work lands.
 
-_Last updated: 2026-06-12 — Blueprint + scaffold pass._
+_Last updated: 2026-06-12 — Phase 1 in progress (MVP core spine)._
 
 ## Where we are
 
-The original prototype (one 204-line `app/page.tsx` client component, all mock data, no backend) has been **replaced with a restructured foundation**. This pass delivered the *blueprint + scaffold*: rewritten spec/docs, a real multi-tenant data model, pinned dependencies, and the wiring for database + auth. **No end-user features are built yet** — the register, products, orders, reports, and settings screens are placeholders pending approval to build.
+The original prototype was replaced with a restructured foundation (Phase 0, merged in PR #1). **Phase 1 is now underway** on branch `phase-1/mvp-core`: the "ring up a sale" spine is built — real auth + business bootstrap, route guards, catalog read, and a working register with server-authoritative cash checkout. Verified by `tsc --noEmit` + `next build` (compile/lint/types clean); **not yet run against a live DB** (needs a Neon `DATABASE_URL`).
 
 ## What exists now
 
@@ -28,13 +28,25 @@ The original prototype (one 204-line `app/page.tsx` client component, all mock d
 - `app/` route groups: `(auth)` sign-in/sign-up, `(app)/[businessId]/…` shell + placeholder screens, `api/auth/[...all]` handler
 - Pinned `package.json`, `tsconfig.json`, `next.config.ts`, ESLint flat config, Prettier, `.gitignore`, `.env.example`
 
-## What is deliberately NOT done yet (awaiting approval)
-- Real auth flows (sign-up/in screens are placeholders; Better Auth config needs a real secret + DB)
-- The register/checkout screen (cart, modifiers, tender, receipt)
-- Products / Orders / Reports / Settings screens
-- PWA service worker (Serwist) + offline IndexedDB queue
-- Payments (cash drawer logic, then Stripe)
-- Seed data, tests, CI
+## Built in Phase 1 so far (branch `phase-1/mvp-core`)
+- **Auth flow:** real sign-up (creates user → Business → OWNER Membership) and sign-in via Better Auth; `src/features/auth/actions.ts`
+- **Guards:** `(app)/layout.tsx` (session) + `(app)/[businessId]/layout.tsx` (membership via `requireMembership`, renders the shell with real nav + sign-out)
+- **Catalog read:** `src/features/catalog/queries.ts` (`getRegisterCatalog`, businessId-scoped)
+- **Register:** `src/features/register/components/Register.tsx` — touch cart, search, qty, discount, tip presets, cash tender + change, receipt view
+- **Checkout action:** `src/features/register/actions.ts` — **server recomputes all totals** from DB prices + business tax rate, idempotent on `clientUuid`, writes Order/OrderLine/Payment in a transaction
+- deps installed; `npm run build` passes
+
+## Verified live (2026-06-13)
+DB is live on **Neon**; `prisma migrate dev` (migration `init`) + `db:seed` ran. End-to-end smoke test passed: Better Auth sign-up/session over HTTP, money math (8.25% tax correct), Order/OrderLine/Payment writes, and `clientUuid` idempotency (duplicate rejected by unique constraint). Test owner seeded: **owner@valla.test / supersecret123** (OWNER of the demo business). `.env.local` holds the connection string + generated `BETTER_AUTH_SECRET` (gitignored).
+
+## Still TODO in Phase 1
+- **Manual UI click-through** of sign-up → ring-up-a-sale in a browser (HTTP + DB paths verified; the in-browser UX itself not yet eyeballed)
+- Products CRUD screen (catalog management); Settings (tax rate, business info)
+- Orders list (real data) + receipt email; Z-report / cash drawer session
+- Modifiers in cart + per-line tax detail (action has hooks, not wired)
+- PWA service worker (Serwist) + offline IndexedDB queue (checkout already idempotent)
+- Tests (tenant isolation, totals math, idempotency) + CI
+- Verify Better Auth Prisma table shape against `npx @better-auth/cli generate` once DB is live
 
 ## Key invariants (do not break)
 1. **Tenant isolation:** every tenant-owned query goes through `requireMembership(businessId)` and includes `where: { businessId }`. A missing filter = cross-business data leak.
@@ -48,4 +60,4 @@ The original prototype (one 204-line `app/page.tsx` client component, all mock d
 - Browser-POS reality: Tap-to-Pay & Bluetooth readers are native-only → card-present is sequenced to a later native shell; lead with cash + QR/Terminal.
 
 ## Next step
-Get owner approval on this blueprint, then build the MVP per `docs/ROADMAP.md` (start: schema migration + auth flow + register screen).
+Provide a Neon `DATABASE_URL` + `BETTER_AUTH_SECRET` in `.env.local`, run `prisma migrate dev` + `npm run db:seed`, then manually verify the sign-up → ring-up-a-sale loop. After that: Products CRUD, then Z-report/receipts.
