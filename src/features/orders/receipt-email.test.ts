@@ -19,7 +19,7 @@ function receipt(overrides: Partial<OrderReceipt> = {}): OrderReceipt {
     taxRateBps: 825,
     taxInclusive: false,
     lines: [
-      { id: "l1", name: "Taco", quantity: 2, unitPriceCents: 500, discountCents: 0, totalCents: 1000 },
+      { id: "l1", name: "Taco", quantity: 2, unitPriceCents: 500, discountCents: 0, taxCents: 83, totalCents: 1000, modifiers: [] },
     ],
     payments: [{ method: "CASH", amountCents: 1083, tenderedCents: 2000, changeCents: 917 }],
     ...overrides,
@@ -63,7 +63,7 @@ describe("renderReceiptEmail", () => {
       receipt({
         businessName: "Bob & <b>Sons</b>",
         lines: [
-          { id: "l1", name: "<script>", quantity: 1, unitPriceCents: 500, discountCents: 0, totalCents: 500 },
+          { id: "l1", name: "<script>", quantity: 1, unitPriceCents: 500, discountCents: 0, taxCents: 0, totalCents: 500, modifiers: [] },
         ],
       }),
     );

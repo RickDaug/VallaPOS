@@ -93,11 +93,19 @@ First Phase 2 item from the improvement plan. Replaced the racy `findFirst(max n
 - Migration `20260613050920_order_counter` creates the table **and backfills** existing businesses to `COALESCE(MAX(number),0)` so live sequences continue (the demo business won't restart at 1).
 - Verified locally: typecheck + lint + 23 tests + build all green. **Migration applied to Neon** (`20260613050920_order_counter`); concurrency smoke test (`prisma/smoke-order-race.ts`, 50 parallel allocations) printed `PASS: no collisions` — unique + contiguous 1..50. Dev-only helper: created a gitignored `.env` with just `DATABASE_URL` so the Prisma CLI/scripts load it natively.
 
+## Cart modifiers + per-line tax (branch `phase-1/cart-modifiers`)
+- **No schema change** — the `ModifierGroup`/`Modifier`/`ItemModifierGroup`/`OrderLineModifier` models + `OrderLine.taxCents` were already in `init`.
+- **Catalog mgmt:** `createModifierGroup`/`deleteModifierGroup`/`createModifier`/`deleteModifier`/`linkModifierGroup`/`unlinkModifierGroup` actions (MANAGER+, tenant-scoped, defense-in-depth ownership checks). Catalog zod schemas extracted to `src/features/catalog/schema.ts` (testable, non-server). `ProductsManager` UI: manage groups/modifiers + per-item link chips. `getManagedCatalog` now returns `modifierGroups` + each item's `modifierGroupIds`.
+- **Register:** `getRegisterCatalog` includes each item's linked groups/modifiers; `Register.tsx` opens a modifier picker (honors min/maxSelect) when a modified item is added; cart lines are keyed by (variation + chosen modifiers); modifier deltas join the taxable base and show on the line.
+- **Checkout (server-authoritative):** schema accepts `modifierIds` per line; the action re-looks-up every modifier from the DB (businessId-scoped via the item), validates min/maxSelect + rejects unknown/foreign ids, computes **per-line `taxCents`** and snapshots each chosen modifier as `OrderLineModifier` in the same `$transaction`. Order tax is **derived by summing line taxes** (`Order.taxCents == Σ OrderLine.taxCents`), so rounding can't drift. Pure logic in `src/features/register/pricing.ts` (non-server) — verified to match `money.ts computeTotals`.
+- **Receipt** shows per-line modifiers; receipt line type carries `taxCents` + `modifiers`.
+- Tests: +21 (pricing math/reconciliation, catalog schema, checkout modifier/validation paths). Full suite **104 green**; typecheck + lint + build all pass.
+
 ## Still TODO in Phase 1
 _Done / in review (see PRs #11–#14 above): receipt view + email scaffold, integration tests (tenant isolation + checkout), PWA + offline queue, Better Auth schema audit. CI workflow shipped in #7._
 - **Manual UI click-through** of sign-up → ring-up-a-sale (dev server run; awaiting human feedback) — also exercise the new receipt page and offline-queue once #11/#13 merge
 - **Cash drawer session** (opening float → counted vs expected) — **needs a schema migration**
-- **Modifiers in cart + per-line tax detail** (checkout action has hooks, not wired) — **needs a schema migration**
+- ~~**Modifiers in cart + per-line tax detail**~~ — DONE (branch `phase-1/cart-modifiers`, see above). No migration needed; the models were already in `init`.
 - Receipt email: wire a real provider (Resend) behind the `RESEND_API_KEY` scaffold added in #11
 
 > **Migration-dependent work is serialized on purpose.** Cash-drawer and cart-modifiers both alter `prisma/schema.prisma` and apply migrations to the shared Neon DB — do them one at a time (not in a parallel fan-out) to avoid `_prisma_migrations` conflicts. The agent CAN run migrations now (gitignored `.env` holds `DATABASE_URL`), but apply each on its own branch and verify before the next.

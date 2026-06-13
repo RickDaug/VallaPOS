@@ -10,6 +10,9 @@ export const checkoutSchema = z.object({
         variationId: z.string().min(1),
         quantity: z.number().int().positive().max(999),
         lineDiscountCents: z.number().int().min(0).optional(),
+        // Chosen modifier ids for this line. The server RE-LOOKS-UP each id
+        // (businessId-scoped) and never trusts client-sent names/prices.
+        modifierIds: z.array(z.string().min(1)).max(50).optional(),
       }),
     )
     .min(1, "Cart is empty"),

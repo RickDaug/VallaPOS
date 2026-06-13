@@ -75,6 +75,16 @@ export default async function ReceiptPage({
                 <li key={l.id} className="flex items-start justify-between gap-3 text-sm">
                   <div className="min-w-0">
                     <p className="font-semibold">{l.name}</p>
+                    {l.modifiers.length > 0 && (
+                      <ul className="mt-0.5">
+                        {l.modifiers.map((m) => (
+                          <li key={m.id} className="numeric text-xs text-muted-foreground">
+                            + {m.name}
+                            {m.priceDeltaCents !== 0 && <> ({money(m.priceDeltaCents)})</>}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                     <p className="numeric text-muted-foreground">
                       {l.quantity} × {money(l.unitPriceCents)}
                       {l.discountCents > 0 && <> · −{money(l.discountCents)}</>}
