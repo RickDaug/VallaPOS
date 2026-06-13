@@ -36,8 +36,11 @@ The original prototype was replaced with a restructured foundation (Phase 0, mer
 - **Checkout action:** `src/features/register/actions.ts` — **server recomputes all totals** from DB prices + business tax rate, idempotent on `clientUuid`, writes Order/OrderLine/Payment in a transaction
 - deps installed; `npm run build` passes
 
+## Verified live (2026-06-13)
+DB is live on **Neon**; `prisma migrate dev` (migration `init`) + `db:seed` ran. End-to-end smoke test passed: Better Auth sign-up/session over HTTP, money math (8.25% tax correct), Order/OrderLine/Payment writes, and `clientUuid` idempotency (duplicate rejected by unique constraint). Test owner seeded: **owner@valla.test / supersecret123** (OWNER of the demo business). `.env.local` holds the connection string + generated `BETTER_AUTH_SECRET` (gitignored).
+
 ## Still TODO in Phase 1
-- **Run it live:** needs Neon `DATABASE_URL` + auth secret → `prisma migrate dev` + `db:seed`, then manual verify
+- **Manual UI click-through** of sign-up → ring-up-a-sale in a browser (HTTP + DB paths verified; the in-browser UX itself not yet eyeballed)
 - Products CRUD screen (catalog management); Settings (tax rate, business info)
 - Orders list (real data) + receipt email; Z-report / cash drawer session
 - Modifiers in cart + per-line tax detail (action has hooks, not wired)
