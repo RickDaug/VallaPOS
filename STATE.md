@@ -51,9 +51,15 @@ DB is live on **Neon**; `prisma migrate dev` (migration `init`) + `db:seed` ran.
 - **Tax-inclusive mode is now real:** `money.ts` `computeTotals` handles inclusive (embedded) tax via `embeddedTaxOf`, threaded through the register (display) and checkout (server-authoritative). Verified: $10 @ 8.25% → exclusive total $10.83 / inclusive total $10.00 with 76¢ embedded
 - The register no longer hardcodes tax — it reads `taxRateBps` + `taxInclusive` from the business
 
+## Orders + Z-report (branch `phase-1/orders-reports`)
+- `listOrders` (recent 100, businessId-scoped) → Orders table (number, customer, total, status badge, method, time)
+- `getDailyReport` → end-of-day Z-report at `/reports`: orders, gross/discount/net sales, tax collected, tips, total collected, payment-method split, cash collected; day picker via `?date=` (server-rendered GET form)
+- Excludes non-PAID + out-of-day orders (verified against live DB)
+- Cash-drawer reconciliation (opening float, counted vs expected) still deferred to the cash-drawer-session work
+
 ## Still TODO in Phase 1
 - **Manual UI click-through** of sign-up → ring-up-a-sale in a browser (HTTP + DB paths verified; the in-browser UX itself not yet eyeballed)
-- Orders list (real data) + receipt email; Z-report / cash drawer session
+- Receipt email; cash drawer session (opening float → counted vs expected)
 - Modifiers in cart + per-line tax detail (action has hooks, not wired)
 - PWA service worker (Serwist) + offline IndexedDB queue (checkout already idempotent)
 - Tests (tenant isolation, totals math, idempotency) + CI
