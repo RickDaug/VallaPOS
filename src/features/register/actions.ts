@@ -2,7 +2,13 @@
 
 import { db } from "@/lib/db";
 import { requireMembership } from "@/lib/tenant";
-import { computeTotals, type CartLineInput } from "@/lib/money";
+import {
+  computePricedOrder,
+  validateGroupSelection,
+  type PricedLineInput,
+  type ResolvedModifier,
+  type GroupConstraint,
+} from "./pricing";
 import { checkoutSchema, type CheckoutInput } from "./schema";
 
 export interface Receipt {
@@ -42,44 +48,100 @@ export async function checkout(input: CheckoutInput): Promise<Receipt> {
     select: { taxRateBps: true, taxInclusive: true },
   });
 
-  // Resolve REAL prices from the DB, scoped to this business.
+  // Resolve REAL prices from the DB, scoped to this business. Pull each item's
+  // linked modifier groups too so we can validate the cashier's selection and
+  // snapshot the chosen modifiers — never trusting client-sent names/prices.
   const variations = await db.variation.findMany({
     where: { businessId, id: { in: data.lines.map((l) => l.variationId) } },
-    include: { item: { select: { name: true } } },
+    include: {
+      item: {
+        select: {
+          name: true,
+          modifierLinks: {
+            select: {
+              group: {
+                select: {
+                  id: true,
+                  minSelect: true,
+                  maxSelect: true,
+                  modifiers: { select: { id: true, name: true, priceDeltaCents: true } },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
   });
   const byId = new Map(variations.map((v) => [v.id, v]));
 
-  const moneyLines: CartLineInput[] = [];
+  const moneyLines: PricedLineInput[] = [];
   const lineRecords = data.lines.map((line) => {
     const variation = byId.get(line.variationId);
     if (!variation) throw new Error(`Unknown item: ${line.variationId}`);
-    const unitPriceCents = variation.priceCents; // modifiers added in a later phase
+    const unitPriceCents = variation.priceCents;
+
+    // Re-resolve chosen modifiers from the DB (businessId-scoped via the item)
+    // and validate them against each group's min/maxSelect.
+    const chosenIds = line.modifierIds ?? [];
+    const groups = variation.item.modifierLinks.map((l) => l.group);
+    const modifierById = new Map<string, ResolvedModifier>();
+    for (const g of groups) {
+      for (const m of g.modifiers) {
+        modifierById.set(m.id, { id: m.id, nameSnapshot: m.name, priceDeltaCents: m.priceDeltaCents });
+      }
+    }
+
+    // Any chosen id must belong to one of this item's linked groups.
+    for (const id of chosenIds) {
+      if (!modifierById.has(id)) {
+        throw new Error(`Unknown modifier for item: ${id}`);
+      }
+    }
+
+    // Validate every group's selection (covers required-group-left-empty too).
+    for (const g of groups) {
+      const groupModifierIds = g.modifiers.map((m) => m.id);
+      const chosenInGroup = chosenIds.filter((id) => groupModifierIds.includes(id));
+      const constraint: GroupConstraint = {
+        groupId: g.id,
+        minSelect: g.minSelect,
+        maxSelect: g.maxSelect,
+        modifierIds: groupModifierIds,
+      };
+      validateGroupSelection(constraint, chosenInGroup);
+    }
+
+    const chosenModifiers = chosenIds.map((id) => modifierById.get(id)!);
+
     moneyLines.push({
       unitPriceCents,
       quantity: line.quantity,
       lineDiscountCents: line.lineDiscountCents ?? 0,
+      modifiers: chosenModifiers,
     });
-    const gross = unitPriceCents * line.quantity;
-    const lineDiscount = Math.min(line.lineDiscountCents ?? 0, gross);
+
     return {
       variation,
       unitPriceCents,
       quantity: line.quantity,
-      discountCents: lineDiscount,
+      modifiers: chosenModifiers,
       nameSnapshot:
         variation.name && variation.name !== "Default"
           ? `${variation.item.name} — ${variation.name}`
           : variation.item.name,
-      lineTotalCents: gross - lineDiscount,
     };
   });
 
-  const totals = computeTotals(moneyLines, {
+  // Per-line tax is computed once; the order tax is the SUM of line taxes, so
+  // Order.taxCents == Σ OrderLine.taxCents by construction (no second compute).
+  const priced = computePricedOrder(moneyLines, {
     taxRateBps: business.taxRateBps,
     cartDiscountCents: data.cartDiscountCents,
     tipCents: data.tipCents,
     taxInclusive: business.taxInclusive,
   });
+  const totals = priced;
 
   if (data.cashTenderedCents < totals.totalCents) {
     throw new Error("Cash tendered is less than the total.");
@@ -113,16 +175,28 @@ export async function checkout(input: CheckoutInput): Promise<Receipt> {
         tipCents: totals.tipCents,
         totalCents: totals.totalCents,
         lines: {
-          create: lineRecords.map((l) => ({
-            businessId,
-            variationId: l.variation.id,
-            nameSnapshot: l.nameSnapshot,
-            unitPriceCents: l.unitPriceCents,
-            quantity: l.quantity,
-            discountCents: l.discountCents,
-            taxCents: 0, // per-line tax detail captured in a later phase
-            totalCents: l.lineTotalCents,
-          })),
+          // lineRecords and priced.lines are index-aligned (same source order).
+          create: lineRecords.map((l, i) => {
+            const p = priced.lines[i]!;
+            return {
+              businessId,
+              variationId: l.variation.id,
+              nameSnapshot: l.nameSnapshot,
+              unitPriceCents: l.unitPriceCents,
+              quantity: l.quantity,
+              discountCents: p.discountCents,
+              taxCents: p.taxCents, // per-line tax; Σ == Order.taxCents
+              totalCents: p.totalCents,
+              modifiers: {
+                // Snapshot each chosen modifier so catalog edits never rewrite
+                // sold history (mirrors OrderLine.nameSnapshot/unitPriceCents).
+                create: l.modifiers.map((m) => ({
+                  nameSnapshot: m.nameSnapshot,
+                  priceDeltaCents: m.priceDeltaCents,
+                })),
+              },
+            };
+          }),
         },
         payments: {
           create: {

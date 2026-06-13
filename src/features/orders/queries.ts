@@ -112,7 +112,9 @@ export interface ReceiptLine {
   quantity: number;
   unitPriceCents: number;
   discountCents: number;
+  taxCents: number;
   totalCents: number;
+  modifiers: { id: string; name: string; priceDeltaCents: number }[];
 }
 
 export interface ReceiptPayment {
@@ -179,7 +181,12 @@ export async function getOrderReceipt(
           quantity: true,
           unitPriceCents: true,
           discountCents: true,
+          taxCents: true,
           totalCents: true,
+          modifiers: {
+            orderBy: { id: "asc" },
+            select: { id: true, nameSnapshot: true, priceDeltaCents: true },
+          },
         },
       },
       payments: {
@@ -212,7 +219,13 @@ export async function getOrderReceipt(
       quantity: l.quantity,
       unitPriceCents: l.unitPriceCents,
       discountCents: l.discountCents,
+      taxCents: l.taxCents,
       totalCents: l.totalCents,
+      modifiers: l.modifiers.map((m) => ({
+        id: m.id,
+        name: m.nameSnapshot,
+        priceDeltaCents: m.priceDeltaCents,
+      })),
     })),
     payments: order.payments.map((p) => ({
       method: p.method,

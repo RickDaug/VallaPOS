@@ -2,6 +2,20 @@ import "server-only";
 import { db } from "@/lib/db";
 import type { ItemType } from "@prisma/client";
 
+export interface SellableModifier {
+  id: string;
+  name: string;
+  priceDeltaCents: number;
+}
+
+export interface SellableModifierGroup {
+  id: string;
+  name: string;
+  minSelect: number;
+  maxSelect: number;
+  modifiers: SellableModifier[];
+}
+
 export interface SellableEntry {
   variationId: string;
   itemId: string;
@@ -9,6 +23,8 @@ export interface SellableEntry {
   category: string;
   type: ItemType;
   priceCents: number;
+  // Modifier groups linked to the parent item (shared across its variations).
+  modifierGroups: SellableModifierGroup[];
 }
 
 const UNCATEGORIZED = "Uncategorized";
@@ -32,11 +48,34 @@ export async function getRegisterCatalog(businessId: string): Promise<SellableEn
       type: true,
       category: { select: { name: true } },
       variations: { orderBy: { sortOrder: "asc" } },
+      modifierLinks: {
+        select: {
+          group: {
+            select: {
+              id: true,
+              name: true,
+              minSelect: true,
+              maxSelect: true,
+              modifiers: {
+                orderBy: { sortOrder: "asc" },
+                select: { id: true, name: true, priceDeltaCents: true },
+              },
+            },
+          },
+        },
+      },
     },
   });
 
   const entries: SellableEntry[] = [];
   for (const item of items) {
+    const modifierGroups: SellableModifierGroup[] = item.modifierLinks.map((link) => ({
+      id: link.group.id,
+      name: link.group.name,
+      minSelect: link.group.minSelect,
+      maxSelect: link.group.maxSelect,
+      modifiers: link.group.modifiers,
+    }));
     for (const variation of item.variations) {
       entries.push({
         variationId: variation.id,
@@ -45,6 +84,7 @@ export async function getRegisterCatalog(businessId: string): Promise<SellableEn
         category: item.category?.name ?? UNCATEGORIZED,
         type: item.type,
         priceCents: variation.priceCents,
+        modifierGroups,
       });
     }
   }
@@ -62,16 +102,27 @@ export interface ManagedItem {
   type: ItemType;
   categoryName: string | null;
   variations: { id: string; name: string; priceCents: number }[];
+  // Ids of the modifier groups linked to this item.
+  modifierGroupIds: string[];
+}
+
+export interface ManagedModifierGroup {
+  id: string;
+  name: string;
+  minSelect: number;
+  maxSelect: number;
+  modifiers: { id: string; name: string; priceDeltaCents: number }[];
 }
 
 export interface ManagedCatalog {
   categories: ManagedCategory[];
   items: ManagedItem[];
+  modifierGroups: ManagedModifierGroup[];
 }
 
 /** Full catalog for the Products management screen, scoped to the business. */
 export async function getManagedCatalog(businessId: string): Promise<ManagedCatalog> {
-  const [categories, items] = await Promise.all([
+  const [categories, items, modifierGroups] = await Promise.all([
     db.category.findMany({
       where: { businessId },
       orderBy: { sortOrder: "asc" },
@@ -86,6 +137,21 @@ export async function getManagedCatalog(businessId: string): Promise<ManagedCata
         type: true,
         category: { select: { name: true } },
         variations: { orderBy: { sortOrder: "asc" }, select: { id: true, name: true, priceCents: true } },
+        modifierLinks: { select: { groupId: true } },
+      },
+    }),
+    db.modifierGroup.findMany({
+      where: { businessId },
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+        minSelect: true,
+        maxSelect: true,
+        modifiers: {
+          orderBy: { sortOrder: "asc" },
+          select: { id: true, name: true, priceDeltaCents: true },
+        },
       },
     }),
   ]);
@@ -98,6 +164,8 @@ export async function getManagedCatalog(businessId: string): Promise<ManagedCata
       type: i.type,
       categoryName: i.category?.name ?? null,
       variations: i.variations,
+      modifierGroupIds: i.modifierLinks.map((l) => l.groupId),
     })),
+    modifierGroups,
   };
 }

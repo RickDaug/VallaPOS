@@ -1,9 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, CloudOff, Plus, RefreshCw, Search, WifiOff } from "lucide-react";
-import { formatMoney, computeTotals } from "@/lib/money";
-import type { SellableEntry } from "@/features/catalog/queries";
+import { Check, CloudOff, Plus, RefreshCw, Search, WifiOff, X } from "lucide-react";
+import { formatMoney } from "@/lib/money";
+import { computePricedOrder, type PricedLineInput } from "@/features/register/pricing";
+import type { SellableEntry, SellableModifierGroup } from "@/features/catalog/queries";
 import { type Receipt } from "@/features/register/actions";
 import { useOfflineCheckout } from "@/lib/offline/use-offline-checkout";
 import { Button } from "@/components/ui/button";
@@ -12,9 +13,24 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-type CartLine = { variationId: string; label: string; priceCents: number; qty: number };
+type ChosenModifier = { id: string; name: string; priceDeltaCents: number };
+type CartLine = {
+  // A unique key per (variation + chosen-modifier-set) so two differently
+  // modified instances of the same item are distinct cart lines.
+  key: string;
+  variationId: string;
+  label: string;
+  priceCents: number;
+  qty: number;
+  modifiers: ChosenModifier[];
+};
 
 const TIP_PRESETS = [0, 0.15, 0.2, 0.25];
+
+/** Stable key for a (variation, chosen modifiers) pair. */
+function lineKey(variationId: string, modifierIds: string[]): string {
+  return [variationId, ...[...modifierIds].sort()].join("|");
+}
 
 export function Register({
   businessId,
@@ -39,6 +55,8 @@ export function Register({
   const [queued, setQueued] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  // Item awaiting modifier selection (null = picker closed).
+  const [picking, setPicking] = useState<SellableEntry | null>(null);
   const { online, pending: queuedCount, syncing, submit } = useOfflineCheckout();
 
   const money = (c: number) => formatMoney(c, currency);
@@ -51,26 +69,56 @@ export function Register({
   const cartDiscountCents = Math.max(0, Math.round(parseFloat(discountDollars || "0") * 100)) || 0;
 
   const totals = useMemo(() => {
-    const lines = cart.map((l) => ({ unitPriceCents: l.priceCents, quantity: l.qty }));
-    const subtotal = lines.reduce((s, l) => s + l.unitPriceCents * l.quantity, 0);
+    const lines: PricedLineInput[] = cart.map((l) => ({
+      unitPriceCents: l.priceCents,
+      quantity: l.qty,
+      modifiers: l.modifiers.map((m) => ({
+        id: m.id,
+        nameSnapshot: m.name,
+        priceDeltaCents: m.priceDeltaCents,
+      })),
+    }));
+    const subtotal = lines.reduce(
+      (s, l) =>
+        s +
+        (l.unitPriceCents + l.modifiers!.reduce((a, m) => a + m.priceDeltaCents, 0)) * l.quantity,
+      0,
+    );
     const tipCents = Math.round(Math.max(subtotal - cartDiscountCents, 0) * tipRate);
-    return computeTotals(lines, { taxRateBps, cartDiscountCents, tipCents, taxInclusive });
+    return computePricedOrder(lines, { taxRateBps, cartDiscountCents, tipCents, taxInclusive });
   }, [cart, taxRateBps, cartDiscountCents, tipRate, taxInclusive]);
 
-  function addToCart(entry: SellableEntry) {
+  /** Add an item to the cart with an (already-chosen) modifier set. */
+  function addLine(entry: SellableEntry, modifiers: ChosenModifier[]) {
+    const key = lineKey(
+      entry.variationId,
+      modifiers.map((m) => m.id),
+    );
     setCart((cur) => {
-      const existing = cur.find((l) => l.variationId === entry.variationId);
+      const existing = cur.find((l) => l.key === key);
       if (existing) {
-        return cur.map((l) => (l.variationId === entry.variationId ? { ...l, qty: l.qty + 1 } : l));
+        return cur.map((l) => (l.key === key ? { ...l, qty: l.qty + 1 } : l));
       }
-      return [...cur, { variationId: entry.variationId, label: entry.label, priceCents: entry.priceCents, qty: 1 }];
+      return [
+        ...cur,
+        { key, variationId: entry.variationId, label: entry.label, priceCents: entry.priceCents, qty: 1, modifiers },
+      ];
     });
   }
 
-  function changeQty(variationId: string, delta: number) {
+  function addToCart(entry: SellableEntry) {
+    // Items with modifier groups open the picker; everything else adds directly.
+    if (entry.modifierGroups.length > 0) {
+      setPicking(entry);
+      return;
+    }
+    addLine(entry, []);
+  }
+
+  function changeQty(key: string, delta: number) {
     setCart((cur) =>
       cur
-        .map((l) => (l.variationId === variationId ? { ...l, qty: l.qty + delta } : l))
+        .map((l) => (l.key === key ? { ...l, qty: l.qty + delta } : l))
         .filter((l) => l.qty > 0),
     );
   }
@@ -98,7 +146,11 @@ export function Register({
       const result = await submit({
         businessId,
         clientUuid: crypto.randomUUID(),
-        lines: cart.map((l) => ({ variationId: l.variationId, quantity: l.qty })),
+        lines: cart.map((l) => ({
+          variationId: l.variationId,
+          quantity: l.qty,
+          modifierIds: l.modifiers.map((m) => m.id),
+        })),
         tipCents: totals.tipCents,
         cartDiscountCents,
         cashTenderedCents,
@@ -166,6 +218,17 @@ export function Register({
 
   return (
     <div className="space-y-4">
+      {picking && (
+        <ModifierPicker
+          entry={picking}
+          currency={currency}
+          onCancel={() => setPicking(null)}
+          onConfirm={(modifiers) => {
+            addLine(picking, modifiers);
+            setPicking(null);
+          }}
+        />
+      )}
       <OfflineBanner online={online} queuedCount={queuedCount} syncing={syncing} />
       <div className="grid gap-6 xl:grid-cols-[1fr_400px]">
       {/* Catalog */}
@@ -216,34 +279,48 @@ export function Register({
                 Cart is empty. Tap an item to start.
               </p>
             )}
-            {cart.map((line) => (
-              <div key={line.variationId} className="flex items-center justify-between rounded-lg border border-border p-3">
-                <div className="min-w-0">
-                  <p className="truncate font-semibold">{line.label}</p>
-                  <p className="numeric text-sm text-muted-foreground">{money(line.priceCents)} each</p>
+            {cart.map((line) => {
+              const lineUnit =
+                line.priceCents + line.modifiers.reduce((a, m) => a + m.priceDeltaCents, 0);
+              return (
+                <div key={line.key} className="flex items-center justify-between rounded-lg border border-border p-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold">{line.label}</p>
+                    {line.modifiers.length > 0 && (
+                      <ul className="mt-0.5 space-y-0.5">
+                        {line.modifiers.map((m) => (
+                          <li key={m.id} className="numeric truncate text-xs text-muted-foreground">
+                            + {m.name}
+                            {m.priceDeltaCents !== 0 && <> ({money(m.priceDeltaCents)})</>}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <p className="numeric text-sm text-muted-foreground">{money(lineUnit)} each</p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="secondary"
+                      size="icon"
+                      className="h-10 w-10 rounded-full"
+                      onClick={() => changeQty(line.key, -1)}
+                      aria-label={`Remove one ${line.label}`}
+                    >
+                      −
+                    </Button>
+                    <span className="numeric w-6 text-center font-bold">{line.qty}</span>
+                    <Button
+                      size="icon"
+                      className="h-10 w-10 rounded-full"
+                      onClick={() => changeQty(line.key, 1)}
+                      aria-label={`Add one ${line.label}`}
+                    >
+                      +
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <Button
-                    variant="secondary"
-                    size="icon"
-                    className="h-10 w-10 rounded-full"
-                    onClick={() => changeQty(line.variationId, -1)}
-                    aria-label={`Remove one ${line.label}`}
-                  >
-                    −
-                  </Button>
-                  <span className="numeric w-6 text-center font-bold">{line.qty}</span>
-                  <Button
-                    size="icon"
-                    className="h-10 w-10 rounded-full"
-                    onClick={() => changeQty(line.variationId, 1)}
-                    aria-label={`Add one ${line.label}`}
-                  >
-                    +
-                  </Button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="mt-5 space-y-3 border-t border-border pt-4 text-sm">
@@ -371,6 +448,141 @@ function OfflineBanner({
         {syncing ? "Syncing" : "Pending"} {queuedCount} offline{" "}
         {queuedCount === 1 ? "sale" : "sales"}…
       </span>
+    </div>
+  );
+}
+
+/**
+ * Modal that prompts the cashier to choose modifiers for an item, honoring each
+ * group's minSelect/maxSelect. The "Add" button is disabled until every group's
+ * minimum is satisfied; the server re-validates the same rules at checkout.
+ */
+function ModifierPicker({
+  entry,
+  currency,
+  onCancel,
+  onConfirm,
+}: {
+  entry: SellableEntry;
+  currency: string;
+  onCancel: () => void;
+  onConfirm: (modifiers: ChosenModifier[]) => void;
+}) {
+  const money = (c: number) => formatMoney(c, currency);
+  // Selected modifier ids per group.
+  const [selected, setSelected] = useState<Record<string, string[]>>({});
+
+  function toggle(group: SellableModifierGroup, modifierId: string) {
+    setSelected((cur) => {
+      const chosen = cur[group.id] ?? [];
+      const has = chosen.includes(modifierId);
+      let next: string[];
+      if (has) {
+        next = chosen.filter((id) => id !== modifierId);
+      } else if (group.maxSelect <= 1) {
+        // Single-select: replace.
+        next = [modifierId];
+      } else if (chosen.length >= group.maxSelect) {
+        return cur; // at the cap — ignore
+      } else {
+        next = [...chosen, modifierId];
+      }
+      return { ...cur, [group.id]: next };
+    });
+  }
+
+  const satisfied = entry.modifierGroups.every(
+    (g) => (selected[g.id]?.length ?? 0) >= g.minSelect,
+  );
+
+  function confirm() {
+    const modifiers: ChosenModifier[] = [];
+    for (const g of entry.modifierGroups) {
+      for (const id of selected[g.id] ?? []) {
+        const m = g.modifiers.find((x) => x.id === id);
+        if (m) modifiers.push({ id: m.id, name: m.name, priceDeltaCents: m.priceDeltaCents });
+      }
+    }
+    onConfirm(modifiers);
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Choose options for ${entry.label}`}
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center"
+      onClick={onCancel}
+    >
+      <Card
+        className="w-full max-w-md"
+        onClick={(e: React.MouseEvent) => e.stopPropagation()}
+      >
+        <CardContent className="max-h-[80vh] overflow-y-auto p-5">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold">{entry.label}</h2>
+              <p className="numeric text-sm text-muted-foreground">{money(entry.priceCents)}</p>
+            </div>
+            <Button variant="ghost" size="icon" className="h-9 w-9" onClick={onCancel} aria-label="Close">
+              <X size={18} />
+            </Button>
+          </div>
+
+          <div className="space-y-5">
+            {entry.modifierGroups.map((group) => {
+              const chosen = selected[group.id] ?? [];
+              const rule =
+                group.minSelect > 0
+                  ? `Choose ${group.minSelect}${group.maxSelect > group.minSelect ? `–${group.maxSelect}` : ""}`
+                  : group.maxSelect > 1
+                    ? `Optional · up to ${group.maxSelect}`
+                    : "Optional";
+              return (
+                <div key={group.id}>
+                  <div className="mb-2 flex items-center justify-between">
+                    <h3 className="font-semibold">{group.name}</h3>
+                    <span className="text-xs text-muted-foreground">{rule}</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {group.modifiers.map((m) => {
+                      const active = chosen.includes(m.id);
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => toggle(group, m.id)}
+                          aria-pressed={active}
+                          className={cn(
+                            "flex w-full items-center justify-between rounded-md border p-3 text-left text-sm transition-colors",
+                            active
+                              ? "border-primary bg-primary/10 font-semibold"
+                              : "border-border hover:bg-muted",
+                          )}
+                        >
+                          <span>{m.name}</span>
+                          <span className="numeric text-muted-foreground">
+                            {m.priceDeltaCents > 0 ? `+${money(m.priceDeltaCents)}` : money(m.priceDeltaCents)}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-6 flex gap-2">
+            <Button variant="outline" onClick={onCancel} className="flex-1">
+              Cancel
+            </Button>
+            <Button onClick={confirm} disabled={!satisfied} className="flex-1">
+              Add to cart
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

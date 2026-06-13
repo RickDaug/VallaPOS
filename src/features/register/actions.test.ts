@@ -38,10 +38,33 @@ import type { CheckoutInput } from "./schema";
 const BUSINESS_ID = "biz_1";
 const UUID = "00000000-0000-4000-8000-000000000001";
 
-// A variation row as returned by `findMany` with `include: { item: { name } }`.
-function variation(over: Partial<{ id: string; name: string; priceCents: number; itemName: string }> = {}) {
-  const { id = "var_1", name = "Default", priceCents = 1000, itemName = "Coffee" } = over;
-  return { id, businessId: BUSINESS_ID, name, priceCents, item: { name: itemName } };
+// A modifier group as returned nested under item.modifierLinks[].group.
+type TestGroup = {
+  id: string;
+  minSelect: number;
+  maxSelect: number;
+  modifiers: { id: string; name: string; priceDeltaCents: number }[];
+};
+
+// A variation row as returned by `findMany` with the item + modifier groups
+// included. `groups` are the item's linked modifier groups (default: none).
+function variation(
+  over: Partial<{
+    id: string;
+    name: string;
+    priceCents: number;
+    itemName: string;
+    groups: TestGroup[];
+  }> = {},
+) {
+  const { id = "var_1", name = "Default", priceCents = 1000, itemName = "Coffee", groups = [] } = over;
+  return {
+    id,
+    businessId: BUSINESS_ID,
+    name,
+    priceCents,
+    item: { name: itemName, modifierLinks: groups.map((group) => ({ group })) },
+  };
 }
 
 // Returns a fully-defaulted CheckoutInput (the shape the action receives after
@@ -255,6 +278,94 @@ describe("checkout — success path writes Order/OrderLine/Payment", () => {
   it("throws when a requested variation does not exist in this business", async () => {
     variationFindMany.mockResolvedValue([]); // price lookup returns nothing
     await expect(checkout(input())).rejects.toThrow("Unknown item: var_1");
+    expect(orderCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe("checkout — modifiers + per-line tax", () => {
+  const group: TestGroup = {
+    id: "grp_milk",
+    minSelect: 0,
+    maxSelect: 2,
+    modifiers: [
+      { id: "mod_oat", name: "Oat milk", priceDeltaCents: 75 },
+      { id: "mod_soy", name: "Soy milk", priceDeltaCents: 50 },
+    ],
+  };
+
+  it("re-looks-up modifier prices from the DB and folds them into the taxable base", async () => {
+    variationFindMany.mockResolvedValue([variation({ groups: [group] })]);
+    // Client lies about the modifier price; the server ignores client prices.
+    const receipt = await checkout(
+      input({ lines: [{ variationId: "var_1", quantity: 1, modifierIds: ["mod_oat"] }] }),
+    );
+    // (1000 + 75) = 1075; tax @ 8.25% = round(88.6875) = 89; total 1164
+    expect(receipt.subtotalCents).toBe(1075);
+    expect(receipt.taxCents).toBe(89);
+    expect(receipt.totalCents).toBe(1164);
+  });
+
+  it("snapshots each chosen modifier on the order line and sets per-line tax", async () => {
+    variationFindMany.mockResolvedValue([variation({ groups: [group] })]);
+    await checkout(
+      input({ lines: [{ variationId: "var_1", quantity: 1, modifierIds: ["mod_oat", "mod_soy"] }] }),
+    );
+    const line = createdOrderData().lines.create[0];
+    // (1000 + 75 + 50) = 1125; tax = round(92.8125) = 93
+    expect(line.taxCents).toBe(93);
+    expect(line.totalCents).toBe(1125);
+    expect(line.modifiers.create).toEqual([
+      { nameSnapshot: "Oat milk", priceDeltaCents: 75 },
+      { nameSnapshot: "Soy milk", priceDeltaCents: 50 },
+    ]);
+  });
+
+  it("reconciles order tax with the sum of per-line taxes", async () => {
+    variationFindMany.mockResolvedValue([
+      variation({ id: "var_a", priceCents: 1000, itemName: "A", groups: [group] }),
+      variation({ id: "var_b", priceCents: 199, itemName: "B" }),
+    ]);
+    await checkout(
+      input({
+        lines: [
+          { variationId: "var_a", quantity: 2, modifierIds: ["mod_oat"] },
+          { variationId: "var_b", quantity: 3 },
+        ],
+      }),
+    );
+    const data = createdOrderData();
+    const sumLineTax = data.lines.create.reduce(
+      (s: number, l: { taxCents: number }) => s + l.taxCents,
+      0,
+    );
+    expect(data.taxCents).toBe(sumLineTax);
+  });
+
+  it("rejects a modifier that is not linked to the item (foreign / unknown id)", async () => {
+    variationFindMany.mockResolvedValue([variation({ groups: [group] })]);
+    await expect(
+      checkout(input({ lines: [{ variationId: "var_1", quantity: 1, modifierIds: ["mod_evil"] }] })),
+    ).rejects.toThrow("Unknown modifier");
+    expect(orderCreate).not.toHaveBeenCalled();
+  });
+
+  it("rejects when a required group's minSelect is not met", async () => {
+    const required: TestGroup = { ...group, id: "grp_req", minSelect: 1, maxSelect: 1 };
+    variationFindMany.mockResolvedValue([variation({ groups: [required] })]);
+    await expect(
+      checkout(input({ lines: [{ variationId: "var_1", quantity: 1, modifierIds: [] }] })),
+    ).rejects.toThrow();
+    expect(orderCreate).not.toHaveBeenCalled();
+  });
+
+  it("rejects when more than maxSelect modifiers are chosen", async () => {
+    const single: TestGroup = { ...group, id: "grp_one", minSelect: 0, maxSelect: 1 };
+    variationFindMany.mockResolvedValue([variation({ groups: [single] })]);
+    await expect(
+      checkout(
+        input({ lines: [{ variationId: "var_1", quantity: 1, modifierIds: ["mod_oat", "mod_soy"] }] }),
+      ),
+    ).rejects.toThrow();
     expect(orderCreate).not.toHaveBeenCalled();
   });
 });
