@@ -97,7 +97,18 @@ model Business {
   items         Item[]
   modifierGroups ModifierGroup[]
   orders        Order[]
+  orderCounter  OrderCounter?
   drawerSessions CashDrawerSession[]
+}
+
+// Per-business monotonic order-number allocator. One row per business; the
+// human-friendly Order.number is assigned by atomically incrementing lastNumber
+// inside the checkout transaction (UPDATE ... SET lastNumber = lastNumber + 1
+// takes a row lock, so concurrent cashiers never collide on @@unique([businessId, number])).
+model OrderCounter {
+  businessId String   @id
+  lastNumber Int      @default(0) // last number handed out; next order is lastNumber + 1
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 }
 
 enum Role {

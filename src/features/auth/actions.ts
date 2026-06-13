@@ -20,6 +20,7 @@ export async function createBusiness(input: { name: string }): Promise<{ busines
     data: {
       name,
       memberships: { create: { userId: session.user.id, role: "OWNER" } },
+      orderCounter: { create: {} }, // start the per-business order-number sequence at 0
     },
     select: { id: true },
   });

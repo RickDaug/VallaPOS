@@ -87,12 +87,18 @@ export async function checkout(input: CheckoutInput): Promise<Receipt> {
   const changeCents = data.cashTenderedCents - totals.totalCents;
 
   const order = await db.$transaction(async (tx) => {
-    const last = await tx.order.findFirst({
+    // Atomically allocate the next per-business order number. The increment
+    // takes a row lock on this business's counter, so two concurrent cashiers
+    // are serialized and can never collide on @@unique([businessId, number]).
+    // upsert is defensive: a business without a counter row (e.g. created before
+    // this table existed) self-heals on its first sale.
+    const counter = await tx.orderCounter.upsert({
       where: { businessId },
-      orderBy: { number: "desc" },
-      select: { number: true },
+      create: { businessId, lastNumber: 1 },
+      update: { lastNumber: { increment: 1 } },
+      select: { lastNumber: true },
     });
-    const number = (last?.number ?? 0) + 1;
+    const number = counter.lastNumber;
 
     return tx.order.create({
       data: {

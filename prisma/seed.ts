@@ -13,6 +13,7 @@ async function main() {
       name: "Valla Demo Eats & Cuts",
       taxRateBps: 825, // 8.25%
       currency: "USD",
+      orderCounter: { create: {} }, // per-business order-number sequence
       categories: {
         create: [
           { name: "Food", sortOrder: 0 },

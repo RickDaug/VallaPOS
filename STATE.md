@@ -78,6 +78,13 @@ Executes the #1–#3 "do first" items from `docs/IMPROVEMENT_PLAN.md`:
 - Deferred to later PRs: Radix Dialog/Sheet/Numpad, styled delete-confirm dialog (still `window.confirm`), full split-screen/sticky-cart register UX
 - Verified: typecheck + lint + 23 tests + build all green
 
+## Order-number race fix (branch `phase-2/order-number-race`)
+First Phase 2 item from the improvement plan. Replaced the racy `findFirst(max number)+1` in `register/actions.ts` (two concurrent cashiers could collide on `@@unique([businessId, number])`) with an **atomic per-business counter**:
+- New `OrderCounter` model (`businessId @id`, `lastNumber @default(0)`); checkout allocates the next number via `upsert … { lastNumber: { increment: 1 } }` **inside the existing transaction** — the row lock serializes concurrent cashiers. `upsert` is defensive so a counter-less business self-heals on first sale.
+- Counter row is eager-created at business signup (`auth/actions.ts`) and in `seed.ts`.
+- Migration `20260613050920_order_counter` creates the table **and backfills** existing businesses to `COALESCE(MAX(number),0)` so live sequences continue (the demo business won't restart at 1).
+- Verified locally: typecheck + lint + 23 tests + build all green. **Migration applied to Neon** (`20260613050920_order_counter`); concurrency smoke test (`prisma/smoke-order-race.ts`, 50 parallel allocations) printed `PASS: no collisions` — unique + contiguous 1..50. Dev-only helper: created a gitignored `.env` with just `DATABASE_URL` so the Prisma CLI/scripts load it natively.
+
 ## Still TODO in Phase 1
 - **Manual UI click-through** of sign-up → ring-up-a-sale (dev server run; awaiting feedback)
 - CI workflow (run typecheck + lint + test on PR)
