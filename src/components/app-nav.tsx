@@ -2,7 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Boxes, Receipt, Settings, ShoppingCart, type LucideIcon } from "lucide-react";
+import {
+  BarChart3,
+  Boxes,
+  Receipt,
+  Settings,
+  ShoppingCart,
+  Wallet,
+  type LucideIcon,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV: { slug: string; label: string; Icon: LucideIcon }[] = [
@@ -10,6 +18,7 @@ const NAV: { slug: string; label: string; Icon: LucideIcon }[] = [
   { slug: "orders", label: "Orders", Icon: Receipt },
   { slug: "products", label: "Products", Icon: Boxes },
   { slug: "reports", label: "Reports", Icon: BarChart3 },
+  { slug: "drawer", label: "Drawer", Icon: Wallet },
   { slug: "settings", label: "Settings", Icon: Settings },
 ];
 
@@ -48,7 +57,7 @@ export function BottomNav({ businessId }: { businessId: string }) {
   const isActive = useActive(businessId);
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-border bg-card pb-[env(safe-area-inset-bottom)] lg:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 border-t border-border bg-card pb-[env(safe-area-inset-bottom)] lg:hidden"
       aria-label="Primary"
     >
       {NAV.map(({ slug, label, Icon }) => (

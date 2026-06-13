@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireMembership } from "@/lib/tenant";
 import { getDailyReport } from "@/features/orders/queries";
+import { getDrawerDaySummary } from "@/features/cash-drawer/queries";
 import { formatMoney } from "@/lib/money";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -37,6 +38,7 @@ export default async function ReportsPage({
   end.setDate(end.getDate() + 1);
 
   const report = await getDailyReport(businessId, start, end);
+  const drawer = await getDrawerDaySummary(businessId, start, end);
   const money = (c: number) => formatMoney(c, business.currency);
 
   return (
@@ -89,9 +91,27 @@ export default async function ReportsPage({
                 </div>
               </dl>
             )}
-            <p className="mt-4 text-xs text-muted-foreground">
-              Cash drawer reconciliation (opening float, counted vs. expected) lands with cash-drawer sessions.
-            </p>
+            <div className="mt-4 border-t border-border pt-3 text-sm">
+              <RowDl
+                label={`Drawer variance (${drawer.closedCount} closed)`}
+                value={
+                  drawer.closedCount === 0
+                    ? "—"
+                    : drawer.netVarianceCents === 0
+                      ? money(0)
+                      : drawer.netVarianceCents > 0
+                        ? `+${money(drawer.netVarianceCents)} over`
+                        : `−${money(Math.abs(drawer.netVarianceCents))} short`
+                }
+                strong
+              />
+              {drawer.openCount > 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {drawer.openCount} drawer session{drawer.openCount > 1 ? "s" : ""} still open —
+                  variance is counted at close.
+                </p>
+              )}
+            </div>
           </CardContent>
         </Card>
       </div>
