@@ -2,19 +2,22 @@
 
 > **Read this first.** This is the single source of truth for what exists, what's wired, and what's next. Update it as work lands.
 
-_Last updated: 2026-06-13 — Phase 1 nearly complete; 4 PRs in review._
+_Last updated: 2026-06-13 — Phase 1 complete; full 2026-06-13 batch merged (main `ddf4e69`; PRs #20 + #17 in flight)._
 
 ## Where we are
 
-The original prototype was replaced with a restructured foundation (Phase 0, PR #1). **Phase 1 is essentially complete and live on Neon.** Merged to `main` (newest first): facelift/design-system (#8), Phase 2 order-number race fix (#9), RSC CVE fix (#10), CI quality gate (#7), Vitest suite (#6), Orders + Z-report (#5), Settings + tax-inclusive pricing (#4), Products CRUD (#3), Phase 1 MVP core spine (#2). The "ring up a sale" loop — auth + business bootstrap, route guards, catalog read, server-authoritative cash checkout — is verified end-to-end against the live DB.
+The original prototype was replaced with a restructured foundation (Phase 0, PR #1). **Phase 1 is complete and live on Neon.** Merged to `main` (newest first): seed sample modifiers (#19), cart modifiers + per-line tax (#18), cash-drawer session (#16), STATE refresh (#15), Better Auth audit (#14), PWA + offline queue (#13), integration tests (#12), receipt view + email scaffold (#11), facelift/design-system (#8), order-number race fix (#9), RSC CVE fix (#10), CI quality gate (#7), Vitest suite (#6), Orders + Z-report (#5), Settings + tax-inclusive pricing (#4), Products CRUD (#3), MVP core spine (#2). The full "ring up a sale" loop — auth + business bootstrap, route guards, catalog + modifiers, server-authoritative cash checkout, receipts, cash-drawer reconciliation, offline queue — is built and **integration-green on main** (typecheck + lint + **104 tests** + build).
 
-**Four PRs are currently in review (opened 2026-06-13, all mergeable, all verified locally `typecheck`+`lint`+`test`+`build`):**
-- **#11** `phase-1/receipt` — order receipt view (printable, tenant-scoped) + credential-free email scaffold. _CI green._
-- **#12** `phase-1/integration-tests` — tenant-isolation + checkout-action tests (Prisma mocked); suite 23 → 45 tests. _CI green._
-- **#13** `phase-1/pwa-offline` — Serwist service worker + installable manifest/icons + IndexedDB offline checkout queue (replays on reconnect via existing `clientUuid` idempotency).
-- **#14** `chore/better-auth-audit` — `docs/BETTER_AUTH_AUDIT.md`: ran `@better-auth/cli@1.2.8 generate` vs schema; **no auth-breaking discrepancies**. Only optional cosmetic `@@map` table-rename recommended (migration, deferred).
+**2026-06-13 batch (all merged):**
+- **#11** order receipt view (printable, tenant-scoped) at `/[businessId]/orders/[orderId]/receipt` + credential-free email scaffold (`RESEND_API_KEY`-gated; `emailReceipt` returns `email_not_configured` until a provider is wired — **parked by request**).
+- **#12** tenant-isolation + checkout-action tests (Prisma mocked via `src/test/server-only-stub.ts`); suite 23 → 45.
+- **#13** Serwist service worker (`app/sw.ts`) + installable manifest/icons + IndexedDB offline checkout queue (`src/lib/offline/`), replays on reconnect via `clientUuid` idempotency. _Verified by build emission, not yet a live browser offline session._
+- **#14** `docs/BETTER_AUTH_AUDIT.md`: ran `@better-auth/cli@1.2.8 generate` vs schema — **no auth-breaking discrepancies**; optional cosmetic `@@map` deferred.
+- **#16** cash-drawer session + reconciliation (see section below).
+- **#18** cart modifiers + per-line tax (see section below).
+- **#19** seeds sample burger modifier groups.
 
-Review/merge these, then update this section as they land.
+**In flight:** **#20** — seed a real OWNER login on the demo business (see "Test login" below); **#17** — this STATE refresh.
 
 ## What exists now
 
@@ -45,7 +48,10 @@ Review/merge these, then update this section as they land.
 - deps installed; `npm run build` passes
 
 ## Verified live (2026-06-13)
-DB is live on **Neon**; `prisma migrate dev` (migration `init`) + `db:seed` ran. End-to-end smoke test passed: Better Auth sign-up/session over HTTP, money math (8.25% tax correct), Order/OrderLine/Payment writes, and `clientUuid` idempotency (duplicate rejected by unique constraint). Test owner seeded: **owner@valla.test / supersecret123** (OWNER of the demo business). `.env.local` holds the connection string + generated `BETTER_AUTH_SECRET` (gitignored).
+DB is live on **Neon**; `prisma migrate dev` (migration `init`) + `db:seed` ran. End-to-end smoke test passed: Better Auth sign-up/session over HTTP, money math (8.25% tax correct), Order/OrderLine/Payment writes, and `clientUuid` idempotency (duplicate rejected by unique constraint). `.env.local` holds the connection string + generated `BETTER_AUTH_SECRET` (gitignored).
+
+### Test login — `owner@valla.test` / `supersecret123` (as of #20)
+**Until #20 this login did not exist.** The old seed created a demo business with **no member**, so signing in never reached the seeded catalog. #20's seed now creates the owner via Better Auth (`signUpEmail` — correct password hashing + `User`/`Account` rows) and makes them **OWNER** of the demo business as their first membership, so sign-in routes straight there (`getPrimaryBusinessId`). Idempotent: it deletes the prior demo-named business (cascade) and reuses the owner user. **Run `npm run db:seed`** to (re)create the login + demo catalog (incl. the burger's Cook/Add-ons modifiers).
 
 ## Products CRUD (branch `phase-1/products-crud`)
 - `getManagedCatalog` + catalog write actions (`createCategory`/`deleteCategory`/`createItem`/`deleteItem`), role-gated to MANAGER+, tenant-scoped deletes, `revalidatePath` on products + register
@@ -93,6 +99,11 @@ First Phase 2 item from the improvement plan. Replaced the racy `findFirst(max n
 - Migration `20260613050920_order_counter` creates the table **and backfills** existing businesses to `COALESCE(MAX(number),0)` so live sequences continue (the demo business won't restart at 1).
 - Verified locally: typecheck + lint + 23 tests + build all green. **Migration applied to Neon** (`20260613050920_order_counter`); concurrency smoke test (`prisma/smoke-order-race.ts`, 50 parallel allocations) printed `PASS: no collisions` — unique + contiguous 1..50. Dev-only helper: created a gitignored `.env` with just `DATABASE_URL` so the Prisma CLI/scripts load it natively.
 
+## Cash-drawer session + reconciliation (branch `phase-1/cash-drawer`, #16)
+- **No schema change** — the `CashDrawerSession` model (opening-float / expected / counted / variance cents, open+close timestamps) was already in `init`.
+- `/[businessId]/drawer`: open a session with an opening float (**CASHIER+**); blind-count close reveals expected + variance (**MANAGER+**). Expected cash = opening float + Σ CASH payments on PAID orders during the open window — reuses the Z-report's exact "cash collected" definition, so the two always agree. The Z-report now shows the day's drawer variance.
+- Reads in `src/features/cash-drawer/queries.ts`, writes in `actions.ts` (zod, role-gated), pure logic in `reconcile.ts`. +19 tests.
+
 ## Cart modifiers + per-line tax (branch `phase-1/cart-modifiers`)
 - **No schema change** — the `ModifierGroup`/`Modifier`/`ItemModifierGroup`/`OrderLineModifier` models + `OrderLine.taxCents` were already in `init`.
 - **Catalog mgmt:** `createModifierGroup`/`deleteModifierGroup`/`createModifier`/`deleteModifier`/`linkModifierGroup`/`unlinkModifierGroup` actions (MANAGER+, tenant-scoped, defense-in-depth ownership checks). Catalog zod schemas extracted to `src/features/catalog/schema.ts` (testable, non-server). `ProductsManager` UI: manage groups/modifiers + per-item link chips. `getManagedCatalog` now returns `modifierGroups` + each item's `modifierGroupIds`.
@@ -101,14 +112,14 @@ First Phase 2 item from the improvement plan. Replaced the racy `findFirst(max n
 - **Receipt** shows per-line modifiers; receipt line type carries `taxCents` + `modifiers`.
 - Tests: +21 (pricing math/reconciliation, catalog schema, checkout modifier/validation paths). Full suite **104 green**; typecheck + lint + build all pass.
 
-## Still TODO in Phase 1
-_Done / in review (see PRs #11–#14 above): receipt view + email scaffold, integration tests (tenant isolation + checkout), PWA + offline queue, Better Auth schema audit. CI workflow shipped in #7._
-- **Manual UI click-through** of sign-up → ring-up-a-sale (dev server run; awaiting human feedback) — also exercise the new receipt page and offline-queue once #11/#13 merge
-- **Cash drawer session** (opening float → counted vs expected) — **needs a schema migration**
-- ~~**Modifiers in cart + per-line tax detail**~~ — DONE (branch `phase-1/cart-modifiers`, see above). No migration needed; the models were already in `init`.
-- Receipt email: wire a real provider (Resend) behind the `RESEND_API_KEY` scaffold added in #11
+## Still open
+_All Phase 1 core features are merged. What's left is verification + polish, not new features._
+- **Manual UI click-through** on a dev server: `npm run db:seed`, sign in (`owner@valla.test` / `supersecret123`), ring up the burger with **Cook + Add-ons**, cash checkout → receipt → open/close drawer → offline queue. Still wants a human pass.
+- **Live PWA verification:** real install + an actual offline checkout session (#13 was verified by build emission only).
+- **Receipt email:** wire Resend behind the `RESEND_API_KEY` scaffold from #11 — **parked by request.**
+- Optional cosmetic: lowercase `@@map` on the 4 Better Auth models (`docs/BETTER_AUTH_AUDIT.md`) — migration, low priority.
 
-> **Migration-dependent work is serialized on purpose.** Cash-drawer and cart-modifiers both alter `prisma/schema.prisma` and apply migrations to the shared Neon DB — do them one at a time (not in a parallel fan-out) to avoid `_prisma_migrations` conflicts. The agent CAN run migrations now (gitignored `.env` holds `DATABASE_URL`), but apply each on its own branch and verify before the next.
+> **On migrations:** the two features once flagged "needs a migration" turned out not to — **cash-drawer (#16)** and **cart-modifiers (#18)** both used models already present in `init`. When a future change *does* alter `prisma/schema.prisma`: do it on its own branch, never in a parallel fan-out (concurrent `prisma migrate` against the shared Neon DB corrupts `_prisma_migrations`). The agent can generate a migration (`--create-only`; gitignored `.env` holds `DATABASE_URL`) but **applying** it is gated → hand the user `! npx prisma migrate dev`.
 
 ## Key invariants (do not break)
 1. **Tenant isolation:** every tenant-owned query goes through `requireMembership(businessId)` and includes `where: { businessId }`. A missing filter = cross-business data leak.
@@ -122,4 +133,4 @@ _Done / in review (see PRs #11–#14 above): receipt view + email scaffold, inte
 - Browser-POS reality: Tap-to-Pay & Bluetooth readers are native-only → card-present is sequenced to a later native shell; lead with cash + QR/Terminal.
 
 ## Next step
-Review + merge the four open PRs (#11–#14), updating "Where we are" as they land. Then start the serialized migration work: **cash-drawer session** first (open float → counted vs expected, reconciles against the Z-report), then **cart modifiers + per-line tax**. Each on its own branch, migration applied + verified before the next. Manual sign-up → ring-up-a-sale → receipt → offline-queue click-through still wants a human pass on the dev server.
+Merge **#20** (seed owner login) + **#17** (this refresh), then `! npm run db:seed` and do the manual dev-server click-through of the full flow. Phase 1 has no remaining core features — after sign-off, Phase 2 candidates: Resend receipt email, live PWA/offline verification, and the deferred register UX polish from the facelift (Radix Dialog/Sheet/Numpad, sticky-cart split view).
