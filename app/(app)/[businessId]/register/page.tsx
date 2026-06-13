@@ -1,22 +1,37 @@
-/**
- * Register / checkout screen (scaffold).
- *
- * Phase 1 builds the real thing here: a touch cart (client island) with
- * add/qty/remove, per-line modifiers, discounts, tips, server-recomputed
- * totals, cash tender + change, and an offline IndexedDB queue. The prototype's
- * UI is a useful visual reference (preserved in git history).
- */
-export default function RegisterPage({ params }: { params: { businessId: string } }) {
+import { notFound } from "next/navigation";
+import { db } from "@/lib/db";
+import { requireMembership } from "@/lib/tenant";
+import { getRegisterCatalog } from "@/features/catalog/queries";
+import { Register } from "@/features/register/components/Register";
+
+export default async function RegisterPage({
+  params,
+}: {
+  params: Promise<{ businessId: string }>;
+}) {
+  const { businessId } = await params;
+  await requireMembership(businessId); // layout already guards; defense in depth
+
+  const business = await db.business.findUnique({
+    where: { id: businessId },
+    select: { taxRateBps: true, currency: true },
+  });
+  if (!business) notFound();
+
+  const catalog = await getRegisterCatalog(businessId);
+
   return (
     <section>
-      <h1 className="text-2xl font-black md:text-3xl">Register</h1>
-      <p className="mt-1 text-sm text-slate-500">Business: {params.businessId}</p>
-      <div className="mt-6 rounded-3xl bg-white p-6 shadow-sm">
-        <p className="text-slate-600">
-          Checkout screen scaffold. The touch cart, modifiers, tender flow, and offline queue are
-          built in Phase 1 — see <code>docs/ROADMAP.md</code>.
-        </p>
-      </div>
+      <header className="mb-6">
+        <h1 className="text-2xl font-black md:text-3xl">Register</h1>
+        <p className="text-sm text-slate-500">Tap items to ring up a sale.</p>
+      </header>
+      <Register
+        businessId={businessId}
+        catalog={catalog}
+        taxRateBps={business.taxRateBps}
+        currency={business.currency}
+      />
     </section>
   );
 }
