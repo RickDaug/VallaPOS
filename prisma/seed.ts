@@ -29,7 +29,7 @@ async function main() {
   const drinks = business.categories.find((c) => c.name === "Drinks")!;
   const services = business.categories.find((c) => c.name === "Services")!;
 
-  await db.item.create({
+  const burger = await db.item.create({
     data: {
       businessId: business.id,
       categoryId: food.id,
@@ -63,6 +63,43 @@ async function main() {
       type: "SERVICE",
       trackStock: false,
       variations: { create: [{ businessId: business.id, name: "Default", priceCents: 2000 }] },
+    },
+  });
+
+  // Modifier groups on the burger so the register picker has data to exercise
+  // both selection rules: "Cook" is required single-select (minSelect 1, maxSelect 1);
+  // "Add-ons" is optional multi-select (minSelect 0, maxSelect 3) with price deltas.
+  await db.modifierGroup.create({
+    data: {
+      businessId: business.id,
+      name: "Cook",
+      minSelect: 1,
+      maxSelect: 1,
+      modifiers: {
+        create: [
+          { businessId: business.id, name: "Rare", priceDeltaCents: 0, sortOrder: 0 },
+          { businessId: business.id, name: "Medium", priceDeltaCents: 0, sortOrder: 1 },
+          { businessId: business.id, name: "Well done", priceDeltaCents: 0, sortOrder: 2 },
+        ],
+      },
+      itemLinks: { create: [{ itemId: burger.id }] },
+    },
+  });
+
+  await db.modifierGroup.create({
+    data: {
+      businessId: business.id,
+      name: "Add-ons",
+      minSelect: 0,
+      maxSelect: 3,
+      modifiers: {
+        create: [
+          { businessId: business.id, name: "Extra cheese", priceDeltaCents: 100, sortOrder: 0 },
+          { businessId: business.id, name: "Bacon", priceDeltaCents: 150, sortOrder: 1 },
+          { businessId: business.id, name: "Avocado", priceDeltaCents: 200, sortOrder: 2 },
+        ],
+      },
+      itemLinks: { create: [{ itemId: burger.id }] },
     },
   });
 
