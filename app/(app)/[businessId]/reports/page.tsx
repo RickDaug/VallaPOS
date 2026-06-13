@@ -3,9 +3,11 @@ import { db } from "@/lib/db";
 import { requireMembership } from "@/lib/tenant";
 import { getDailyReport } from "@/features/orders/queries";
 import { formatMoney } from "@/lib/money";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 function toDateInput(d: Date): string {
-  // YYYY-MM-DD in the server's local time.
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
@@ -42,16 +44,11 @@ export default async function ReportsPage({
       <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-black md:text-3xl">End-of-day report</h1>
-          <p className="text-sm text-slate-500">Z-report — sales, tax, and cash for the day.</p>
+          <p className="text-sm text-muted-foreground">Z-report — sales, tax, and cash for the day.</p>
         </div>
         <form method="get" className="flex items-center gap-2">
-          <input
-            type="date"
-            name="date"
-            defaultValue={dateStr}
-            className="rounded-2xl border border-slate-300 px-3 py-2 outline-none focus:border-slate-950"
-          />
-          <button className="rounded-2xl bg-slate-950 px-4 py-2 font-bold text-white">View</button>
+          <Input type="date" name="date" defaultValue={dateStr} className="numeric h-11 w-auto" />
+          <Button type="submit" size="sm">View</Button>
         </form>
       </header>
 
@@ -63,41 +60,40 @@ export default async function ReportsPage({
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <div className="rounded-3xl bg-white p-5 shadow-sm">
-          <h2 className="mb-4 text-lg font-bold">Sales breakdown</h2>
-          <dl className="space-y-2 text-sm">
-            <RowDl label="Gross sales" value={money(report.grossSalesCents)} />
-            <RowDl label="Discounts" value={`−${money(report.discountCents)}`} />
-            <RowDl label="Net sales" value={money(report.netSalesCents)} strong />
-            <RowDl label="Tax" value={money(report.taxCents)} />
-            <RowDl label="Tips" value={money(report.tipCents)} />
-            <RowDl label="Total collected" value={money(report.totalCollectedCents)} strong />
-          </dl>
-        </div>
-
-        <div className="rounded-3xl bg-white p-5 shadow-sm">
-          <h2 className="mb-4 text-lg font-bold">Payments</h2>
-          {report.byMethod.length === 0 ? (
-            <p className="text-sm text-slate-500">No payments for this day.</p>
-          ) : (
+        <Card>
+          <CardContent className="p-5">
+            <h2 className="mb-4 text-lg font-bold">Sales breakdown</h2>
             <dl className="space-y-2 text-sm">
-              {report.byMethod.map((m) => (
-                <RowDl
-                  key={m.method}
-                  label={`${m.method} (${m.count})`}
-                  value={money(m.amountCents)}
-                />
-              ))}
-              <div className="mt-3 border-t pt-3">
-                <RowDl label="Cash collected" value={money(report.cashCollectedCents)} strong />
-              </div>
+              <RowDl label="Gross sales" value={money(report.grossSalesCents)} />
+              <RowDl label="Discounts" value={`−${money(report.discountCents)}`} />
+              <RowDl label="Net sales" value={money(report.netSalesCents)} strong />
+              <RowDl label="Tax" value={money(report.taxCents)} />
+              <RowDl label="Tips" value={money(report.tipCents)} />
+              <RowDl label="Total collected" value={money(report.totalCollectedCents)} strong />
             </dl>
-          )}
-          <p className="mt-4 text-xs text-slate-400">
-            Cash drawer reconciliation (opening float, counted vs. expected) lands with cash-drawer
-            sessions.
-          </p>
-        </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-5">
+            <h2 className="mb-4 text-lg font-bold">Payments</h2>
+            {report.byMethod.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No payments for this day.</p>
+            ) : (
+              <dl className="space-y-2 text-sm">
+                {report.byMethod.map((m) => (
+                  <RowDl key={m.method} label={`${m.method} (${m.count})`} value={money(m.amountCents)} />
+                ))}
+                <div className="mt-3 border-t border-border pt-3">
+                  <RowDl label="Cash collected" value={money(report.cashCollectedCents)} strong />
+                </div>
+              </dl>
+            )}
+            <p className="mt-4 text-xs text-muted-foreground">
+              Cash drawer reconciliation (opening float, counted vs. expected) lands with cash-drawer sessions.
+            </p>
+          </CardContent>
+        </Card>
       </div>
     </section>
   );
@@ -105,18 +101,20 @@ export default async function ReportsPage({
 
 function Stat({ title, value }: { title: string; value: string }) {
   return (
-    <div className="rounded-3xl bg-white p-4 shadow-sm">
-      <p className="text-sm text-slate-500">{title}</p>
-      <p className="mt-1 text-2xl font-black">{value}</p>
-    </div>
+    <Card>
+      <CardContent className="p-4">
+        <p className="text-sm text-muted-foreground">{title}</p>
+        <p className="numeric mt-1 text-2xl font-black">{value}</p>
+      </CardContent>
+    </Card>
   );
 }
 
 function RowDl({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
     <div className="flex items-center justify-between">
-      <dt className="text-slate-500">{label}</dt>
-      <dd className={strong ? "font-black" : "font-semibold"}>{value}</dd>
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className={`numeric ${strong ? "font-black" : "font-semibold"}`}>{value}</dd>
     </div>
   );
 }

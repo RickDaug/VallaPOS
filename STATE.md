@@ -66,6 +66,18 @@ DB is live on **Neon**; `prisma migrate dev` (migration `init`) + `db:seed` ran.
 - Config: `vitest.config.ts` (node env, `@`→`src` alias, `src/**/*.test.ts`)
 - Still untested (needs DB mocking/integration harness): `requireMembership` isolation, the checkout server action end-to-end (both verified manually against live DB)
 
+## Design-system facelift (branch `facelift/design-system`)
+Executes the #1–#3 "do first" items from `docs/IMPROVEMENT_PLAN.md`:
+- **Design tokens:** OKLCH "Calm Teal" semantic tokens in `globals.css` (light + dark via the shadcn `@theme inline` pattern), radius/elevation, focus ring, 44px touch law, reduced-motion
+- **Primitives** (`src/components/ui/`): Button (CVA, 48px default), Card, Input, Label, Badge, Skeleton — replacing duplicated class strings
+- **Inter** via `next/font`; `.numeric` (tabular-nums) on all money/qty
+- **Light/dark** via `next-themes` (`ThemeProvider` + `ThemeToggle`); removed global zoom-lock (WCAG 1.4.4)
+- **Mobile bottom-tab nav** + mobile top bar (`app-nav.tsx`) — app was unusable below `lg` before; desktop sidebar restyled with active states + icons
+- **Route `loading.tsx` skeletons + `error.tsx` boundary** under `[businessId]`
+- Converted all screens (auth, landing, register, products, settings, orders, reports) to tokens/primitives; orders table reflows to cards on mobile; fixed `text-slate-400` contrast; `aria-live`/`role` on errors
+- Deferred to later PRs: Radix Dialog/Sheet/Numpad, styled delete-confirm dialog (still `window.confirm`), full split-screen/sticky-cart register UX
+- Verified: typecheck + lint + 23 tests + build all green
+
 ## Still TODO in Phase 1
 - **Manual UI click-through** of sign-up → ring-up-a-sale (dev server run; awaiting feedback)
 - CI workflow (run typecheck + lint + test on PR)

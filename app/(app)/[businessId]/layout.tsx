@@ -1,16 +1,9 @@
-import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireMembership, AuthError, ForbiddenError } from "@/lib/tenant";
 import { SignOutButton } from "@/components/SignOutButton";
-
-const NAV = [
-  ["register", "Register"],
-  ["orders", "Orders"],
-  ["products", "Products"],
-  ["reports", "Reports"],
-  ["settings", "Settings"],
-] as const;
+import { SideNav, BottomNav } from "@/components/app-nav";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export default async function BusinessLayout({
   children,
@@ -36,28 +29,35 @@ export default async function BusinessLayout({
   if (!business) notFound();
 
   return (
-    <div className="flex min-h-screen bg-slate-100 text-slate-950">
-      <aside className="hidden w-60 flex-col bg-slate-950 p-5 text-white lg:flex">
-        <div className="mb-8">
-          <div className="text-2xl font-black tracking-tight">VallaPOS</div>
-          <p className="mt-1 truncate text-sm text-slate-300">{business.name}</p>
+    <div className="flex min-h-screen bg-background text-foreground">
+      {/* Desktop sidebar */}
+      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col bg-sidebar p-4 text-sidebar-foreground lg:flex">
+        <div className="mb-6 px-2">
+          <div className="text-xl font-black tracking-tight">VallaPOS</div>
+          <p className="mt-0.5 truncate text-sm text-sidebar-muted">{business.name}</p>
         </div>
-        <nav className="space-y-1 text-sm">
-          {NAV.map(([slug, label]) => (
-            <Link
-              key={slug}
-              href={`/${businessId}/${slug}`}
-              className="block rounded-2xl px-4 py-3 text-slate-200 hover:bg-white/10"
-            >
-              {label}
-            </Link>
-          ))}
-        </nav>
-        <div className="mt-auto pt-6">
-          <SignOutButton />
+        <SideNav businessId={businessId} />
+        <div className="mt-auto flex items-center gap-2 pt-6">
+          <div className="flex-1">
+            <SignOutButton />
+          </div>
+          <ThemeToggle />
         </div>
       </aside>
-      <main className="flex-1 p-4 md:p-6">{children}</main>
+
+      {/* Mobile top bar */}
+      <header className="fixed inset-x-0 top-0 z-30 flex items-center justify-between border-b border-border bg-card/95 px-4 py-3 backdrop-blur lg:hidden">
+        <div className="min-w-0">
+          <span className="text-base font-black tracking-tight">VallaPOS</span>
+          <span className="ml-2 truncate text-sm text-muted-foreground">{business.name}</span>
+        </div>
+        <ThemeToggle className="text-muted-foreground hover:bg-muted hover:text-foreground" />
+      </header>
+
+      {/* Content (offset for mobile top bar + bottom nav) */}
+      <main className="flex-1 px-4 pb-24 pt-20 md:px-6 lg:p-6">{children}</main>
+
+      <BottomNav businessId={businessId} />
     </div>
   );
 }

@@ -24,7 +24,7 @@ export default async function RegisterPage({
     <section>
       <header className="mb-6">
         <h1 className="text-2xl font-black md:text-3xl">Register</h1>
-        <p className="text-sm text-slate-500">Tap items to ring up a sale.</p>
+        <p className="text-sm text-muted-foreground">Tap items to ring up a sale.</p>
       </header>
       <Register
         businessId={businessId}
