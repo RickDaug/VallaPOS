@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Receipt } from "lucide-react";
 import { db } from "@/lib/db";
@@ -60,6 +61,7 @@ export default async function OrdersPage({ params }: { params: Promise<{ busines
                       <th scope="col" className="p-3">Status</th>
                       <th scope="col" className="p-3">Method</th>
                       <th scope="col" className="p-3">Time</th>
+                      <th scope="col" className="p-3"><span className="sr-only">Receipt</span></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -73,6 +75,14 @@ export default async function OrdersPage({ params }: { params: Promise<{ busines
                         </td>
                         <td className="p-3 text-muted-foreground">{o.method ?? "—"}</td>
                         <td className="p-3 text-muted-foreground">{fmtTime.format(new Date(o.createdAt))}</td>
+                        <td className="p-3 text-right">
+                          <Link
+                            href={`/${businessId}/orders/${o.id}/receipt`}
+                            className="font-medium text-primary hover:underline"
+                          >
+                            Receipt
+                          </Link>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -82,7 +92,11 @@ export default async function OrdersPage({ params }: { params: Promise<{ busines
               {/* Mobile cards */}
               <ul className="space-y-2 md:hidden">
                 {orders.map((o) => (
-                  <li key={o.id} className="flex items-center justify-between rounded-lg border border-border p-3">
+                  <li key={o.id}>
+                    <Link
+                      href={`/${businessId}/orders/${o.id}/receipt`}
+                      className="flex items-center justify-between rounded-lg border border-border p-3 hover:border-primary/40"
+                    >
                     <div>
                       <p className="numeric font-bold">#{o.number}</p>
                       <p className="text-sm text-muted-foreground">
@@ -93,6 +107,7 @@ export default async function OrdersPage({ params }: { params: Promise<{ busines
                       <span className="numeric font-bold">{formatMoney(o.totalCents, business.currency)}</span>
                       <Badge variant={STATUS_VARIANT[o.status] ?? "muted"}>{o.status.replaceAll("_", " ")}</Badge>
                     </div>
+                    </Link>
                   </li>
                 ))}
               </ul>
