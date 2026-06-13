@@ -57,8 +57,18 @@ DB is live on **Neon**; `prisma migrate dev` (migration `init`) + `db:seed` ran.
 - Excludes non-PAID + out-of-day orders (verified against live DB)
 - Cash-drawer reconciliation (opening float, counted vs expected) still deferred to the cash-drawer-session work
 
+## Tests (branch `phase-1/tests`)
+- **Vitest** added (`npm test`); 23 tests across 3 files, all green
+- `money.test.ts` — exclusive/inclusive tax, line+cart discounts, tips, modifier deltas, rounding, never-negative total
+- `roles.test.ts` — role hierarchy (`roleAtLeast`)
+- `schema.test.ts` — checkout input validation (empty cart, bad qty, non-uuid key, negative money)
+- Refactored pure role logic into `src/lib/roles.ts` (so tests don't pull in `server-only`); `tenant.assertRole` now uses it
+- Config: `vitest.config.ts` (node env, `@`→`src` alias, `src/**/*.test.ts`)
+- Still untested (needs DB mocking/integration harness): `requireMembership` isolation, the checkout server action end-to-end (both verified manually against live DB)
+
 ## Still TODO in Phase 1
-- **Manual UI click-through** of sign-up → ring-up-a-sale in a browser (HTTP + DB paths verified; the in-browser UX itself not yet eyeballed)
+- **Manual UI click-through** of sign-up → ring-up-a-sale (dev server run; awaiting feedback)
+- CI workflow (run typecheck + lint + test on PR)
 - Receipt email; cash drawer session (opening float → counted vs expected)
 - Modifiers in cart + per-line tax detail (action has hooks, not wired)
 - PWA service worker (Serwist) + offline IndexedDB queue (checkout already idempotent)

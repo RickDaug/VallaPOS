@@ -10,6 +10,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
@@ -22,19 +24,19 @@
   "dependencies": {
     "@prisma/client": "6.9.0",
     "better-auth": "1.2.8",
+    "idb": "8.0.3",
     "lucide-react": "0.515.0",
     "next": "15.3.3",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "zod": "3.25.56",
-    "zustand": "5.0.5",
-    "idb": "8.0.3"
+    "zustand": "5.0.5"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "4.1.8",
     "@types/node": "22.15.30",
     "@types/react": "19.1.6",
     "@types/react-dom": "19.1.6",
-    "@tailwindcss/postcss": "4.1.8",
     "eslint": "9.28.0",
     "eslint-config-next": "15.3.3",
     "prettier": "3.5.3",
@@ -42,6 +44,7 @@
     "prisma": "6.9.0",
     "tailwindcss": "4.1.8",
     "tsx": "4.19.4",
-    "typescript": "5.8.3"
+    "typescript": "5.8.3",
+    "vitest": "4.1.8"
   }
 }
