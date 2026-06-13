@@ -1,16 +1,35 @@
-/** Settings (scaffold) — business info, tax rate, currency, receipt, team in Phase 1+. */
-export default async function SettingsPage({ params }: { params: Promise<{ businessId: string }> }) {
+import { notFound } from "next/navigation";
+import { db } from "@/lib/db";
+import { requireMembership } from "@/lib/tenant";
+import { SettingsForm } from "@/features/settings/components/SettingsForm";
+
+export default async function SettingsPage({
+  params,
+}: {
+  params: Promise<{ businessId: string }>;
+}) {
   const { businessId } = await params;
+  const { role } = await requireMembership(businessId);
+
+  const business = await db.business.findUnique({
+    where: { id: businessId },
+    select: { name: true, taxRateBps: true, currency: true, taxInclusive: true },
+  });
+  if (!business) notFound();
+
   return (
     <section>
-      <h1 className="text-2xl font-black md:text-3xl">Settings</h1>
-      <p className="mt-1 text-sm text-slate-500">Business: {businessId}</p>
-      <div className="mt-6 rounded-3xl bg-white p-6 shadow-sm">
-        <p className="text-slate-600">
-          Settings scaffold. Tax rate is per-business and configurable (stored as basis points) — no
-          more hardcoded tax. Built in Phase 1.
+      <header className="mb-6">
+        <h1 className="text-2xl font-black md:text-3xl">Settings</h1>
+        <p className="text-sm text-slate-500">Business name, sales tax, and currency.</p>
+      </header>
+      {role === "OWNER" ? (
+        <SettingsForm businessId={businessId} initial={business} />
+      ) : (
+        <p className="max-w-lg rounded-3xl bg-white p-6 text-slate-600 shadow-sm">
+          Only the business owner can change these settings.
         </p>
-      </div>
+      )}
     </section>
   );
 }

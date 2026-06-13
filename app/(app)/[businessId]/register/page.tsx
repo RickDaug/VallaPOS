@@ -14,7 +14,7 @@ export default async function RegisterPage({
 
   const business = await db.business.findUnique({
     where: { id: businessId },
-    select: { taxRateBps: true, currency: true },
+    select: { taxRateBps: true, currency: true, taxInclusive: true },
   });
   if (!business) notFound();
 
@@ -31,6 +31,7 @@ export default async function RegisterPage({
         catalog={catalog}
         taxRateBps={business.taxRateBps}
         currency={business.currency}
+        taxInclusive={business.taxInclusive}
       />
     </section>
   );

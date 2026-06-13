@@ -35,17 +35,34 @@ export interface OrderTotals {
   totalCents: number;
 }
 
+/** Tax already embedded in a tax-inclusive price: base - base/(1 + rate). */
+export function embeddedTaxOf(baseCents: number, rateBps: number): number {
+  const net = roundCents((baseCents * 10_000) / (10_000 + rateBps));
+  return baseCents - net;
+}
+
 /**
  * Compute order totals on the server. The client may *display* a total, but the
  * server is the source of truth at checkout — never trust client-sent totals.
  *
  * Policy (documented & consistent): tax is computed per line, AFTER line
  * discount, then summed. Cart-level discount and tip are applied to the order.
+ *
+ * Tax modes:
+ *  - exclusive (default): tax is added on top of the subtotal.
+ *  - inclusive: prices already include tax; `taxCents` reports the embedded
+ *    portion and is NOT added again to the total.
  */
 export function computeTotals(
   lines: CartLineInput[],
-  opts: { taxRateBps: number; cartDiscountCents?: number; tipCents?: number },
+  opts: {
+    taxRateBps: number;
+    cartDiscountCents?: number;
+    tipCents?: number;
+    taxInclusive?: boolean;
+  },
 ): OrderTotals {
+  const inclusive = opts.taxInclusive ?? false;
   let subtotalCents = 0;
   let lineDiscountTotal = 0;
   let taxCents = 0;
@@ -57,7 +74,9 @@ export function computeTotals(
     const taxableBase = gross - discount;
     subtotalCents += gross;
     lineDiscountTotal += discount;
-    taxCents += taxOf(taxableBase, opts.taxRateBps);
+    taxCents += inclusive
+      ? embeddedTaxOf(taxableBase, opts.taxRateBps)
+      : taxOf(taxableBase, opts.taxRateBps);
   }
 
   const cartDiscount = Math.min(
@@ -66,7 +85,8 @@ export function computeTotals(
   );
   const discountCents = lineDiscountTotal + cartDiscount;
   const tipCents = opts.tipCents ?? 0;
-  const totalCents = Math.max(subtotalCents - discountCents, 0) + taxCents + tipCents;
+  const totalCents =
+    Math.max(subtotalCents - discountCents, 0) + (inclusive ? 0 : taxCents) + tipCents;
 
   return { subtotalCents, discountCents, taxCents, tipCents, totalCents };
 }

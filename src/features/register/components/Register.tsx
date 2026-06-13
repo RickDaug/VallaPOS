@@ -15,11 +15,13 @@ export function Register({
   catalog,
   taxRateBps,
   currency,
+  taxInclusive,
 }: {
   businessId: string;
   catalog: SellableEntry[];
   taxRateBps: number;
   currency: string;
+  taxInclusive: boolean;
 }) {
   const [cart, setCart] = useState<CartLine[]>([]);
   const [query, setQuery] = useState("");
@@ -45,8 +47,8 @@ export function Register({
     const lines = cart.map((l) => ({ unitPriceCents: l.priceCents, quantity: l.qty }));
     const subtotal = lines.reduce((s, l) => s + l.unitPriceCents * l.quantity, 0);
     const tipCents = Math.round(Math.max(subtotal - cartDiscountCents, 0) * tipRate);
-    return computeTotals(lines, { taxRateBps, cartDiscountCents, tipCents });
-  }, [cart, taxRateBps, cartDiscountCents, tipRate]);
+    return computeTotals(lines, { taxRateBps, cartDiscountCents, tipCents, taxInclusive });
+  }, [cart, taxRateBps, cartDiscountCents, tipRate, taxInclusive]);
 
   function addToCart(entry: SellableEntry) {
     setCart((cur) => {
@@ -214,7 +216,7 @@ export function Register({
               className="w-24 rounded-xl border px-3 py-2 text-right outline-none"
             />
           </label>
-          <Row label="Tax" value={money(totals.taxCents)} />
+          <Row label={taxInclusive ? "Tax (included)" : "Tax"} value={money(totals.taxCents)} />
           <div>
             <p className="mb-1 text-slate-500">Tip</p>
             <div className="flex gap-2">

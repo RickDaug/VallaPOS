@@ -39,7 +39,7 @@ export async function checkout(input: CheckoutInput): Promise<Receipt> {
 
   const business = await db.business.findUniqueOrThrow({
     where: { id: businessId },
-    select: { taxRateBps: true },
+    select: { taxRateBps: true, taxInclusive: true },
   });
 
   // Resolve REAL prices from the DB, scoped to this business.
@@ -78,6 +78,7 @@ export async function checkout(input: CheckoutInput): Promise<Receipt> {
     taxRateBps: business.taxRateBps,
     cartDiscountCents: data.cartDiscountCents,
     tipCents: data.tipCents,
+    taxInclusive: business.taxInclusive,
   });
 
   if (data.cashTenderedCents < totals.totalCents) {
