@@ -1,34 +1,184 @@
-/* Tailwind CSS v4 — CSS-first config. */
+/* Tailwind CSS v4 — CSS-first config with shadcn-style OKLCH tokens.
+ * Raw values live in :root / .dark; @theme inline maps utilities to var(--token)
+ * so the .dark cascade overrides at runtime (the "inline gotcha" — never bake
+ * values via plain @theme or dark mode freezes). Brand: "Calm Teal". */
 @import "tailwindcss";
 
-@theme {
-  --color-brand: #0f172a; /* slate-950 — primary surface */
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.625rem;
+
+  --background: oklch(0.99 0.004 220);
+  --foreground: oklch(0.21 0.02 250);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.02 250);
+
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.02 250);
+
+  /* Calm teal primary */
+  --primary: oklch(0.58 0.1 195);
+  --primary-foreground: oklch(0.99 0.01 200);
+
+  --secondary: oklch(0.96 0.01 220);
+  --secondary-foreground: oklch(0.25 0.02 250);
+
+  --muted: oklch(0.96 0.01 220);
+  --muted-foreground: oklch(0.52 0.02 250);
+
+  /* Warm amber accent */
+  --accent: oklch(0.83 0.12 80);
+  --accent-foreground: oklch(0.28 0.05 70);
+
+  --success: oklch(0.6 0.13 155);
+  --success-foreground: oklch(0.99 0.01 160);
+  --warning: oklch(0.8 0.13 80);
+  --warning-foreground: oklch(0.28 0.05 70);
+  --destructive: oklch(0.58 0.21 25);
+  --destructive-foreground: oklch(0.99 0.01 20);
+
+  --border: oklch(0.9 0.008 240);
+  --input: oklch(0.9 0.008 240);
+  --ring: oklch(0.58 0.1 195);
+
+  /* Sidebar (branded dark surface in both themes) */
+  --sidebar: oklch(0.21 0.02 250);
+  --sidebar-foreground: oklch(0.95 0.01 220);
+  --sidebar-muted: oklch(0.65 0.02 240);
+  --sidebar-accent: oklch(0.32 0.03 250);
+
+  --chart-1: oklch(0.58 0.1 195);
+  --chart-2: oklch(0.83 0.12 80);
+  --chart-3: oklch(0.6 0.13 155);
+  --chart-4: oklch(0.55 0.18 280);
+  --chart-5: oklch(0.6 0.16 20);
 }
 
-* {
-  box-sizing: border-box;
+.dark {
+  --background: oklch(0.17 0.015 250);
+  --foreground: oklch(0.95 0.01 220);
+
+  --card: oklch(0.21 0.018 250);
+  --card-foreground: oklch(0.95 0.01 220);
+
+  --popover: oklch(0.21 0.018 250);
+  --popover-foreground: oklch(0.95 0.01 220);
+
+  --primary: oklch(0.7 0.11 195);
+  --primary-foreground: oklch(0.18 0.02 250);
+
+  --secondary: oklch(0.28 0.02 250);
+  --secondary-foreground: oklch(0.95 0.01 220);
+
+  --muted: oklch(0.27 0.02 250);
+  --muted-foreground: oklch(0.68 0.02 240);
+
+  --accent: oklch(0.83 0.12 80);
+  --accent-foreground: oklch(0.24 0.04 70);
+
+  --success: oklch(0.68 0.13 155);
+  --success-foreground: oklch(0.16 0.02 160);
+  --warning: oklch(0.82 0.13 80);
+  --warning-foreground: oklch(0.24 0.04 70);
+  --destructive: oklch(0.68 0.18 25);
+  --destructive-foreground: oklch(0.16 0.02 20);
+
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.7 0.11 195);
+
+  --sidebar: oklch(0.14 0.012 250);
+  --sidebar-foreground: oklch(0.95 0.01 220);
+  --sidebar-muted: oklch(0.6 0.02 240);
+  --sidebar-accent: oklch(0.27 0.02 250);
 }
 
-html,
-body {
-  margin: 0;
-  min-height: 100%;
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 }
 
-body {
-  background: #f1f5f9; /* slate-100 */
-  color: #020617; /* slate-950 */
+@layer base {
+  * {
+    border-color: var(--color-border);
+    outline-color: var(--color-ring);
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  /* Money/quantities read clearly: lined-up tabular figures. */
+  .numeric {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+  /* Visible focus on every interactive control (stop stripping outlines). */
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
 }
 
-button {
-  cursor: pointer;
-}
-
-/* Touch targets: POS is finger-first. Keep interactive controls >= 44px. */
+/* Touch law: finger-first controls hit 44px floor on coarse pointers. */
 @media (pointer: coarse) {
   button,
   [role="button"],
-  a {
+  a,
+  input,
+  select {
     min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
   }
 }

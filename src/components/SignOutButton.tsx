@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { LogOut } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 
 export function SignOutButton() {
@@ -11,9 +12,9 @@ export function SignOutButton() {
         await authClient.signOut();
         router.push("/sign-in");
       }}
-      className="w-full rounded-2xl bg-white/10 px-4 py-3 text-left text-sm font-semibold text-slate-200 hover:bg-white/20"
+      className="flex w-full items-center gap-2 rounded-md bg-sidebar-accent px-4 py-3 text-sm font-semibold text-sidebar-foreground hover:bg-sidebar-accent/70"
     >
-      Sign out
+      <LogOut size={16} /> Sign out
     </button>
   );
 }

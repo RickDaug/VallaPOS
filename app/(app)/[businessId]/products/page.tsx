@@ -24,7 +24,7 @@ export default async function ProductsPage({
     <section>
       <header className="mb-6">
         <h1 className="text-2xl font-black md:text-3xl">Products</h1>
-        <p className="text-sm text-slate-500">Manage your items and categories.</p>
+        <p className="text-sm text-muted-foreground">Manage your items and categories.</p>
       </header>
       <ProductsManager businessId={businessId} catalog={catalog} currency={business.currency} />
     </section>

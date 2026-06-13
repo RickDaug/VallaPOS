@@ -21,14 +21,14 @@ export default async function SettingsPage({
     <section>
       <header className="mb-6">
         <h1 className="text-2xl font-black md:text-3xl">Settings</h1>
-        <p className="text-sm text-slate-500">Business name, sales tax, and currency.</p>
+        <p className="text-sm text-muted-foreground">Business name, sales tax, and currency.</p>
       </header>
       {role === "OWNER" ? (
         <SettingsForm businessId={businessId} initial={business} />
       ) : (
-        <p className="max-w-lg rounded-3xl bg-white p-6 text-slate-600 shadow-sm">
+        <div className="max-w-lg rounded-xl border border-border bg-card p-6 text-muted-foreground shadow-sm">
           Only the business owner can change these settings.
-        </p>
+        </div>
       )}
     </section>
   );
