@@ -2,11 +2,19 @@
 
 > **Read this first.** This is the single source of truth for what exists, what's wired, and what's next. Update it as work lands.
 
-_Last updated: 2026-06-12 — Phase 1 in progress (MVP core spine)._
+_Last updated: 2026-06-13 — Phase 1 nearly complete; 4 PRs in review._
 
 ## Where we are
 
-The original prototype was replaced with a restructured foundation (Phase 0, merged in PR #1). **Phase 1 is now underway** on branch `phase-1/mvp-core`: the "ring up a sale" spine is built — real auth + business bootstrap, route guards, catalog read, and a working register with server-authoritative cash checkout. Verified by `tsc --noEmit` + `next build` (compile/lint/types clean); **not yet run against a live DB** (needs a Neon `DATABASE_URL`).
+The original prototype was replaced with a restructured foundation (Phase 0, PR #1). **Phase 1 is essentially complete and live on Neon.** Merged to `main` (newest first): facelift/design-system (#8), Phase 2 order-number race fix (#9), RSC CVE fix (#10), CI quality gate (#7), Vitest suite (#6), Orders + Z-report (#5), Settings + tax-inclusive pricing (#4), Products CRUD (#3), Phase 1 MVP core spine (#2). The "ring up a sale" loop — auth + business bootstrap, route guards, catalog read, server-authoritative cash checkout — is verified end-to-end against the live DB.
+
+**Four PRs are currently in review (opened 2026-06-13, all mergeable, all verified locally `typecheck`+`lint`+`test`+`build`):**
+- **#11** `phase-1/receipt` — order receipt view (printable, tenant-scoped) + credential-free email scaffold. _CI green._
+- **#12** `phase-1/integration-tests` — tenant-isolation + checkout-action tests (Prisma mocked); suite 23 → 45 tests. _CI green._
+- **#13** `phase-1/pwa-offline` — Serwist service worker + installable manifest/icons + IndexedDB offline checkout queue (replays on reconnect via existing `clientUuid` idempotency).
+- **#14** `chore/better-auth-audit` — `docs/BETTER_AUTH_AUDIT.md`: ran `@better-auth/cli@1.2.8 generate` vs schema; **no auth-breaking discrepancies**. Only optional cosmetic `@@map` table-rename recommended (migration, deferred).
+
+Review/merge these, then update this section as they land.
 
 ## What exists now
 
@@ -86,13 +94,13 @@ First Phase 2 item from the improvement plan. Replaced the racy `findFirst(max n
 - Verified locally: typecheck + lint + 23 tests + build all green. **Migration applied to Neon** (`20260613050920_order_counter`); concurrency smoke test (`prisma/smoke-order-race.ts`, 50 parallel allocations) printed `PASS: no collisions` — unique + contiguous 1..50. Dev-only helper: created a gitignored `.env` with just `DATABASE_URL` so the Prisma CLI/scripts load it natively.
 
 ## Still TODO in Phase 1
-- **Manual UI click-through** of sign-up → ring-up-a-sale (dev server run; awaiting feedback)
-- CI workflow (run typecheck + lint + test on PR)
-- Receipt email; cash drawer session (opening float → counted vs expected)
-- Modifiers in cart + per-line tax detail (action has hooks, not wired)
-- PWA service worker (Serwist) + offline IndexedDB queue (checkout already idempotent)
-- Tests (tenant isolation, totals math, idempotency) + CI
-- Verify Better Auth Prisma table shape against `npx @better-auth/cli generate` once DB is live
+_Done / in review (see PRs #11–#14 above): receipt view + email scaffold, integration tests (tenant isolation + checkout), PWA + offline queue, Better Auth schema audit. CI workflow shipped in #7._
+- **Manual UI click-through** of sign-up → ring-up-a-sale (dev server run; awaiting human feedback) — also exercise the new receipt page and offline-queue once #11/#13 merge
+- **Cash drawer session** (opening float → counted vs expected) — **needs a schema migration**
+- **Modifiers in cart + per-line tax detail** (checkout action has hooks, not wired) — **needs a schema migration**
+- Receipt email: wire a real provider (Resend) behind the `RESEND_API_KEY` scaffold added in #11
+
+> **Migration-dependent work is serialized on purpose.** Cash-drawer and cart-modifiers both alter `prisma/schema.prisma` and apply migrations to the shared Neon DB — do them one at a time (not in a parallel fan-out) to avoid `_prisma_migrations` conflicts. The agent CAN run migrations now (gitignored `.env` holds `DATABASE_URL`), but apply each on its own branch and verify before the next.
 
 ## Key invariants (do not break)
 1. **Tenant isolation:** every tenant-owned query goes through `requireMembership(businessId)` and includes `where: { businessId }`. A missing filter = cross-business data leak.
@@ -106,4 +114,4 @@ First Phase 2 item from the improvement plan. Replaced the racy `findFirst(max n
 - Browser-POS reality: Tap-to-Pay & Bluetooth readers are native-only → card-present is sequenced to a later native shell; lead with cash + QR/Terminal.
 
 ## Next step
-Provide a Neon `DATABASE_URL` + `BETTER_AUTH_SECRET` in `.env.local`, run `prisma migrate dev` + `npm run db:seed`, then manually verify the sign-up → ring-up-a-sale loop. After that: Products CRUD, then Z-report/receipts.
+Review + merge the four open PRs (#11–#14), updating "Where we are" as they land. Then start the serialized migration work: **cash-drawer session** first (open float → counted vs expected, reconciles against the Z-report), then **cart modifiers + per-line tax**. Each on its own branch, migration applied + verified before the next. Manual sign-up → ring-up-a-sale → receipt → offline-queue click-through still wants a human pass on the dev server.
