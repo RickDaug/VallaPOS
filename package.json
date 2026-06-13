@@ -1,30 +1,47 @@
 {
-  "name": "vallapos-starter",
+  "name": "vallapos",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:studio": "prisma studio",
+    "postinstall": "prisma generate"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
-    "@prisma/client": "latest",
-    "lucide-react": "latest",
-    "next": "latest",
-    "react": "latest",
-    "react-dom": "latest"
+    "@prisma/client": "6.9.0",
+    "better-auth": "1.2.8",
+    "lucide-react": "0.515.0",
+    "next": "15.3.3",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "zod": "3.25.56",
+    "zustand": "5.0.5",
+    "idb": "8.0.3"
   },
   "devDependencies": {
-    "@types/node": "latest",
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
-    "autoprefixer": "latest",
-    "eslint": "latest",
-    "eslint-config-next": "latest",
-    "postcss": "latest",
-    "prisma": "latest",
-    "tailwindcss": "latest",
-    "typescript": "latest"
+    "@types/node": "22.15.30",
+    "@types/react": "19.1.6",
+    "@types/react-dom": "19.1.6",
+    "@tailwindcss/postcss": "4.1.8",
+    "eslint": "9.28.0",
+    "eslint-config-next": "15.3.3",
+    "prettier": "3.5.3",
+    "prettier-plugin-tailwindcss": "0.6.12",
+    "prisma": "6.9.0",
+    "tailwindcss": "4.1.8",
+    "tsx": "4.19.4",
+    "typescript": "5.8.3"
   }
 }
