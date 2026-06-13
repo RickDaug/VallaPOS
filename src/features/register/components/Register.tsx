@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, Plus, Search } from "lucide-react";
+import { Check, CloudOff, Plus, RefreshCw, Search, WifiOff } from "lucide-react";
 import { formatMoney, computeTotals } from "@/lib/money";
 import type { SellableEntry } from "@/features/catalog/queries";
-import { checkout, type Receipt } from "@/features/register/actions";
+import { type Receipt } from "@/features/register/actions";
+import { useOfflineCheckout } from "@/lib/offline/use-offline-checkout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -35,8 +36,10 @@ export function Register({
   const [tendering, setTendering] = useState(false);
   const [tenderDollars, setTenderDollars] = useState("");
   const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [queued, setQueued] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const { online, pending: queuedCount, syncing, submit } = useOfflineCheckout();
 
   const money = (c: number) => formatMoney(c, currency);
 
@@ -79,6 +82,7 @@ export function Register({
     setTenderDollars("");
     setTendering(false);
     setReceipt(null);
+    setQueued(false);
     setError(null);
   }
 
@@ -91,7 +95,7 @@ export function Register({
     }
     setPending(true);
     try {
-      const r = await checkout({
+      const result = await submit({
         businessId,
         clientUuid: crypto.randomUUID(),
         lines: cart.map((l) => ({ variationId: l.variationId, quantity: l.qty })),
@@ -99,12 +103,40 @@ export function Register({
         cartDiscountCents,
         cashTenderedCents,
       });
-      setReceipt(r);
+      if (result.status === "completed") {
+        setReceipt(result.receipt);
+      } else {
+        setQueued(true);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Checkout failed.");
     } finally {
       setPending(false);
     }
+  }
+
+  if (queued) {
+    return (
+      <Card className="mx-auto max-w-md text-center">
+        <CardContent className="p-8">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-warning/15 text-warning">
+            <CloudOff size={30} />
+          </div>
+          <h2 className="text-xl font-bold">Sale saved offline</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            No connection right now. This sale is stored on this device and will be sent
+            automatically when you&apos;re back online.
+          </p>
+          <div className="mt-6 space-y-2 border-t border-border pt-4 text-left text-sm">
+            <Row label="Total" value={money(totals.totalCents)} />
+            <Row label="Cash" value={money(Math.round(parseFloat(tenderDollars || "0") * 100))} />
+          </div>
+          <Button onClick={resetSale} size="lg" className="mt-6 w-full">
+            New sale
+          </Button>
+        </CardContent>
+      </Card>
+    );
   }
 
   if (receipt) {
@@ -133,7 +165,9 @@ export function Register({
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[1fr_400px]">
+    <div className="space-y-4">
+      <OfflineBanner online={online} queuedCount={queuedCount} syncing={syncing} />
+      <div className="grid gap-6 xl:grid-cols-[1fr_400px]">
       {/* Catalog */}
       <Card>
         <CardContent className="p-4 md:p-5">
@@ -295,6 +329,48 @@ export function Register({
           </div>
         </CardContent>
       </Card>
+      </div>
+    </div>
+  );
+}
+
+function OfflineBanner({
+  online,
+  queuedCount,
+  syncing,
+}: {
+  online: boolean;
+  queuedCount: number;
+  syncing: boolean;
+}) {
+  if (online && queuedCount === 0) return null;
+
+  if (!online) {
+    return (
+      <div
+        role="status"
+        className="flex items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm font-medium text-warning-foreground"
+      >
+        <WifiOff size={16} className="shrink-0 text-warning" />
+        <span>
+          Offline — sales are saved on this device
+          {queuedCount > 0 ? ` (${queuedCount} waiting to sync)` : ""} and sent when you reconnect.
+        </span>
+      </div>
+    );
+  }
+
+  // Online but draining the backlog.
+  return (
+    <div
+      role="status"
+      className="flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-4 py-2.5 text-sm font-medium text-foreground"
+    >
+      <RefreshCw size={16} className={cn("shrink-0 text-primary", syncing && "animate-spin")} />
+      <span>
+        {syncing ? "Syncing" : "Pending"} {queuedCount} offline{" "}
+        {queuedCount === 1 ? "sale" : "sales"}…
+      </span>
     </div>
   );
 }
