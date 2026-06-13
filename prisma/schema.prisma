@@ -1,3 +1,13 @@
+// VallaPOS data model — multi-tenant browser POS.
+//
+// Conventions (see docs/ARCHITECTURE.md):
+//  - Money is ALWAYS integer cents (priceCents, totalCents, ...). Never floats.
+//  - Tax rates are basis points (taxRateBps: 825 = 8.25%).
+//  - Every tenant-owned model carries businessId, is indexed on it, and has
+//    per-tenant uniqueness. All queries MUST scope by businessId (see src/lib/tenant.ts).
+//  - Catalog shape: Category -> Item -> Variation -> ModifierGroup -> Modifier.
+//    Price + SKU live on the Variation. Modifiers are part of the taxable base.
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,50 +17,316 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Business {
-  id        String    @id @default(cuid())
-  name      String
-  taxRate   Float     @default(8.25)
-  createdAt DateTime  @default(now())
-  products  Product[]
-  orders    Order[]
+// ─────────────────────────────────────────────────────────────────────────────
+// Auth (Better Auth managed). Kept minimal here; Better Auth owns these rows.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id            String       @id @default(cuid())
+  email         String       @unique
+  name          String?
+  emailVerified Boolean      @default(false)
+  image         String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  memberships   Membership[]
+  sessions      Session[]
+  accounts      Account[]
 }
 
-model Product {
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  userId                String
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  idToken               String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tenancy
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Business {
+  id            String       @id @default(cuid())
+  name          String
+  // Single configurable rate for MVP; multi-rate/tax API comes later.
+  taxRateBps    Int          @default(0) // basis points; 825 = 8.25%
+  taxInclusive  Boolean      @default(false)
+  currency      String       @default("USD")
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  memberships   Membership[]
+  categories    Category[]
+  items         Item[]
+  modifierGroups ModifierGroup[]
+  orders        Order[]
+  drawerSessions CashDrawerSession[]
+}
+
+enum Role {
+  OWNER
+  MANAGER
+  CASHIER
+}
+
+model Membership {
+  id         String   @id @default(cuid())
+  userId     String
+  businessId String
+  role       Role     @default(CASHIER)
+  pinHash    String?  // optional shared-device PIN (v1)
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, businessId])
+  @@index([businessId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Catalog: Category -> Item -> Variation -> ModifierGroup -> Modifier
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Category {
   id         String   @id @default(cuid())
   businessId String
-  business   Business @relation(fields: [businessId], references: [id])
   name       String
-  category   String?
-  price      Float
-  stock      Int      @default(0)
+  sortOrder  Int      @default(0)
   createdAt  DateTime @default(now())
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  items      Item[]
+
+  @@index([businessId])
 }
 
-model Order {
-  id         String      @id @default(cuid())
-  businessId String
-  business   Business    @relation(fields: [businessId], references: [id])
-  subtotal   Float
-  tax        Float
-  tip        Float        @default(0)
-  discount   Float        @default(0)
-  total      Float
-  status     OrderStatus  @default(OPEN)
-  payment    PaymentType  @default(CASH)
-  createdAt  DateTime     @default(now())
+enum ItemType {
+  PRODUCT // has stock semantics (optional)
+  SERVICE // no stock (haircut, lawn mow)
 }
+
+model Item {
+  id            String      @id @default(cuid())
+  businessId    String
+  categoryId    String?
+  name          String
+  type          ItemType    @default(PRODUCT)
+  trackStock    Boolean     @default(false) // inventory OFF by default
+  active        Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  business      Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  category      Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  variations    Variation[]
+  modifierLinks ItemModifierGroup[]
+
+  @@index([businessId])
+  @@index([categoryId])
+}
+
+model Variation {
+  id         String   @id @default(cuid())
+  businessId String
+  itemId     String
+  name       String   @default("Default") // Small / Medium / Large
+  sku        String?
+  priceCents Int      // price lives here
+  stock      Int?     // null when not tracking stock
+  sortOrder  Int      @default(0)
+  item       Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, sku])
+  @@index([businessId])
+  @@index([itemId])
+}
+
+model ModifierGroup {
+  id          String     @id @default(cuid())
+  businessId  String
+  name        String     // "Milk", "Add-ons"
+  minSelect   Int        @default(0)
+  maxSelect   Int        @default(1) // >1 allows multiple
+  business    Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  modifiers   Modifier[]
+  itemLinks   ItemModifierGroup[]
+
+  @@index([businessId])
+}
+
+model Modifier {
+  id            String        @id @default(cuid())
+  businessId    String
+  groupId       String
+  name          String        // "Oat milk", "Extra cheese"
+  priceDeltaCents Int         @default(0) // added to taxable base
+  sortOrder     Int           @default(0)
+  group         ModifierGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([groupId])
+}
+
+// Many-to-many: which modifier groups apply to which items.
+model ItemModifierGroup {
+  itemId  String
+  groupId String
+  item    Item          @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  group   ModifierGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([itemId, groupId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Orders & payments
+// ─────────────────────────────────────────────────────────────────────────────
 
 enum OrderStatus {
   OPEN
   PAID
   REFUNDED
-  CANCELED
+  PARTIALLY_REFUNDED
+  VOIDED
 }
 
-enum PaymentType {
+enum PaymentMethod {
   CASH
   CARD
+  QR
   MANUAL
+}
+
+enum PaymentStatus {
   PENDING
+  CAPTURED
+  REFUNDED
+  FAILED
+}
+
+model Order {
+  id            String      @id @default(cuid())
+  businessId    String
+  // Client-generated UUID — idempotency key for offline sync (never double-insert).
+  clientUuid    String
+  number        Int         // human-friendly per-business sequence
+  cashierId     String?     // Membership.id
+  customerName  String?
+  status        OrderStatus @default(OPEN)
+  subtotalCents Int         @default(0)
+  discountCents Int         @default(0)
+  taxCents      Int         @default(0)
+  tipCents      Int         @default(0)
+  totalCents    Int         @default(0)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  business      Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  lines         OrderLine[]
+  payments      Payment[]
+
+  @@unique([businessId, clientUuid]) // idempotent offline sync
+  @@unique([businessId, number])
+  @@index([businessId])
+  @@index([businessId, createdAt])
+}
+
+model OrderLine {
+  id            String   @id @default(cuid())
+  businessId    String
+  orderId       String
+  variationId   String?  // snapshot below survives catalog edits/deletes
+  nameSnapshot  String
+  unitPriceCents Int
+  quantity      Int      @default(1)
+  discountCents Int      @default(0)
+  taxCents      Int      @default(0)
+  totalCents    Int      // (unitPrice + modifiers) * qty - discount
+  modifiers     OrderLineModifier[]
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([orderId])
+}
+
+model OrderLineModifier {
+  id              String    @id @default(cuid())
+  orderLineId     String
+  nameSnapshot    String
+  priceDeltaCents Int       @default(0)
+  orderLine       OrderLine @relation(fields: [orderLineId], references: [id], onDelete: Cascade)
+
+  @@index([orderLineId])
+}
+
+model Payment {
+  id            String        @id @default(cuid())
+  businessId    String
+  orderId       String
+  method        PaymentMethod @default(CASH)
+  status        PaymentStatus @default(CAPTURED)
+  amountCents   Int
+  tenderedCents Int?          // cash given
+  changeCents   Int?          // change due
+  // Non-sensitive card metadata only (FACTA/PCI): brand + last4, never PAN/expiry.
+  cardBrand     String?
+  cardLast4     String?
+  processorRef  String?       // Stripe payment intent id, later
+  createdAt     DateTime      @default(now())
+  order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([orderId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cash reconciliation
+// ─────────────────────────────────────────────────────────────────────────────
+
+model CashDrawerSession {
+  id              String    @id @default(cuid())
+  businessId      String
+  openedById      String?   // Membership.id
+  openingFloatCents Int     @default(0)
+  expectedCents   Int?      // computed at close
+  countedCents    Int?      // entered at close (blind count supported)
+  varianceCents   Int?      // counted - expected
+  openedAt        DateTime  @default(now())
+  closedAt        DateTime?
+  business        Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
 }
