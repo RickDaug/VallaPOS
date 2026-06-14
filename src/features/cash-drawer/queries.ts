@@ -66,9 +66,12 @@ export async function listDrawerSessions(
 }
 
 /**
- * Cash collected since the drawer opened: the sum of CASH `Payment.amountCents`
- * on this business's PAID orders created in [openedAt, end). This matches the
- * Z-report's definition of "cash collected" (CASH payments on PAID orders) so
+ * NET cash that moved through the drawer since it opened: the sum of CASH
+ * `Payment.amountCents` on this business's orders created in [openedAt, end),
+ * counted by ACTUAL payment movements (status-agnostic) so the negative
+ * reversing payments written by a cash refund/void are INCLUDED — a cash refund
+ * therefore reduces expected drawer cash. This matches the Z-report's
+ * `cashCollectedCents` (CASH payment movements, refunds included) exactly, so
  * the drawer and the report never disagree. Scoped tightly by businessId.
  */
 export async function getCashCollectedSince(
@@ -81,7 +84,10 @@ export async function getCashCollectedSince(
     where: {
       businessId,
       method: "CASH",
-      order: { businessId, status: "PAID", createdAt: { gte: openedAt, lt: end } },
+      // No status filter: a refund's negative CASH payment must net out the
+      // drawer. Scope by the ORDER's creation window (same window the Z-report
+      // uses), tenant-scoped on both the payment and the order.
+      order: { businessId, createdAt: { gte: openedAt, lt: end } },
     },
   });
   return agg._sum.amountCents ?? 0;

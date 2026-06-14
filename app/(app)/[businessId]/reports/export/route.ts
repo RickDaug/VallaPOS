@@ -51,6 +51,7 @@ export async function GET(
     netSalesCents: report.netSalesCents,
     taxCents: report.taxCents,
     tipCents: report.tipCents,
+    refundsCents: report.refundsCents,
     totalCollectedCents: report.totalCollectedCents,
     byMethod: report.byMethod,
     items,

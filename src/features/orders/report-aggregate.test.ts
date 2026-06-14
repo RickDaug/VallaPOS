@@ -81,6 +81,7 @@ describe("buildReportCsv", () => {
     netSalesCents: 3000,
     taxCents: 248,
     tipCents: 100,
+    refundsCents: 500,
     totalCollectedCents: 3348,
     byMethod: [{ method: "CASH", count: 2, amountCents: 3348 }],
     items: aggregateItemSales([
@@ -91,6 +92,7 @@ describe("buildReportCsv", () => {
   it("includes a header, summary, payments, and both breakdowns", () => {
     expect(csv).toContain("VallaPOS sales report,2026-06-14");
     expect(csv).toContain("Net sales,30.00");
+    expect(csv).toContain("Refunds,5.00");
     expect(csv).toContain("CASH,2,33.48");
     expect(csv).toContain("Sales by item,Quantity,Net sales,Tax");
     expect(csv).toContain("Sales by category,Quantity,Net sales");

@@ -41,68 +41,95 @@ export async function listOrders(businessId: string, limit = 100): Promise<Order
 }
 
 export interface DailyReport {
-  orderCount: number;
-  grossSalesCents: number; // sum of subtotals
+  orderCount: number; // sales that count as revenue (excludes VOIDED/REFUNDED)
+  grossSalesCents: number; // sum of subtotals (revenue orders)
   discountCents: number;
   netSalesCents: number; // gross - discounts (pre-tax)
   taxCents: number;
   tipCents: number;
-  totalCollectedCents: number; // sum of order totals
+  totalCollectedCents: number; // sum of order totals (revenue orders)
+  refundsCents: number; // total refunded/voided money in the window, shown POSITIVE
   byMethod: { method: PaymentMethod; count: number; amountCents: number }[];
-  cashCollectedCents: number;
+  cashCollectedCents: number; // NET cash movement: Σ CASH Payment.amountCents (refunds reduce it)
 }
 
+// Statuses that count as realized revenue for the sales lines of the Z-report.
+// A VOIDED or fully REFUNDED order is no longer a sale; PARTIALLY_REFUNDED still
+// represents a (reduced) sale, so its order header stays in net sales while the
+// refunded money is reflected through the payment movements below.
+const REVENUE_STATUSES: OrderStatus[] = ["PAID", "PARTIALLY_REFUNDED"];
+
 /**
- * End-of-day (Z-report) aggregation over PAID orders in [start, end), scoped by
- * businessId. Aggregated in JS — fine for single-location daily volumes.
+ * End-of-day (Z-report) aggregation in [start, end), scoped by businessId.
+ *
+ * RECONCILIATION SEMANTICS (approved): cash/payment figures are counted by
+ * ACTUAL payment movements — Σ Payment.amountCents per method, INCLUDING the
+ * negative reversing payments written by refunds/voids — NOT by Order.status.
+ * So a cash refund reduces `cashCollectedCents` (and the CASH byMethod line) and
+ * thus the expected drawer cash, keeping the till reconcilable. The SALES lines
+ * (orders/gross/net/tax/tips/total) still exclude VOIDED and fully-REFUNDED
+ * orders, since those are no longer sales. `refundsCents` surfaces the day's
+ * total reversed money (shown positive). Aggregated in JS — fine for
+ * single-location daily volumes.
  */
 export async function getDailyReport(
   businessId: string,
   start: Date,
   end: Date,
 ): Promise<DailyReport> {
-  const orders = await db.order.findMany({
-    where: { businessId, status: "PAID", createdAt: { gte: start, lt: end } },
+  // Revenue orders (the sales lines) — exclude VOIDED / fully REFUNDED.
+  const revenueOrders = await db.order.findMany({
+    where: { businessId, status: { in: REVENUE_STATUSES }, createdAt: { gte: start, lt: end } },
     select: {
       subtotalCents: true,
       discountCents: true,
       taxCents: true,
       tipCents: true,
       totalCents: true,
-      payments: { select: { method: true, amountCents: true } },
     },
   });
 
+  // Payment movements (the money lines) — ALL payments on orders created in the
+  // window, status-agnostic, so negative refund reversals are included and a
+  // cash refund nets out of cash collected.
+  const payments = await db.payment.findMany({
+    where: { businessId, order: { businessId, createdAt: { gte: start, lt: end } } },
+    select: { method: true, amountCents: true },
+  });
+
   const report: DailyReport = {
-    orderCount: orders.length,
+    orderCount: revenueOrders.length,
     grossSalesCents: 0,
     discountCents: 0,
     netSalesCents: 0,
     taxCents: 0,
     tipCents: 0,
     totalCollectedCents: 0,
+    refundsCents: 0,
     byMethod: [],
     cashCollectedCents: 0,
   };
 
-  const methodTotals = new Map<PaymentMethod, { count: number; amountCents: number }>();
-
-  for (const o of orders) {
+  for (const o of revenueOrders) {
     report.grossSalesCents += o.subtotalCents;
     report.discountCents += o.discountCents;
     report.taxCents += o.taxCents;
     report.tipCents += o.tipCents;
     report.totalCollectedCents += o.totalCents;
-    for (const p of o.payments) {
-      const entry = methodTotals.get(p.method) ?? { count: 0, amountCents: 0 };
-      entry.count += 1;
-      entry.amountCents += p.amountCents;
-      methodTotals.set(p.method, entry);
-      if (p.method === "CASH") report.cashCollectedCents += p.amountCents;
-    }
+  }
+  report.netSalesCents = report.grossSalesCents - report.discountCents;
+
+  const methodTotals = new Map<PaymentMethod, { count: number; amountCents: number }>();
+  for (const p of payments) {
+    const entry = methodTotals.get(p.method) ?? { count: 0, amountCents: 0 };
+    entry.count += 1;
+    entry.amountCents += p.amountCents;
+    methodTotals.set(p.method, entry);
+    if (p.method === "CASH") report.cashCollectedCents += p.amountCents;
+    // Refund reversals are the negative payments; surface their magnitude.
+    if (p.amountCents < 0) report.refundsCents += -p.amountCents;
   }
 
-  report.netSalesCents = report.grossSalesCents - report.discountCents;
   report.byMethod = [...methodTotals.entries()].map(([method, v]) => ({ method, ...v }));
   return report;
 }

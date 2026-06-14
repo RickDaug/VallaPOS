@@ -81,6 +81,9 @@ export default async function ReportsPage({
               <RowDl label="Net sales" value={money(report.netSalesCents)} strong />
               <RowDl label="Tax" value={money(report.taxCents)} />
               <RowDl label="Tips" value={money(report.tipCents)} />
+              {report.refundsCents > 0 && (
+                <RowDl label="Refunds" value={`−${money(report.refundsCents)}`} />
+              )}
               <RowDl label="Total collected" value={money(report.totalCollectedCents)} strong />
             </dl>
           </CardContent>
