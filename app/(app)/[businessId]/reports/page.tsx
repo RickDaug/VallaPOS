@@ -1,12 +1,12 @@
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireMembership } from "@/lib/tenant";
-import { getDailyReport } from "@/features/orders/queries";
+import { getDailyReport, getItemSalesReport } from "@/features/orders/queries";
 import { getDrawerDaySummary } from "@/features/cash-drawer/queries";
 import { formatMoney } from "@/lib/money";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 
 function toDateInput(d: Date): string {
   const y = d.getFullYear();
@@ -39,6 +39,7 @@ export default async function ReportsPage({
 
   const report = await getDailyReport(businessId, start, end);
   const drawer = await getDrawerDaySummary(businessId, start, end);
+  const itemSales = await getItemSalesReport(businessId, start, end);
   const money = (c: number) => formatMoney(c, business.currency);
 
   return (
@@ -48,10 +49,19 @@ export default async function ReportsPage({
           <h1 className="text-2xl font-black md:text-3xl">End-of-day report</h1>
           <p className="text-sm text-muted-foreground">Z-report — sales, tax, and cash for the day.</p>
         </div>
-        <form method="get" className="flex items-center gap-2">
-          <Input type="date" name="date" defaultValue={dateStr} className="numeric h-11 w-auto" />
-          <Button type="submit" size="sm">View</Button>
-        </form>
+        <div className="flex items-center gap-2">
+          <form method="get" className="flex items-center gap-2">
+            <Input type="date" name="date" defaultValue={dateStr} className="numeric h-11 w-auto" />
+            <Button type="submit" size="sm">View</Button>
+          </form>
+          <a
+            href={`/${businessId}/reports/export?date=${dateStr}`}
+            download
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            Export CSV
+          </a>
+        </div>
       </header>
 
       <div className="grid gap-4 md:grid-cols-4">
@@ -112,6 +122,64 @@ export default async function ReportsPage({
                 </p>
               )}
             </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardContent className="p-5">
+            <h2 className="mb-4 text-lg font-bold">Sales by item</h2>
+            {itemSales.byItem.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No items sold this day.</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                    <th className="pb-2 font-medium">Item</th>
+                    <th className="pb-2 text-right font-medium">Qty</th>
+                    <th className="pb-2 text-right font-medium">Net sales</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {itemSales.byItem.map((i) => (
+                    <tr key={i.name} className="border-b border-border/60 last:border-0">
+                      <td className="py-2 pr-2">{i.name}</td>
+                      <td className="numeric py-2 text-right tabular-nums">{i.quantity}</td>
+                      <td className="numeric py-2 text-right font-semibold">{money(i.netSalesCents)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-5">
+            <h2 className="mb-4 text-lg font-bold">Sales by category</h2>
+            {itemSales.byCategory.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No sales this day.</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                    <th className="pb-2 font-medium">Category</th>
+                    <th className="pb-2 text-right font-medium">Qty</th>
+                    <th className="pb-2 text-right font-medium">Net sales</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {itemSales.byCategory.map((c) => (
+                    <tr key={c.category} className="border-b border-border/60 last:border-0">
+                      <td className="py-2 pr-2">{c.category}</td>
+                      <td className="numeric py-2 text-right tabular-nums">{c.quantity}</td>
+                      <td className="numeric py-2 text-right font-semibold">{money(c.netSalesCents)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </CardContent>
         </Card>
       </div>
