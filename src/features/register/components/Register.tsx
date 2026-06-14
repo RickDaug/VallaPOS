@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { NumberPad } from "@/components/ui/number-pad";
+import { quickTenderOptions, dollarsToCents } from "@/features/register/tender";
 import { cn } from "@/lib/utils";
 
 type ChosenModifier = { id: string; name: string; priceDeltaCents: number };
@@ -47,6 +49,7 @@ export function Register({
 }) {
   const [cart, setCart] = useState<CartLine[]>([]);
   const [query, setQuery] = useState("");
+  const [activeCategory, setActiveCategory] = useState("All");
   const [tipRate, setTipRate] = useState(0);
   const [discountDollars, setDiscountDollars] = useState("");
   const [tendering, setTendering] = useState(false);
@@ -61,9 +64,20 @@ export function Register({
 
   const money = (c: number) => formatMoney(c, currency);
 
+  // "All" plus the distinct categories present in the catalog, for the tab row.
+  const categories = useMemo(() => {
+    const set = new Set(catalog.map((e) => e.category));
+    return ["All", ...[...set].sort((a, b) => a.localeCompare(b))];
+  }, [catalog]);
+
   const filtered = useMemo(
-    () => catalog.filter((e) => `${e.label} ${e.category}`.toLowerCase().includes(query.toLowerCase())),
-    [catalog, query],
+    () =>
+      catalog.filter(
+        (e) =>
+          (activeCategory === "All" || e.category === activeCategory) &&
+          `${e.label} ${e.category}`.toLowerCase().includes(query.toLowerCase()),
+      ),
+    [catalog, query, activeCategory],
   );
 
   const cartDiscountCents = Math.max(0, Math.round(parseFloat(discountDollars || "0") * 100)) || 0;
@@ -244,6 +258,27 @@ export function Register({
               className="pl-10"
             />
           </div>
+          {categories.length > 2 && (
+            <div className="-mx-1 mb-4 flex gap-2 overflow-x-auto px-1 pb-1" role="tablist" aria-label="Filter by category">
+              {categories.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeCategory === c}
+                  onClick={() => setActiveCategory(c)}
+                  className={cn(
+                    "h-9 shrink-0 rounded-full px-4 text-sm font-semibold transition-colors",
+                    activeCategory === c
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-foreground hover:bg-secondary",
+                  )}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
           {filtered.length === 0 ? (
             <EmptyState />
           ) : (
@@ -374,7 +409,8 @@ export function Register({
                 disabled={cart.length === 0}
                 onClick={() => {
                   setTendering(true);
-                  setTenderDollars((totals.totalCents / 100).toFixed(2));
+                  // Start empty so the numpad/quick-cash chips fill it cleanly.
+                  setTenderDollars("");
                 }}
                 className="mt-2 w-full"
               >
@@ -383,19 +419,40 @@ export function Register({
             ) : (
               <div className="mt-2 space-y-3 rounded-lg bg-muted p-4">
                 <div>
-                  <label htmlFor="tender" className="mb-1 block font-medium">
-                    Cash received
-                  </label>
-                  <Input
-                    id="tender"
-                    inputMode="decimal"
-                    value={tenderDollars}
-                    onChange={(e) => setTenderDollars(e.target.value)}
-                    className="numeric h-12 text-right text-xl font-bold"
-                    autoFocus
-                  />
+                  <span className="mb-1 block font-medium">Cash received</span>
+                  <div
+                    className="numeric flex h-14 items-center justify-end rounded-md border border-border bg-card px-4 text-3xl font-black"
+                    aria-live="polite"
+                  >
+                    {money(dollarsToCents(tenderDollars))}
+                  </div>
                 </div>
-                <Button variant="success" size="lg" onClick={completeSale} disabled={pending} className="w-full">
+                <div className="grid grid-cols-4 gap-2">
+                  {quickTenderOptions(totals.totalCents).map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setTenderDollars((c / 100).toFixed(2))}
+                      className="h-11 rounded-md border border-border bg-card text-sm font-bold transition-colors hover:bg-secondary active:scale-[0.98]"
+                    >
+                      {c === totals.totalCents ? "Exact" : money(c)}
+                    </button>
+                  ))}
+                </div>
+                <NumberPad value={tenderDollars} onChange={setTenderDollars} />
+                <div className="flex items-center justify-between border-t border-border pt-3 text-lg font-bold">
+                  <span>Change due</span>
+                  <span className="numeric">
+                    {money(Math.max(0, dollarsToCents(tenderDollars) - totals.totalCents))}
+                  </span>
+                </div>
+                <Button
+                  variant="success"
+                  size="lg"
+                  onClick={completeSale}
+                  disabled={pending || dollarsToCents(tenderDollars) < totals.totalCents}
+                  className="w-full"
+                >
                   {pending ? "Saving…" : "Complete sale"}
                 </Button>
                 <Button variant="outline" onClick={() => setTendering(false)} className="w-full">
