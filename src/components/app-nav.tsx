@@ -8,6 +8,7 @@ import {
   Receipt,
   Settings,
   ShoppingCart,
+  Users,
   Wallet,
   type LucideIcon,
 } from "lucide-react";
@@ -19,6 +20,7 @@ const NAV: { slug: string; label: string; Icon: LucideIcon }[] = [
   { slug: "products", label: "Products", Icon: Boxes },
   { slug: "reports", label: "Reports", Icon: BarChart3 },
   { slug: "drawer", label: "Drawer", Icon: Wallet },
+  { slug: "employees", label: "Team", Icon: Users },
   { slug: "settings", label: "Settings", Icon: Settings },
 ];
 
@@ -57,7 +59,7 @@ export function BottomNav({ businessId }: { businessId: string }) {
   const isActive = useActive(businessId);
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 border-t border-border bg-card pb-[env(safe-area-inset-bottom)] lg:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-7 border-t border-border bg-card pb-[env(safe-area-inset-bottom)] lg:hidden"
       aria-label="Primary"
     >
       {NAV.map(({ slug, label, Icon }) => (
