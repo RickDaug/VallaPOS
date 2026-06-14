@@ -105,3 +105,45 @@ Run in the worktree with env vars sourced from `.env` / `.env.local`:
 The Better Auth CLI generator ran cleanly against `better-auth@1.2.8` and the live
 `DATABASE_URL`. `.env` and `.env.local` are gitignored and were confirmed **not** staged. The
 temporary `ba-generated.prisma` reference output was deleted after diffing and is not committed.
+
+---
+
+## Update: security bump to `better-auth@1.6.18` (2026-06-14)
+
+**Trigger:** `npm audit` flagged **critical** advisories against the installed `better-auth@1.2.8`
+(`<=1.6.1`): open-redirect in `originCheck`, unauthenticated api-key creation (api-key plugin —
+**not enabled here**), `disabledPaths`/rate-limit bypass via the `rou3` dependency, and a
+basePath-modification DoS. Audit's non-semver-major fix: **`better-auth@1.6.18`**.
+
+**Bump applied:** `better-auth` `1.2.8 → 1.6.18` (pinned exact). `npm audit` now reports the Better
+Auth criticals **cleared** (remaining advisories are Next.js / esbuild / postcss — unrelated,
+tracked separately).
+
+**Schema drift: none.** Re-ran the generator (`npx @better-auth/cli@1.4.21 generate` — the CLI
+introspects the *installed* `better-auth@1.6.18`, so the output reflects 1.6.18) against the live
+`DATABASE_URL` and diffed vs `prisma/schema.prisma`. Every column 1.6.18 expects already exists;
+**no new columns or tables → no Prisma migration required.** Deltas are the same benign ones as the
+1.2.8 audit (current `User.name` nullable vs generated required; extra tenancy relations/indexes).
+Bonus: 1.6.18 now generates `Verification.createdAt/updatedAt` as NOT NULL with defaults, matching
+the current schema exactly (1.2.8 had them nullable). The temporary reference output was deleted
+after diffing and is not committed.
+
+**Config API: unchanged.** The options in `src/lib/auth.ts` (`prismaAdapter`, `secret`, `baseURL`,
+`emailAndPassword`, `session`) and `createAuthClient({ baseURL })` are stable across 1.2→1.6;
+`typecheck` passes with no edits to those files.
+
+**Runtime verification (new):** added `prisma/smoke-auth.ts` — a headless end-to-end auth smoke
+against the live DB: sign-up (asserts a hashed, non-plaintext credential `Account` row), sign-in
+(asserts the correct user + a created `Session`), and a wrong-password rejection. Re-run after any
+future `better-auth` upgrade: `npx tsx prisma/smoke-auth.ts`. Result on 1.6.18:
+
+| Step | Result |
+|---|---|
+| `npm run typecheck` | PASS |
+| `npm run lint` (changed files) | PASS |
+| `npm test` (vitest) | PASS — 104 tests |
+| `npm run build` | PASS |
+| `npx tsx prisma/smoke-auth.ts` (live Neon) | **PASS** — sign-up + hashed credential + sign-in + wrong-password rejected |
+
+**Still wants a human pass:** a browser click-through of sign-up → sign-in → sign-out. The smoke
+covers the server `auth.api` path + adapter, not the `authClient` React/cookie/redirect path.
