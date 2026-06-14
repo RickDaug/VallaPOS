@@ -2,6 +2,14 @@ import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
+import { createSecondaryStorage } from "@/lib/redis";
+
+// When Upstash is configured, Better Auth uses Redis as a SHARED, persistent
+// store for the rate limiter (otherwise it's per-instance in-memory and resets
+// on every Vercel cold start — the H-3 audit finding). We keep the DB as the
+// session source of truth (storeSessionInDatabase) so turning Redis on only adds
+// the shared limiter + a session cache; it does not change session durability.
+const secondaryStorage = createSecondaryStorage();
 
 /**
  * Better Auth server config (scaffold).
@@ -22,7 +30,11 @@ export const auth = betterAuth({
   session: {
     expiresIn: 60 * 60 * 24 * 7, // 7 days
     updateAge: 60 * 60 * 24, // refresh daily
+    ...(secondaryStorage ? { storeSessionInDatabase: true } : {}),
   },
+  ...(secondaryStorage
+    ? { secondaryStorage, rateLimit: { storage: "secondary-storage" as const } }
+    : {}),
 });
 
 export type Session = typeof auth.$Infer.Session;
