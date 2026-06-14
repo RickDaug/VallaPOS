@@ -2,7 +2,7 @@
 
 > **Read this first.** This is the single source of truth for what exists, what's wired, and what's next. Update it as work lands.
 
-_Last updated: 2026-06-14 — Phase 1 + a Phase 2 batch merged. Merged today: #21 confirm dialog, #23 Better Auth 1.6.18, #24 next/tsx/postcss security sweep, #26 reporting depth, #28 eslint hygiene, #29 catalog editing, #30 SEO metadata, #31 refunds & voids + reconciliation. **`npm audit` = 0.** **OPEN & migration-gated: #32 employees** — apply the migration, then merge (see "Still open"). Plus the standing human browser sign-off._
+_Last updated: 2026-06-14 — Phase 1 + a Phase 2 batch merged. Merged today: #21 confirm dialog, #23 Better Auth 1.6.18, #24 next/tsx/postcss security sweep, #26 reporting depth, #28 eslint hygiene, #29 catalog editing, #30 SEO metadata, #31 refunds & voids + reconciliation, #34 register UX (category tabs + touch numpad). **`npm audit` = 0; 179 tests green.** **OPEN & migration-gated: #32 employees** — apply the migration, then merge (see "Still open"). Plus the standing human browser sign-off._
 
 ## Where we are
 
@@ -159,6 +159,13 @@ Migration-free (all columns existed). MANAGER-gated, tenant-scoped.
 - **Schema change:** new `TimeEntry` model (businessId/membershipId/clockInAt/clockOutAt? + 3 indexes + cascade FKs) and `Membership.active` (Boolean, default true). `Membership.pinHash` already existed. Migration `20260614195453_employee_timeentry` is committed **but not applied** (hand-written, verified byte-for-byte vs `prisma migrate diff`).
 - Pure, tested modules: `employees/pin.ts` (scrypt salted hash + constant-time verify — hash never leaves the server) and `employees/duration.ts` (timesheet math). Actions (OWNER/MANAGER-gated): addMember (links an **existing** account by email — new-user signup is out of scope), changeMemberRole, set/clearMemberPin, setMemberActive, verifyMemberPin, clockIn/clockOut (self-service: membership from the tenant context, never client-sent). +20 tests.
 - ⚠ **Deploy-order hazard:** the new Prisma client selects `Membership.active`, which `requireMembership` reads on *every* authed request. If #32 deploys before the migration is applied, production 500s. The migration is additive/backward-compatible → **apply it to Neon first, then merge #32.**
+
+## Register UX uplift — category tabs + touch numpad (branch `phase-2/register-ux`, #34)
+First slice of the "register UX uplift to competitor standard" item. No schema, no new deps. (The split-screen sticky cart, search, tip presets, and direct cart `+/−` already existed.)
+- **Pinned category tabs** filter the item grid by category ("All" + distinct), combined with search; hidden when there's only one category.
+- **Touch numpad cash tender** replaces the bare text input: big amount display, quick-cash chips (Exact / next dollar / covering bills), a 44px `NumberPad`, live "change due", Complete disabled until tendered ≥ total.
+- Pure tested helpers `src/features/register/tender.ts` (`applyNumpadKey`, `dollarsToCents`, `quickTenderOptions`) + `src/components/ui/number-pad.tsx`. +8 tests; suite **179 green**.
+- Deferred (need infra/decisions): image tiles, per-device Favorites, open-tickets/save-cart sync, grid⇄list density toggle, migrating the modifier picker to the Radix Dialog primitive.
 
 ## Dev-experience + SEO polish (#28 eslint, #30 metadata)
 - **#28** `eslint.config.mjs`: ignore generated/non-source files (`public/sw.js`, Serwist dev shims, the Next-generated `next-env.d.ts` whose typed-routes triple-slash tripped a rule after a build under Next 15.5, and `.claude/**`). `eslint .` went from ~93 phantom errors to clean; also hardens CI's `eslint .` against build-ordering.
