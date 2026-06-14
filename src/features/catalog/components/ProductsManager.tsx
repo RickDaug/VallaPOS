@@ -2,20 +2,26 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2 } from "lucide-react";
+import { Trash2, Pencil, ChevronUp, ChevronDown, Plus } from "lucide-react";
 import { formatMoney } from "@/lib/money";
-import type { ManagedCatalog } from "@/features/catalog/queries";
+import type { ManagedCatalog, ManagedItem, ManagedVariation } from "@/features/catalog/queries";
 import {
   createCategory,
   createItem,
   createModifier,
   createModifierGroup,
+  createVariation,
   deleteCategory,
   deleteItem,
   deleteModifier,
   deleteModifierGroup,
+  deleteVariation,
   linkModifierGroup,
+  setItemActive,
   unlinkModifierGroup,
+  updateCategorySortOrder,
+  updateItem,
+  updateVariation,
 } from "@/features/catalog/actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -23,6 +29,11 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
+
+/** Parse a "9.99" string to integer cents; returns NaN when invalid. */
+function dollarsToCents(value: string): number {
+  return Math.round(parseFloat(value || "0") * 100);
+}
 
 export function ProductsManager({
   businessId,
@@ -52,6 +63,10 @@ export function ProductsManager({
   const [modName, setModName] = useState("");
   const [modPrice, setModPrice] = useState("");
 
+  // Which item is open in the inline editor (item edit + variations).
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+
   function run(fn: () => Promise<void>, after?: () => void) {
     setError(null);
     startTransition(async () => {
@@ -67,7 +82,7 @@ export function ProductsManager({
 
   function onAddItem(e: React.FormEvent) {
     e.preventDefault();
-    const priceCents = Math.round(parseFloat(price || "0") * 100);
+    const priceCents = dollarsToCents(price);
     if (!name.trim()) return setError("Item name is required.");
     if (!Number.isFinite(priceCents) || priceCents < 0) return setError("Enter a valid price.");
     run(
@@ -105,7 +120,7 @@ export function ProductsManager({
 
   function onAddModifier(e: React.FormEvent) {
     e.preventDefault();
-    const priceDeltaCents = Math.round(parseFloat(modPrice || "0") * 100);
+    const priceDeltaCents = dollarsToCents(modPrice);
     if (!modGroupId) return setError("Pick a modifier group.");
     if (!modName.trim()) return setError("Modifier name is required.");
     if (!Number.isFinite(priceDeltaCents) || priceDeltaCents < 0)
@@ -127,74 +142,88 @@ export function ProductsManager({
     );
   }
 
+  // Move a category up/down by swapping its sortOrder with the neighbour.
+  function onMoveCategory(index: number, dir: -1 | 1) {
+    const a = catalog.categories[index];
+    const b = catalog.categories[index + dir];
+    if (!a || !b) return;
+    run(async () => {
+      await updateCategorySortOrder({ businessId, id: a.id, sortOrder: b.sortOrder });
+      await updateCategorySortOrder({ businessId, id: b.id, sortOrder: a.sortOrder });
+    });
+  }
+
+  const activeItems = catalog.items.filter((i) => i.active);
+  const archivedItems = catalog.items.filter((i) => !i.active);
+
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
       {/* Item list */}
       <Card>
         <CardContent className="p-4 md:p-5">
-          <h2 className="mb-4 text-lg font-bold">Items</h2>
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 className="text-lg font-bold">Items</h2>
+            {archivedItems.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowArchived((s) => !s)}
+                aria-pressed={showArchived}
+              >
+                {showArchived ? "Hide" : "Show"} archived ({archivedItems.length})
+              </Button>
+            )}
+          </div>
           {error && <p className="mb-3 text-sm font-medium text-destructive" role="alert">{error}</p>}
-          {catalog.items.length === 0 ? (
+          {activeItems.length === 0 ? (
             <p className="rounded-lg bg-muted p-6 text-center text-sm text-muted-foreground">
-              No items yet. Add your first one on the right.
+              No active items. Add your first one on the right.
             </p>
           ) : (
             <ul className="divide-y divide-border">
-              {catalog.items.map((item) => (
-                <li key={item.id} className="flex items-start justify-between gap-3 py-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold">{item.name}</p>
-                    <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
-                      <Badge variant={item.type === "SERVICE" ? "primary" : "muted"}>
-                        {item.type === "SERVICE" ? "Service" : "Product"}
-                      </Badge>
-                      <span>{item.categoryName ?? "Uncategorized"}</span>
-                      <span className="numeric">
-                        · {item.variations.map((v) => formatMoney(v.priceCents, currency)).join(", ")}
-                      </span>
-                    </p>
-                    {catalog.modifierGroups.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {catalog.modifierGroups.map((g) => {
-                          const linked = item.modifierGroupIds.includes(g.id);
-                          return (
-                            <button
-                              key={g.id}
-                              type="button"
-                              onClick={() => onToggleLink(item.id, g.id, linked)}
-                              disabled={pending}
-                              aria-pressed={linked}
-                              className={cn(
-                                "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-                                linked
-                                  ? "border-primary bg-primary/10 text-foreground"
-                                  : "border-border text-muted-foreground hover:bg-muted",
-                              )}
-                            >
-                              {linked ? "✓ " : "+ "}
-                              {g.name}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-10 w-10 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                    onClick={async () => {
-                      if (await confirm({ title: `Delete "${item.name}"?`, confirmLabel: "Delete" }))
-                        run(() => deleteItem({ businessId, id: item.id }));
-                    }}
-                    disabled={pending}
-                    aria-label={`Delete ${item.name}`}
-                  >
-                    <Trash2 size={18} />
-                  </Button>
-                </li>
+              {activeItems.map((item) => (
+                <ItemRow
+                  key={item.id}
+                  item={item}
+                  catalog={catalog}
+                  currency={currency}
+                  businessId={businessId}
+                  pending={pending}
+                  isEditing={editingItemId === item.id}
+                  onToggleEdit={() =>
+                    setEditingItemId((id) => (id === item.id ? null : item.id))
+                  }
+                  onToggleLink={onToggleLink}
+                  run={run}
+                  confirm={confirm}
+                />
               ))}
             </ul>
+          )}
+
+          {showArchived && archivedItems.length > 0 && (
+            <div className="mt-6">
+              <h3 className="mb-2 text-sm font-bold text-muted-foreground">Archived</h3>
+              <ul className="divide-y divide-border">
+                {archivedItems.map((item) => (
+                  <ItemRow
+                    key={item.id}
+                    item={item}
+                    catalog={catalog}
+                    currency={currency}
+                    businessId={businessId}
+                    pending={pending}
+                    isEditing={editingItemId === item.id}
+                    onToggleEdit={() =>
+                      setEditingItemId((id) => (id === item.id ? null : item.id))
+                    }
+                    onToggleLink={onToggleLink}
+                    run={run}
+                    confirm={confirm}
+                  />
+                ))}
+              </ul>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -262,28 +291,50 @@ export function ProductsManager({
             </form>
             {catalog.categories.length > 0 && (
               <ul className="divide-y divide-border">
-                {catalog.categories.map((c) => (
-                  <li key={c.id} className="flex items-center justify-between py-2">
-                    <span className="font-medium">{c.name}</span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-10 w-10 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      onClick={async () => {
-                        if (
-                          await confirm({
-                            title: `Delete category "${c.name}"?`,
-                            description: "Items in this category become uncategorized.",
-                            confirmLabel: "Delete",
-                          })
-                        )
-                          run(() => deleteCategory({ businessId, id: c.id }));
-                      }}
-                      disabled={pending}
-                      aria-label={`Delete category ${c.name}`}
-                    >
-                      <Trash2 size={16} />
-                    </Button>
+                {catalog.categories.map((c, index) => (
+                  <li key={c.id} className="flex items-center justify-between gap-2 py-2">
+                    <span className="min-w-0 flex-1 truncate font-medium">{c.name}</span>
+                    <div className="flex shrink-0 items-center">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 text-muted-foreground"
+                        onClick={() => onMoveCategory(index, -1)}
+                        disabled={pending || index === 0}
+                        aria-label={`Move ${c.name} up`}
+                      >
+                        <ChevronUp size={16} />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 text-muted-foreground"
+                        onClick={() => onMoveCategory(index, 1)}
+                        disabled={pending || index === catalog.categories.length - 1}
+                        aria-label={`Move ${c.name} down`}
+                      >
+                        <ChevronDown size={16} />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        onClick={async () => {
+                          if (
+                            await confirm({
+                              title: `Delete category "${c.name}"?`,
+                              description: "Items in this category become uncategorized.",
+                              confirmLabel: "Delete",
+                            })
+                          )
+                            run(() => deleteCategory({ businessId, id: c.id }));
+                        }}
+                        disabled={pending}
+                        aria-label={`Delete category ${c.name}`}
+                      >
+                        <Trash2 size={16} />
+                      </Button>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -417,5 +468,506 @@ export function ProductsManager({
       </aside>
       {confirmDialog}
     </div>
+  );
+}
+
+// ── Item row (display + inline edit + variations) ─────────────────────────────
+
+function ItemRow({
+  item,
+  catalog,
+  currency,
+  businessId,
+  pending,
+  isEditing,
+  onToggleEdit,
+  onToggleLink,
+  run,
+  confirm,
+}: {
+  item: ManagedItem;
+  catalog: ManagedCatalog;
+  currency: string;
+  businessId: string;
+  pending: boolean;
+  isEditing: boolean;
+  onToggleEdit: () => void;
+  onToggleLink: (itemId: string, groupId: string, linked: boolean) => void;
+  run: (fn: () => Promise<void>, after?: () => void) => void;
+  confirm: (opts: { title: string; description?: string; confirmLabel?: string }) => Promise<boolean>;
+}) {
+  return (
+    <li className={cn("py-3", !item.active && "opacity-60")}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-semibold">
+            {item.name}
+            {!item.active && (
+              <Badge variant="muted" className="ml-2 align-middle">
+                Archived
+              </Badge>
+            )}
+          </p>
+          <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
+            <Badge variant={item.type === "SERVICE" ? "primary" : "muted"}>
+              {item.type === "SERVICE" ? "Service" : "Product"}
+            </Badge>
+            <span>{item.categoryName ?? "Uncategorized"}</span>
+            <span className="numeric">
+              · {item.variations.map((v) => formatMoney(v.priceCents, currency)).join(", ")}
+            </span>
+          </p>
+          {catalog.modifierGroups.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {catalog.modifierGroups.map((g) => {
+                const linked = item.modifierGroupIds.includes(g.id);
+                return (
+                  <button
+                    key={g.id}
+                    type="button"
+                    onClick={() => onToggleLink(item.id, g.id, linked)}
+                    disabled={pending}
+                    aria-pressed={linked}
+                    className={cn(
+                      "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                      linked
+                        ? "border-primary bg-primary/10 text-foreground"
+                        : "border-border text-muted-foreground hover:bg-muted",
+                    )}
+                  >
+                    {linked ? "✓ " : "+ "}
+                    {g.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-10 w-10 text-muted-foreground"
+            onClick={onToggleEdit}
+            disabled={pending}
+            aria-label={`Edit ${item.name}`}
+            aria-pressed={isEditing}
+          >
+            <Pencil size={16} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground"
+            onClick={() => run(() => setItemActive({ businessId, id: item.id, active: !item.active }))}
+            disabled={pending}
+          >
+            {item.active ? "Archive" : "Restore"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-10 w-10 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+            onClick={async () => {
+              if (await confirm({ title: `Delete "${item.name}"?`, confirmLabel: "Delete" }))
+                run(() => deleteItem({ businessId, id: item.id }));
+            }}
+            disabled={pending}
+            aria-label={`Delete ${item.name}`}
+          >
+            <Trash2 size={18} />
+          </Button>
+        </div>
+      </div>
+
+      {isEditing && (
+        <div className="mt-3 rounded-lg border border-border bg-muted/40 p-3">
+          <ItemEditor
+            item={item}
+            catalog={catalog}
+            businessId={businessId}
+            pending={pending}
+            run={run}
+            onDone={onToggleEdit}
+          />
+          <VariationsEditor
+            item={item}
+            currency={currency}
+            businessId={businessId}
+            pending={pending}
+            run={run}
+            confirm={confirm}
+          />
+        </div>
+      )}
+    </li>
+  );
+}
+
+// ── Inline item editor (name / type / category / price) ──────────────────────
+
+function ItemEditor({
+  item,
+  catalog,
+  businessId,
+  pending,
+  run,
+  onDone,
+}: {
+  item: ManagedItem;
+  catalog: ManagedCatalog;
+  businessId: string;
+  pending: boolean;
+  run: (fn: () => Promise<void>, after?: () => void) => void;
+  onDone: () => void;
+}) {
+  const [name, setName] = useState(item.name);
+  const [type, setType] = useState<"PRODUCT" | "SERVICE">(item.type);
+  const [categoryId, setCategoryId] = useState(item.categoryId ?? "");
+  const [price, setPrice] = useState(
+    item.variations[0] ? (item.variations[0].priceCents / 100).toFixed(2) : "",
+  );
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  function onSave(e: React.FormEvent) {
+    e.preventDefault();
+    const priceCents = dollarsToCents(price);
+    if (!name.trim()) return setLocalError("Item name is required.");
+    if (!Number.isFinite(priceCents) || priceCents < 0) return setLocalError("Enter a valid price.");
+    setLocalError(null);
+    run(
+      () =>
+        updateItem({
+          businessId,
+          id: item.id,
+          name: name.trim(),
+          type,
+          categoryId: categoryId || null,
+          priceCents,
+        }),
+      onDone,
+    );
+  }
+
+  return (
+    <form onSubmit={onSave} className="space-y-2">
+      <p className="text-sm font-semibold">Edit item</p>
+      {localError && <p className="text-sm font-medium text-destructive" role="alert">{localError}</p>}
+      <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Item name" />
+      <div className="flex gap-2">
+        {(["PRODUCT", "SERVICE"] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setType(t)}
+            className={cn(
+              "h-10 flex-1 rounded-md text-sm font-semibold transition-colors",
+              type === t ? "bg-primary text-primary-foreground" : "bg-muted text-foreground hover:bg-secondary",
+            )}
+          >
+            {t === "PRODUCT" ? "Product" : "Service"}
+          </button>
+        ))}
+      </div>
+      <select
+        value={categoryId}
+        onChange={(e) => setCategoryId(e.target.value)}
+        className="h-11 w-full rounded-md border border-input bg-card px-3 text-base text-foreground shadow-sm focus-visible:border-ring"
+      >
+        <option value="">Uncategorized</option>
+        {catalog.categories.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.name}
+          </option>
+        ))}
+      </select>
+      <label className="block text-xs text-muted-foreground">
+        Price (base / first variation)
+        <Input
+          inputMode="decimal"
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+          placeholder="9.99"
+          className="numeric mt-1"
+        />
+      </label>
+      <div className="flex gap-2">
+        <Button type="submit" size="sm" disabled={pending} className="flex-1">
+          {pending ? "Saving…" : "Save"}
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={onDone} disabled={pending}>
+          Done
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+// ── Variations editor (multiple sizes per item) ──────────────────────────────
+
+function VariationsEditor({
+  item,
+  currency,
+  businessId,
+  pending,
+  run,
+  confirm,
+}: {
+  item: ManagedItem;
+  currency: string;
+  businessId: string;
+  pending: boolean;
+  run: (fn: () => Promise<void>, after?: () => void) => void;
+  confirm: (opts: { title: string; description?: string; confirmLabel?: string }) => Promise<boolean>;
+}) {
+  const [newName, setNewName] = useState("");
+  const [newPrice, setNewPrice] = useState("");
+  const [newSku, setNewSku] = useState("");
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  function onAdd(e: React.FormEvent) {
+    e.preventDefault();
+    const priceCents = dollarsToCents(newPrice);
+    if (!newName.trim()) return setLocalError("Variation name is required.");
+    if (!Number.isFinite(priceCents) || priceCents < 0) return setLocalError("Enter a valid price.");
+    setLocalError(null);
+    run(
+      () =>
+        createVariation({
+          businessId,
+          itemId: item.id,
+          name: newName.trim(),
+          priceCents,
+          sku: newSku.trim() || null,
+          sortOrder: item.variations.length,
+        }),
+      () => {
+        setNewName("");
+        setNewPrice("");
+        setNewSku("");
+      },
+    );
+  }
+
+  return (
+    <div className="mt-3 border-t border-border pt-3">
+      <p className="mb-2 text-sm font-semibold">Variations (sizes)</p>
+      {localError && <p className="mb-2 text-sm font-medium text-destructive" role="alert">{localError}</p>}
+      <ul className="space-y-2">
+        {item.variations.map((v, index) => (
+          <VariationRow
+            key={v.id}
+            variation={v}
+            currency={currency}
+            businessId={businessId}
+            pending={pending}
+            canDelete={item.variations.length > 1}
+            isFirst={index === 0}
+            isLast={index === item.variations.length - 1}
+            siblings={item.variations}
+            index={index}
+            run={run}
+            confirm={confirm}
+          />
+        ))}
+      </ul>
+
+      <form onSubmit={onAdd} className="mt-3 space-y-2 border-t border-border pt-3">
+        <p className="text-xs font-semibold text-muted-foreground">Add variation</p>
+        <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Name (e.g. Large)" />
+        <div className="flex gap-2">
+          <Input
+            inputMode="decimal"
+            value={newPrice}
+            onChange={(e) => setNewPrice(e.target.value)}
+            placeholder="Price (e.g. 12.99)"
+            className="numeric flex-1"
+          />
+          <Input
+            value={newSku}
+            onChange={(e) => setNewSku(e.target.value)}
+            placeholder="SKU (optional)"
+            className="flex-1"
+          />
+        </div>
+        <Button type="submit" size="sm" disabled={pending} className="w-full">
+          <Plus size={14} className="mr-1" />
+          Add variation
+        </Button>
+      </form>
+    </div>
+  );
+}
+
+function VariationRow({
+  variation,
+  currency,
+  businessId,
+  pending,
+  canDelete,
+  isFirst,
+  isLast,
+  siblings,
+  index,
+  run,
+  confirm,
+}: {
+  variation: ManagedVariation;
+  currency: string;
+  businessId: string;
+  pending: boolean;
+  canDelete: boolean;
+  isFirst: boolean;
+  isLast: boolean;
+  siblings: ManagedVariation[];
+  index: number;
+  run: (fn: () => Promise<void>, after?: () => void) => void;
+  confirm: (opts: { title: string; description?: string; confirmLabel?: string }) => Promise<boolean>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(variation.name);
+  const [price, setPrice] = useState((variation.priceCents / 100).toFixed(2));
+  const [sku, setSku] = useState(variation.sku ?? "");
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  function onSave(e: React.FormEvent) {
+    e.preventDefault();
+    const priceCents = dollarsToCents(price);
+    if (!name.trim()) return setLocalError("Name is required.");
+    if (!Number.isFinite(priceCents) || priceCents < 0) return setLocalError("Enter a valid price.");
+    setLocalError(null);
+    run(
+      () =>
+        updateVariation({
+          businessId,
+          id: variation.id,
+          name: name.trim(),
+          priceCents,
+          sku: sku.trim() || null,
+          sortOrder: variation.sortOrder,
+        }),
+      () => setEditing(false),
+    );
+  }
+
+  // Swap sortOrder with a neighbour to reorder.
+  function move(dir: -1 | 1) {
+    const other = siblings[index + dir];
+    if (!other) return;
+    run(async () => {
+      await updateVariation({
+        businessId,
+        id: variation.id,
+        name: variation.name,
+        priceCents: variation.priceCents,
+        sku: variation.sku,
+        sortOrder: other.sortOrder,
+      });
+      await updateVariation({
+        businessId,
+        id: other.id,
+        name: other.name,
+        priceCents: other.priceCents,
+        sku: other.sku,
+        sortOrder: variation.sortOrder,
+      });
+    });
+  }
+
+  if (editing) {
+    return (
+      <li className="rounded-md border border-border bg-card p-2">
+        <form onSubmit={onSave} className="space-y-2">
+          {localError && <p className="text-sm font-medium text-destructive" role="alert">{localError}</p>}
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" />
+          <div className="flex gap-2">
+            <Input
+              inputMode="decimal"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              placeholder="Price"
+              className="numeric flex-1"
+            />
+            <Input
+              value={sku}
+              onChange={(e) => setSku(e.target.value)}
+              placeholder="SKU"
+              className="flex-1"
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button type="submit" size="sm" disabled={pending} className="flex-1">
+              {pending ? "Saving…" : "Save"}
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => setEditing(false)} disabled={pending}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      </li>
+    );
+  }
+
+  return (
+    <li className="flex items-center justify-between gap-2 rounded-md border border-border bg-card px-2 py-1.5 text-sm">
+      <span className="min-w-0 flex-1 truncate">
+        <span className="font-medium">{variation.name}</span>
+        <span className="numeric ml-2 text-muted-foreground">
+          {formatMoney(variation.priceCents, currency)}
+        </span>
+        {variation.sku && <span className="ml-2 text-xs text-muted-foreground">SKU {variation.sku}</span>}
+      </span>
+      <div className="flex shrink-0 items-center">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-muted-foreground"
+          onClick={() => move(-1)}
+          disabled={pending || isFirst}
+          aria-label={`Move ${variation.name} up`}
+        >
+          <ChevronUp size={14} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-muted-foreground"
+          onClick={() => move(1)}
+          disabled={pending || isLast}
+          aria-label={`Move ${variation.name} down`}
+        >
+          <ChevronDown size={14} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-muted-foreground"
+          onClick={() => setEditing(true)}
+          disabled={pending}
+          aria-label={`Edit ${variation.name}`}
+        >
+          <Pencil size={14} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-30"
+          onClick={async () => {
+            if (
+              await confirm({
+                title: `Delete variation "${variation.name}"?`,
+                confirmLabel: "Delete",
+              })
+            )
+              run(() => deleteVariation({ businessId, id: variation.id }));
+          }}
+          disabled={pending || !canDelete}
+          aria-label={`Delete ${variation.name}`}
+          title={canDelete ? undefined : "An item must keep at least one variation."}
+        >
+          <Trash2 size={14} />
+        </Button>
+      </div>
+    </li>
   );
 }
