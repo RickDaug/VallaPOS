@@ -5,11 +5,30 @@ import { ThemeProvider } from "@/components/theme-provider";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
 
+// Absolute base for canonical/OG URLs. NEXT_PUBLIC_APP_URL is validated at build
+// (src/lib/env.ts); the fallback only guards local/preview where it's unset.
+const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://valla-pos.vercel.app";
+const description = "Browser-based point of sale for mobile and local businesses.";
+
 export const metadata: Metadata = {
-  title: "VallaPOS",
-  description: "Browser-based point of sale for mobile and local businesses.",
+  metadataBase: new URL(appUrl),
+  // `default` is used as-is; child pages that set a title render "<title> · VallaPOS".
+  title: {
+    default: "VallaPOS — Point of sale for mobile & local business",
+    template: "%s · VallaPOS",
+  },
+  description,
+  applicationName: "VallaPOS",
   manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, statusBarStyle: "default", title: "VallaPOS" },
+  openGraph: {
+    type: "website",
+    siteName: "VallaPOS",
+    title: "VallaPOS — Point of sale for mobile & local business",
+    description,
+    url: appUrl,
+  },
+  twitter: { card: "summary", title: "VallaPOS", description },
   icons: {
     icon: [
       { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
