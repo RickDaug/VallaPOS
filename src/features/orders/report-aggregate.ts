@@ -101,6 +101,7 @@ export interface ReportCsvInput {
   netSalesCents: number;
   taxCents: number;
   tipCents: number;
+  refundsCents: number; // total reversed money in the window (positive)
   totalCollectedCents: number;
   byMethod: { method: string; count: number; amountCents: number }[];
   items: ItemSalesReport;
@@ -123,6 +124,7 @@ export function buildReportCsv(input: ReportCsvInput): string {
     ["Net sales", amt(input.netSalesCents)],
     ["Tax", amt(input.taxCents)],
     ["Tips", amt(input.tipCents)],
+    ["Refunds", amt(input.refundsCents)],
     ["Total collected", amt(input.totalCollectedCents)],
     [],
     ["Payments", "Count", "Amount"],

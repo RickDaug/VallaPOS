@@ -2,11 +2,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { requireMembership } from "@/lib/tenant";
+import { roleAtLeast } from "@/lib/roles";
 import { getOrderReceipt } from "@/features/orders/queries";
 import { formatMoney } from "@/lib/money";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ReceiptActions } from "@/features/orders/components/ReceiptActions";
+import { OrderActions } from "@/features/orders/components/OrderActions";
 
 const STATUS_VARIANT: Record<string, "success" | "warning" | "destructive" | "muted"> = {
   PAID: "success",
@@ -22,10 +24,13 @@ export default async function ReceiptPage({
   params: Promise<{ businessId: string; orderId: string }>;
 }) {
   const { businessId, orderId } = await params;
-  await requireMembership(businessId);
+  const { role } = await requireMembership(businessId);
 
   const receipt = await getOrderReceipt(businessId, orderId);
   if (!receipt) notFound();
+
+  // Refund/void are MANAGER+ controls (mirrors the action's assertRole gate).
+  const canManage = roleAtLeast(role, "MANAGER");
 
   const money = (c: number) => formatMoney(c, receipt.currency);
   const when = new Intl.DateTimeFormat("en-US", {
@@ -133,6 +138,19 @@ export default async function ReceiptPage({
       <div className="mt-4">
         <ReceiptActions businessId={businessId} orderId={receipt.id} />
       </div>
+
+      {canManage && (
+        <div className="mt-4 border-t border-border pt-4 print:hidden">
+          <h2 className="mb-2 text-sm font-bold text-muted-foreground">Manager actions</h2>
+          <OrderActions
+            businessId={businessId}
+            orderId={receipt.id}
+            status={receipt.status}
+            totalCents={receipt.totalCents}
+            currency={receipt.currency}
+          />
+        </div>
+      )}
     </section>
   );
 }
