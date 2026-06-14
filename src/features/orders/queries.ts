@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import type { OrderStatus, PaymentMethod } from "@prisma/client";
+import { aggregateItemSales, type ItemSalesReport } from "@/features/orders/report-aggregate";
 
 export interface OrderRow {
   id: string;
@@ -104,6 +105,54 @@ export async function getDailyReport(
   report.netSalesCents = report.grossSalesCents - report.discountCents;
   report.byMethod = [...methodTotals.entries()].map(([method, v]) => ({ method, ...v }));
   return report;
+}
+
+/**
+ * Per-item and per-category sales breakdown over PAID orders in [start, end),
+ * scoped by businessId. Category is resolved best-effort from the line's
+ * `variationId` (which can be null, or point at a since-deleted variation) via a
+ * single batched lookup — the durable `nameSnapshot` is always the item key.
+ */
+export async function getItemSalesReport(
+  businessId: string,
+  start: Date,
+  end: Date,
+): Promise<ItemSalesReport> {
+  const orders = await db.order.findMany({
+    where: { businessId, status: "PAID", createdAt: { gte: start, lt: end } },
+    select: {
+      lines: {
+        select: {
+          nameSnapshot: true,
+          quantity: true,
+          totalCents: true,
+          taxCents: true,
+          variationId: true,
+        },
+      },
+    },
+  });
+  const lines = orders.flatMap((o) => o.lines);
+
+  // Batch-resolve category names for the variations still in the catalog.
+  const variationIds = [...new Set(lines.map((l) => l.variationId).filter((v): v is string => !!v))];
+  const variations = variationIds.length
+    ? await db.variation.findMany({
+        where: { id: { in: variationIds }, businessId },
+        select: { id: true, item: { select: { category: { select: { name: true } } } } },
+      })
+    : [];
+  const categoryByVariation = new Map(variations.map((v) => [v.id, v.item.category?.name ?? null]));
+
+  return aggregateItemSales(
+    lines.map((l) => ({
+      nameSnapshot: l.nameSnapshot,
+      quantity: l.quantity,
+      totalCents: l.totalCents,
+      taxCents: l.taxCents,
+      categoryName: l.variationId ? (categoryByVariation.get(l.variationId) ?? null) : null,
+    })),
+  );
 }
 
 export interface ReceiptLine {
