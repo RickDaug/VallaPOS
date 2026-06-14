@@ -16,7 +16,21 @@ const eslintConfig = [
       "@typescript-eslint/no-explicit-any": "warn",
     },
   },
-  { ignores: [".next/**", "node_modules/**", "src/generated/**"] },
+  {
+    // Build artifacts and local tooling — not source. Serwist emits the service
+    // worker into public/ at build time (public/sw.js, dev worker shims); the
+    // agent harness writes scratch worktrees under .claude/. Linting either is
+    // just noise (huge minified files, no fixes to make).
+    ignores: [
+      ".next/**",
+      "node_modules/**",
+      "src/generated/**",
+      "next-env.d.ts",
+      "public/sw.js",
+      "public/swe-worker-*.js",
+      ".claude/**",
+    ],
+  },
 ];
 
 export default eslintConfig;
