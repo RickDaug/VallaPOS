@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, CloudOff, Plus, RefreshCw, Search, WifiOff, X } from "lucide-react";
+import { Check, CloudOff, Plus, RefreshCw, Search, WifiOff } from "lucide-react";
 import { formatMoney } from "@/lib/money";
 import { computePricedOrder, type PricedLineInput } from "@/features/register/pricing";
 import type { SellableEntry, SellableModifierGroup } from "@/features/catalog/queries";
@@ -12,6 +12,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { NumberPad } from "@/components/ui/number-pad";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { quickTenderOptions, dollarsToCents } from "@/features/register/tender";
 import { cn } from "@/lib/utils";
 
@@ -564,83 +571,76 @@ function ModifierPicker({
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Choose options for ${entry.label}`}
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center"
-      onClick={onCancel}
+    <Dialog
+      open
+      onOpenChange={(isOpen) => {
+        // Closing via Escape / overlay / X counts as cancel.
+        if (!isOpen) onCancel();
+      }}
     >
-      <Card
-        className="w-full max-w-md"
-        onClick={(e: React.MouseEvent) => e.stopPropagation()}
+      <DialogContent
+        aria-label={`Choose options for ${entry.label}`}
+        className="max-h-[85vh] overflow-y-auto"
       >
-        <CardContent className="max-h-[80vh] overflow-y-auto p-5">
-          <div className="mb-4 flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-bold">{entry.label}</h2>
-              <p className="numeric text-sm text-muted-foreground">{money(entry.priceCents)}</p>
-            </div>
-            <Button variant="ghost" size="icon" className="h-9 w-9" onClick={onCancel} aria-label="Close">
-              <X size={18} />
-            </Button>
-          </div>
+        <DialogHeader>
+          <DialogTitle>{entry.label}</DialogTitle>
+          <p className="numeric text-sm text-muted-foreground">{money(entry.priceCents)}</p>
+        </DialogHeader>
 
-          <div className="space-y-5">
-            {entry.modifierGroups.map((group) => {
-              const chosen = selected[group.id] ?? [];
-              const rule =
-                group.minSelect > 0
-                  ? `Choose ${group.minSelect}${group.maxSelect > group.minSelect ? `–${group.maxSelect}` : ""}`
-                  : group.maxSelect > 1
-                    ? `Optional · up to ${group.maxSelect}`
-                    : "Optional";
-              return (
-                <div key={group.id}>
-                  <div className="mb-2 flex items-center justify-between">
-                    <h3 className="font-semibold">{group.name}</h3>
-                    <span className="text-xs text-muted-foreground">{rule}</span>
-                  </div>
-                  <div className="space-y-1.5">
-                    {group.modifiers.map((m) => {
-                      const active = chosen.includes(m.id);
-                      return (
-                        <button
-                          key={m.id}
-                          type="button"
-                          onClick={() => toggle(group, m.id)}
-                          aria-pressed={active}
-                          className={cn(
-                            "flex w-full items-center justify-between rounded-md border p-3 text-left text-sm transition-colors",
-                            active
-                              ? "border-primary bg-primary/10 font-semibold"
-                              : "border-border hover:bg-muted",
-                          )}
-                        >
-                          <span>{m.name}</span>
-                          <span className="numeric text-muted-foreground">
-                            {m.priceDeltaCents > 0 ? `+${money(m.priceDeltaCents)}` : money(m.priceDeltaCents)}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
+        <div className="space-y-5">
+          {entry.modifierGroups.map((group) => {
+            const chosen = selected[group.id] ?? [];
+            const rule =
+              group.minSelect > 0
+                ? `Choose ${group.minSelect}${group.maxSelect > group.minSelect ? `–${group.maxSelect}` : ""}`
+                : group.maxSelect > 1
+                  ? `Optional · up to ${group.maxSelect}`
+                  : "Optional";
+            return (
+              <div key={group.id}>
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="font-semibold">{group.name}</h3>
+                  <span className="text-xs text-muted-foreground">{rule}</span>
                 </div>
-              );
-            })}
-          </div>
+                <div className="space-y-1.5">
+                  {group.modifiers.map((m) => {
+                    const active = chosen.includes(m.id);
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => toggle(group, m.id)}
+                        aria-pressed={active}
+                        className={cn(
+                          "flex w-full items-center justify-between rounded-md border p-3 text-left text-sm transition-colors",
+                          active
+                            ? "border-primary bg-primary/10 font-semibold"
+                            : "border-border hover:bg-muted",
+                        )}
+                      >
+                        <span>{m.name}</span>
+                        <span className="numeric text-muted-foreground">
+                          {m.priceDeltaCents > 0 ? `+${money(m.priceDeltaCents)}` : money(m.priceDeltaCents)}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
 
-          <div className="mt-6 flex gap-2">
-            <Button variant="outline" onClick={onCancel} className="flex-1">
-              Cancel
-            </Button>
-            <Button onClick={confirm} disabled={!satisfied} className="flex-1">
-              Add to cart
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+        <DialogFooter className="mt-6">
+          <Button variant="outline" onClick={onCancel} className="flex-1">
+            Cancel
+          </Button>
+          <Button onClick={confirm} disabled={!satisfied} className="flex-1">
+            Add to cart
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
