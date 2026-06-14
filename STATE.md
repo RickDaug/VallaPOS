@@ -2,7 +2,7 @@
 
 > **Read this first.** This is the single source of truth for what exists, what's wired, and what's next. Update it as work lands.
 
-_Last updated: 2026-06-14 — Phase 1 complete (#20 + #17). Phase 2 merged: #21 confirm dialog, #23 Better Auth 1.6.18, #24 next 15.5.19 + tsx + postcss override. **`npm audit` on `main` = 0 vulnerabilities.** Remaining: a human browser sign-off of the security bumps + the usual click-through (see "Still open")._
+_Last updated: 2026-06-14 — Phase 1 complete (#20 + #17). Phase 2 merged: #21 confirm dialog, #23 Better Auth 1.6.18, #24 next 15.5.19 + tsx + postcss override, #26 reporting depth (item/category + CSV). **`npm audit` on `main` = 0 vulnerabilities.** Remaining: human browser sign-off + a product decision on refunds (see "Still open")._
 
 ## Where we are
 
@@ -132,8 +132,17 @@ Clears the remaining (non-auth) advisories. Combined with #23, **`npm audit` on 
 - **`overrides.postcss = 8.5.15`** — Next 15.5.19 still bundles `postcss@8.4.31` (`<8.5.10` XSS-stringify, no upstream fix); the override dedupes every postcss to the patched 8.5.15. Build-time only (Next runs postcss over our own CSS, not user input).
 - Verified on the combined branch: 0 audit findings, typecheck + lint + 104 tests + build green, **Serwist still emits `public/sw.js`** (Next-minor + PWA intact), and the live auth smoke still PASSes with 1.6.18 + 15.5.19 together.
 
+## Reporting depth — sales by item/category + CSV export (branch `phase-2/reporting-depth`, #26)
+First Phase 2 "reporting depth" slice. Read-only, no schema change, no money writes.
+- `src/features/orders/report-aggregate.ts` (pure, unit-tested): `aggregateItemSales()` (per-item qty/net/tax + per-category totals, sorted by net) and `buildReportCsv()` (RFC-4180, CRLF, escaped, plain-decimal amounts).
+- `getItemSalesReport()` in `queries.ts` over PAID orders; category resolved best-effort from `variationId` via one batched lookup, keyed on the durable `nameSnapshot`.
+- `/[businessId]/reports/export?date=` route handler — membership-guarded CSV download (401/403 on auth/forbidden).
+- Reports page gains "Sales by item" + "Sales by category" tables and an Export CSV link.
+- +8 tests; suite **112 green**. typecheck + lint + build all pass. (`queries.ts` is `server-only` → no headless smoke; covered by typecheck + build + unit tests + the standing human click-through.)
+
 ## Still open
-_All Phase 1 core features + the security sweep are merged (`npm audit` = 0). What's left is human verification + polish — not new features._
+_Phase 1 + security sweep + first reporting slice are merged (`npm audit` = 0). What's left: a few human-only verifications, one feature that needs a product decision, and optional polish._
+- **⚠ Refunds & voids (needs a product decision, then buildable):** migration-free (the `REFUNDED`/`PARTIALLY_REFUNDED`/`VOIDED` + `PaymentStatus.REFUNDED` enums exist), but a cash refund must change how the **cash-drawer reconciliation** and **Z-report** count money — today both filter to `PAID`-only, so a refunded order would wrongly drop out entirely. Decision needed: do refunds write reversing (negative) `Payment` rows, and should the drawer/Z-report sum cash by *actual payment movements* (status-agnostic) instead of PAID-order status? Once that's settled it's a clean MANAGER-gated action + orders-page UI.
 - **Browser sign-off (security bumps):** #23 (auth) and #24 (Next) are server-verified and CI-green, but the `authClient` React/cookie/redirect path and general render path still want a human click-through (sign-up → sign-in → sign-out, click around the register) to be fully trusted.
 - **Manual UI click-through** on a dev server: `npm run db:seed`, sign in (`owner@valla.test` / `supersecret123`), ring up the burger with **Cook + Add-ons**, cash checkout → receipt → open/close drawer → offline queue. Still wants a human pass.
 - **Live PWA verification:** real install + an actual offline checkout session (#13 was verified by build emission only).
@@ -154,4 +163,4 @@ _All Phase 1 core features + the security sweep are merged (`npm audit` = 0). Wh
 - Browser-POS reality: Tap-to-Pay & Bluetooth readers are native-only → card-present is sequenced to a later native shell; lead with cash + QR/Terminal.
 
 ## Next step
-All known advisories are resolved (`npm audit` = 0; #23 + #24, both server-verified). Next is the human browser pass that automation can't cover: sign off the security bumps (sign-up → sign-in → sign-out) and the full ring-up flow (`! npm run db:seed` → sign in → ring up → receipt → drawer → offline). Then Phase 2 polish candidates: Resend receipt email, live PWA/offline verification, and the deferred register UX (Radix Sheet/Numpad, sticky-cart split view).
+Two tracks. **(1) Human-only:** the browser pass automation can't cover — sign off the security bumps (sign-up → sign-in → sign-out) and the full ring-up flow (`! npm run db:seed` → sign in → ring up → receipt → drawer → offline). **(2) Next feature:** decide the **refunds reconciliation semantics** (see "Still open") to unblock the highest-impact remaining Phase 2 item, or pick another clearly-autonomous slice — catalog editing depth (edit price/variations, archive via the existing `active` flag, reorder), employee PIN + clock-in, or the deferred register UX (Radix Sheet/Numpad, sticky-cart split). Resend receipt email stays parked.
