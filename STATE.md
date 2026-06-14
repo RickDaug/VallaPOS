@@ -2,7 +2,7 @@
 
 > **Read this first.** This is the single source of truth for what exists, what's wired, and what's next. Update it as work lands.
 
-_Last updated: 2026-06-14 — Phase 1 + a Phase 2 batch merged. Merged today: #21 confirm dialog, #23 Better Auth 1.6.18, #24 next/tsx/postcss security sweep, #26 reporting depth, #28 eslint hygiene, #29 catalog editing, #30 SEO metadata, #31 refunds & voids + reconciliation, #34 register UX (category tabs + touch numpad). **`npm audit` = 0; 179 tests green.** **OPEN & migration-gated: #32 employees** — apply the migration, then merge (see "Still open"). Plus the standing human browser sign-off._
+_Last updated: 2026-06-14 — Phase 1 + a full Phase 2 batch merged. Merged: #21 confirm dialog, #23 Better Auth 1.6.18, #24 next/tsx/postcss security sweep, #26 reporting depth, #28 eslint hygiene, #29 catalog editing, #30 SEO metadata, #31 refunds & voids + reconciliation, #32 employees + PIN + clock-in (**migration applied to Neon**), #34 register UX (category tabs + touch numpad). **`npm audit` = 0; 199 tests green; 0 open PRs.** Remaining: the standing human browser sign-off (see "Still open")._
 
 ## Where we are
 
@@ -154,11 +154,10 @@ Migration-free (all columns existed). MANAGER-gated, tenant-scoped.
 - `getManagedCatalog` now returns archived items too (active-first, with variation `sku`/`sortOrder`); **`getRegisterCatalog` already filtered `active:true`** (verified, unchanged) so archived items leave the register immediately.
 - `ProductsManager` UI: inline item editor, per-item variations editor with up/down reorder, archive/restore + "Show archived (N)" filter. +25 schema tests.
 
-## Employee management + PIN + clock-in (branch `phase-2/employee-pin`, #32 — OPEN, migration-gated)
-**The one PR in this batch that is NOT merged — it needs a DB migration applied first (see "Still open").**
-- **Schema change:** new `TimeEntry` model (businessId/membershipId/clockInAt/clockOutAt? + 3 indexes + cascade FKs) and `Membership.active` (Boolean, default true). `Membership.pinHash` already existed. Migration `20260614195453_employee_timeentry` is committed **but not applied** (hand-written, verified byte-for-byte vs `prisma migrate diff`).
+## Employee management + PIN + clock-in (branch `phase-2/employee-pin`, #32 — MERGED, migration applied)
+- **Schema change (migration `20260614195453_employee_timeentry` APPLIED to Neon via `prisma migrate deploy`):** new `TimeEntry` model (businessId/membershipId/clockInAt/clockOutAt? + 3 indexes + cascade FKs) and `Membership.active` (Boolean, default true). `Membership.pinHash` already existed.
 - Pure, tested modules: `employees/pin.ts` (scrypt salted hash + constant-time verify — hash never leaves the server) and `employees/duration.ts` (timesheet math). Actions (OWNER/MANAGER-gated): addMember (links an **existing** account by email — new-user signup is out of scope), changeMemberRole, set/clearMemberPin, setMemberActive, verifyMemberPin, clockIn/clockOut (self-service: membership from the tenant context, never client-sent). +20 tests.
-- ⚠ **Deploy-order hazard:** the new Prisma client selects `Membership.active`, which `requireMembership` reads on *every* authed request. If #32 deploys before the migration is applied, production 500s. The migration is additive/backward-compatible → **apply it to Neon first, then merge #32.**
+- **Deploy order (resolved):** the migration was applied to Neon **before** the merge (`git checkout phase-2/employee-pin && npx prisma migrate deploy`, then `gh pr merge`), so the deployed code never hit an un-migrated DB. Lesson: `migrate deploy`/`dev` must run from the branch that *contains* the migration file — running it on `main` pre-merge finds nothing. Post-merge verified: `prisma migrate status` = up to date, 199 tests, build green.
 
 ## Register UX uplift — category tabs + touch numpad (branch `phase-2/register-ux`, #34)
 First slice of the "register UX uplift to competitor standard" item. No schema, no new deps. (The split-screen sticky cart, search, tip presets, and direct cart `+/−` already existed.)
@@ -172,8 +171,7 @@ First slice of the "register UX uplift to competitor standard" item. No schema, 
 - **#30** root `metadata`: added `metadataBase` (removes Next's warning), `title` template (`%s · VallaPOS`), Open Graph + Twitter cards. Auth pages left untouched (they're `"use client"`; not refactoring auth pre-sign-off).
 
 ## Still open
-_Phase 1 + security sweep + the 2026-06-14 parallel batch are merged (`npm audit` = 0), **except #32 (employees) which is migration-gated.** What's left: one DB migration to apply, a few human-only verifications, optional polish._
-- **⚠ Apply the employee migration, then merge #32 (do this first):** the migration is committed but NOT applied to Neon. Run `! npx prisma migrate dev` to apply `20260614195453_employee_timeentry` (additive: `TimeEntry` table + `Membership.active`), confirm the app still loads, **then** `gh pr merge 32 --squash`. Applying first is required — the deployed code reads `Membership.active` on every authed request.
+_The full 2026-06-14 batch is merged (`npm audit` = 0; 199 tests; 0 open PRs), employee migration applied to Neon. What's left is human-only verification + optional polish — no pending code._
 - **Browser sign-off (security bumps):** #23 (auth) and #24 (Next) are server-verified and CI-green, but the `authClient` React/cookie/redirect path and general render path still want a human click-through (sign-up → sign-in → sign-out, click around the register) to be fully trusted.
 - **Manual UI click-through** on a dev server: `npm run db:seed`, sign in (`owner@valla.test` / `supersecret123`), ring up the burger with **Cook + Add-ons**, cash checkout → receipt → open/close drawer → offline queue. Still wants a human pass.
 - **Live PWA verification:** real install + an actual offline checkout session (#13 was verified by build emission only).
@@ -194,4 +192,4 @@ _Phase 1 + security sweep + the 2026-06-14 parallel batch are merged (`npm audit
 - Browser-POS reality: Tap-to-Pay & Bluetooth readers are native-only → card-present is sequenced to a later native shell; lead with cash + QR/Terminal.
 
 ## Next step
-**(1) Apply the employee migration + merge #32** — `! npx prisma migrate dev`, confirm the app loads, then `gh pr merge 32 --squash`. This is the gating step (the deployed code reads `Membership.active`). **(2) Human browser sign-off** the security bumps + full ring-up flow (`! npm run db:seed` → sign in → ring up → receipt → refund/void → drawer → offline). **(3) Then** the remaining Phase 2 candidates: register UX uplift (Radix Sheet/Numpad, sticky-cart split), employee clock-in UI polish, multi-sensory tap confirmation; and Phase 3 (integrated payments). Resend receipt email stays parked.
+**(1) Human browser sign-off** — the one thing automation can't cover: the security bumps + full ring-up flow (`! npm run db:seed` → sign in → ring up → receipt → refund/void → drawer → employees/clock-in → offline). **(2) Then** the remaining Phase 2 candidates: more register UX uplift (Radix Sheet/Numpad, sticky-cart split, image tiles, favorites, open-tickets), employee clock-in UI polish, multi-sensory tap confirmation; and Phase 3 (integrated payments — the monetization milestone). Resend receipt email stays parked.
