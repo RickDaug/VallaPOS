@@ -4,6 +4,7 @@ import {
   buildReportCsv,
   centsToAmount,
   csvField,
+  sanitizeTextCell,
   type AggregateLineInput,
 } from "@/features/orders/report-aggregate";
 
@@ -71,6 +72,22 @@ describe("csvField", () => {
   });
 });
 
+describe("sanitizeTextCell", () => {
+  it("prefixes a leading formula trigger with a single quote", () => {
+    expect(sanitizeTextCell("=SUM(A1)")).toBe("'=SUM(A1)");
+    expect(sanitizeTextCell("+1")).toBe("'+1");
+    expect(sanitizeTextCell("-cmd")).toBe("'-cmd");
+    expect(sanitizeTextCell("@foo")).toBe("'@foo");
+    expect(sanitizeTextCell("\ttab")).toBe("'\ttab");
+    expect(sanitizeTextCell("\rcarriage")).toBe("'\rcarriage");
+  });
+
+  it("leaves a normal name unchanged", () => {
+    expect(sanitizeTextCell("Burger")).toBe("Burger");
+    expect(sanitizeTextCell("Iced Tea")).toBe("Iced Tea");
+  });
+});
+
 describe("buildReportCsv", () => {
   const csv = buildReportCsv({
     dateStr: "2026-06-14",
@@ -101,5 +118,50 @@ describe("buildReportCsv", () => {
   it("escapes item names containing commas and uses CRLF rows", () => {
     expect(csv).toContain('"Burger, Deluxe",3,30.00,2.48');
     expect(csv).toContain("\r\n");
+  });
+
+  it("neutralizes CSV formula injection in user-controlled text cells", () => {
+    const injected = buildReportCsv({
+      dateStr: "2026-06-14",
+      currency: "USD",
+      orderCount: 1,
+      grossSalesCents: 1000,
+      discountCents: 0,
+      netSalesCents: 1000,
+      taxCents: 0,
+      tipCents: 0,
+      refundsCents: 0,
+      totalCollectedCents: 1000,
+      byMethod: [],
+      items: aggregateItemSales([
+        line({ nameSnapshot: "=SUM(A1)", categoryName: "@evil", totalCents: 1000, taxCents: 0 }),
+      ]),
+    });
+    // Malicious item name and category are prefixed with a single quote.
+    expect(injected).toContain("'=SUM(A1),1,10.00,0.00");
+    expect(injected).toContain("'@evil,1,10.00");
+  });
+
+  it("does NOT alter negative amount cells (they must stay numeric for SUM)", () => {
+    const refunded = buildReportCsv({
+      dateStr: "2026-06-14",
+      currency: "USD",
+      orderCount: 1,
+      grossSalesCents: -250,
+      discountCents: 0,
+      netSalesCents: -250,
+      taxCents: 0,
+      tipCents: 0,
+      refundsCents: 0,
+      totalCollectedCents: -250,
+      byMethod: [],
+      items: aggregateItemSales([
+        line({ nameSnapshot: "Refund", categoryName: "Food", totalCents: -250, taxCents: 0 }),
+      ]),
+    });
+    // A negative amount stays a bare "-2.50", never "'-2.50".
+    expect(refunded).toContain("Net sales,-2.50");
+    expect(refunded).toContain("Refund,1,-2.50,0.00");
+    expect(refunded).not.toContain("'-2.50");
   });
 });

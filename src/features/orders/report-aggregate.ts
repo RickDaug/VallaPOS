@@ -82,6 +82,22 @@ export function centsToAmount(cents: number): string {
   return `${sign}${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, "0")}`;
 }
 
+/**
+ * Neutralize CSV formula injection in a USER-CONTROLLED TEXT cell. A spreadsheet
+ * evaluates any cell beginning with `= + - @` (or a leading tab/CR) as a
+ * formula, so a malicious item/category name like `=cmd|...` could run on open.
+ * Prefix such a cell with a single quote `'` so the spreadsheet treats it as
+ * literal text.
+ *
+ * IMPORTANT: apply this ONLY to text cells (item name, category). It must NOT
+ * touch numeric/amount cells: `centsToAmount` legitimately emits values like
+ * "-2.50" for refunds, and prefixing those with `'` would turn them into text
+ * and break `SUM()` in the exported report.
+ */
+export function sanitizeTextCell(s: string): string {
+  return /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+}
+
 /** Escape one CSV field per RFC 4180 (quote if it contains comma/quote/newline). */
 export function csvField(value: string | number): string {
   const s = String(value);
@@ -131,10 +147,22 @@ export function buildReportCsv(input: ReportCsvInput): string {
     ...input.byMethod.map((m) => [m.method, m.count, amt(m.amountCents)]),
     [],
     ["Sales by item", "Quantity", "Net sales", "Tax"],
-    ...input.items.byItem.map((i) => [i.name, i.quantity, amt(i.netSalesCents), amt(i.taxCents)]),
+    // `i.name` is user-controlled (the item's name snapshot) — sanitize against
+    // CSV formula injection. Amount cells stay raw so spreadsheets can sum them.
+    ...input.items.byItem.map((i) => [
+      sanitizeTextCell(i.name),
+      i.quantity,
+      amt(i.netSalesCents),
+      amt(i.taxCents),
+    ]),
     [],
     ["Sales by category", "Quantity", "Net sales"],
-    ...input.items.byCategory.map((c) => [c.category, c.quantity, amt(c.netSalesCents)]),
+    // `c.category` is user-controlled (a catalog category name) — sanitize too.
+    ...input.items.byCategory.map((c) => [
+      sanitizeTextCell(c.category),
+      c.quantity,
+      amt(c.netSalesCents),
+    ]),
   ];
   return rows.map(csvRow).join("\r\n");
 }
