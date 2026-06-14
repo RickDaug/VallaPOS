@@ -31,6 +31,10 @@ export async function createBusiness(input: { name: string }): Promise<{ busines
 /** The current user's first business (used to route after sign-in). */
 export async function getPrimaryBusinessId(): Promise<string | null> {
   const session = await requireSession();
+  // tenant-ok: intentionally cross-business. Before sign-in routing there is no
+  // active businessId to scope by — we look up which business(es) THIS
+  // authenticated user belongs to, filtered by their own userId. The user's own
+  // id is the isolation boundary here, not businessId.
   const membership = await db.membership.findFirst({
     where: { userId: session.user.id },
     orderBy: { createdAt: "asc" },
