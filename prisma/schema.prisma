@@ -99,6 +99,7 @@ model Business {
   orders        Order[]
   orderCounter  OrderCounter?
   drawerSessions CashDrawerSession[]
+  timeEntries   TimeEntry[]
 }
 
 // Per-business monotonic order-number allocator. One row per business; the
@@ -122,13 +123,37 @@ model Membership {
   userId     String
   businessId String
   role       Role     @default(CASHIER)
+  active     Boolean  @default(true) // deactivate a member without deleting their history
   pinHash    String?  // optional shared-device PIN (v1)
   createdAt  DateTime @default(now())
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  timeEntries TimeEntry[]
 
   @@unique([userId, businessId])
   @@index([businessId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Time tracking (clock-in / clock-out)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// One shift interval [clockInAt, clockOutAt). An OPEN entry (clockOutAt = null)
+// is the member's active shift; there is at most one open entry per membership
+// by construction (clockIn rejects a second open). Scoped by businessId like
+// every tenant-owned model.
+model TimeEntry {
+  id           String     @id @default(cuid())
+  businessId   String
+  membershipId String
+  clockInAt    DateTime   @default(now())
+  clockOutAt   DateTime?
+  business     Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([businessId, membershipId])
+  @@index([businessId, clockInAt])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
