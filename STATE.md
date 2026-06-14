@@ -2,7 +2,7 @@
 
 > **Read this first.** This is the single source of truth for what exists, what's wired, and what's next. Update it as work lands.
 
-_Last updated: 2026-06-14 — Phase 1 complete (#20 + #17 merged); Phase 2: #21 confirm dialog + #23 Better Auth security bump (1.2.8 → 1.6.18, critical advisories cleared, server-verified) landed. See "Still open" for the remaining browser sign-off + Next/esbuild/postcss advisories._
+_Last updated: 2026-06-14 — Phase 1 complete (#20 + #17). Phase 2 merged: #21 confirm dialog, #23 Better Auth 1.6.18, #24 next 15.5.19 + tsx + postcss override. **`npm audit` on `main` = 0 vulnerabilities.** Remaining: a human browser sign-off of the security bumps + the usual click-through (see "Still open")._
 
 ## Where we are
 
@@ -125,10 +125,16 @@ Resolves the critical Better Auth advisories. **`better-auth` `1.2.8 → 1.6.18`
 - **Runtime-verified** against live Neon via new `prisma/smoke-auth.ts` (sign-up → hashed credential → sign-in → session; wrong-password rejected). Re-run after future auth bumps: `npx tsx prisma/smoke-auth.ts`.
 - typecheck + lint + 104 tests + build all green.
 
+## Dependency/security advisory sweep (branch `security/next-esbuild-postcss`, #24)
+Clears the remaining (non-auth) advisories. Combined with #23, **`npm audit` on `main` now reports 0 vulnerabilities.**
+- **`next` `15.3.8 → 15.5.19`** (+ `eslint-config-next` 15.5.19 in lockstep) — fixes the HIGH image-optimizer SSRF + cache-key-confusion advisories.
+- **`tsx` `4.19.4 → 4.22.4`** — pulls `esbuild` 0.28.1 (out of the vulnerable range); clears the tsx + esbuild advisories.
+- **`overrides.postcss = 8.5.15`** — Next 15.5.19 still bundles `postcss@8.4.31` (`<8.5.10` XSS-stringify, no upstream fix); the override dedupes every postcss to the patched 8.5.15. Build-time only (Next runs postcss over our own CSS, not user input).
+- Verified on the combined branch: 0 audit findings, typecheck + lint + 104 tests + build green, **Serwist still emits `public/sw.js`** (Next-minor + PWA intact), and the live auth smoke still PASSes with 1.6.18 + 15.5.19 together.
+
 ## Still open
-_All Phase 1 core features are merged. What's left is verification, security, + polish — not new features._
-- **Better Auth browser sign-off:** the bump (#23) is server-verified, but the `authClient` React/cookie/redirect path still wants a human click-through of sign-up → sign-in → sign-out before it's fully trusted.
-- **Remaining advisories (own PRs):** Next.js (image-optimizer SSRF / cache-confusion), esbuild, postcss — separate from auth; each needs its own guarded bump + verification.
+_All Phase 1 core features + the security sweep are merged (`npm audit` = 0). What's left is human verification + polish — not new features._
+- **Browser sign-off (security bumps):** #23 (auth) and #24 (Next) are server-verified and CI-green, but the `authClient` React/cookie/redirect path and general render path still want a human click-through (sign-up → sign-in → sign-out, click around the register) to be fully trusted.
 - **Manual UI click-through** on a dev server: `npm run db:seed`, sign in (`owner@valla.test` / `supersecret123`), ring up the burger with **Cook + Add-ons**, cash checkout → receipt → open/close drawer → offline queue. Still wants a human pass.
 - **Live PWA verification:** real install + an actual offline checkout session (#13 was verified by build emission only).
 - **Receipt email:** wire Resend behind the `RESEND_API_KEY` scaffold from #11 — **parked by request.**
@@ -148,4 +154,4 @@ _All Phase 1 core features are merged. What's left is verification, security, + 
 - Browser-POS reality: Tap-to-Pay & Bluetooth readers are native-only → card-present is sequenced to a later native shell; lead with cash + QR/Terminal.
 
 ## Next step
-The critical Better Auth advisories are resolved (#23, server-verified). Next: a human browser click-through to sign off the `authClient` path (sign-up → sign-in → sign-out), plus the full ring-up flow (`! npm run db:seed` → sign in → ring up → receipt → drawer → offline). Then pick up the remaining advisories (Next.js/esbuild/postcss, own PRs) and Phase 2 polish candidates: Resend receipt email, live PWA/offline verification, and the deferred register UX (Radix Sheet/Numpad, sticky-cart split view).
+All known advisories are resolved (`npm audit` = 0; #23 + #24, both server-verified). Next is the human browser pass that automation can't cover: sign off the security bumps (sign-up → sign-in → sign-out) and the full ring-up flow (`! npm run db:seed` → sign in → ring up → receipt → drawer → offline). Then Phase 2 polish candidates: Resend receipt email, live PWA/offline verification, and the deferred register UX (Radix Sheet/Numpad, sticky-cart split view).
