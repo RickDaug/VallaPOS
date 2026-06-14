@@ -18,13 +18,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CheckoutInput } from "@/features/register/schema";
 import { checkout, type Receipt } from "@/features/register/actions";
-import {
-  bumpAttempts,
-  enqueueCheckout,
-  pendingCount,
-  listQueuedCheckouts,
-  removeQueuedCheckout,
-} from "./checkout-queue";
+import { enqueueCheckout, pendingCount, replayQueuedCheckouts } from "./checkout-queue";
 
 export type SubmitResult =
   | { status: "completed"; receipt: Receipt }
@@ -70,22 +64,8 @@ export function useOfflineCheckout() {
     replayingRef.current = true;
     setSyncing(true);
     try {
-      const queued = await listQueuedCheckouts();
-      for (const entry of queued) {
-        try {
-          // Idempotent on clientUuid: if this already committed, the server
-          // returns the existing order instead of creating a duplicate.
-          await checkout(entry.payload);
-          await removeQueuedCheckout(entry.clientUuid);
-        } catch (err) {
-          if (isNetworkError(err)) break; // still offline — stop, retry later
-          // A real server rejection (e.g. validation). Don't loop forever on it;
-          // record the attempt and drop it so the queue can drain. The sale is
-          // preserved in the cashier's session via the surfaced error elsewhere.
-          await bumpAttempts(entry.clientUuid);
-          await removeQueuedCheckout(entry.clientUuid);
-        }
-      }
+      // Shared replay logic (also used by the sign-out hygiene path).
+      await replayQueuedCheckouts();
     } finally {
       await refreshPending();
       setSyncing(false);

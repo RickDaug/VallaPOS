@@ -10,6 +10,24 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+/**
+ * Map a Better Auth sign-up error to a user-facing message WITHOUT confirming
+ * whether the email already has an account (account-enumeration hardening, M-2).
+ *
+ * The "user already exists" case (Better Auth codes `USER_ALREADY_EXISTS` /
+ * `USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL`) is collapsed into a neutral message
+ * that is indistinguishable from a generic create-account failure. Genuine
+ * validation problems (weak password, invalid email) keep their specific,
+ * helpful messages so legitimate users can fix their input.
+ */
+function signUpErrorMessage(error: { code?: string; message?: string }): string {
+  const code = error.code ?? "";
+  if (code.includes("USER_ALREADY_EXISTS")) {
+    return "Couldn't create your account. Double-check your details, or sign in if you already have one.";
+  }
+  return error.message ?? "Could not create account.";
+}
+
 export default function SignUpPage() {
   const router = useRouter();
   const [name, setName] = useState("");
@@ -26,7 +44,7 @@ export default function SignUpPage() {
     try {
       const signUp = await authClient.signUp.email({ email, password, name });
       if (signUp.error) {
-        setError(signUp.error.message ?? "Could not create account.");
+        setError(signUpErrorMessage(signUp.error));
         return;
       }
       const { businessId } = await createBusiness({ name: businessName });
