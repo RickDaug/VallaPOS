@@ -2,7 +2,7 @@
 
 > **Read this first.** This is the single source of truth for what exists, what's wired, and what's next. Update it as work lands.
 
-_Last updated: 2026-06-14 — Phase 1 + a full Phase 2 batch merged. Merged: #21 confirm dialog, #23 Better Auth 1.6.18, #24 next/tsx/postcss security sweep, #26 reporting depth, #28 eslint hygiene, #29 catalog editing, #30 SEO metadata, #31 refunds & voids + reconciliation, #32 employees + PIN + clock-in (**migration applied to Neon**), #34 register UX (category tabs + touch numpad). **`npm audit` = 0; 199 tests green; 0 open PRs.** Remaining: the standing human browser sign-off (see "Still open")._
+_Last updated: 2026-06-14 — Phase 1 + full Phase 2 + a security-hardening batch merged. Latest: security audit (#38) → fixes #39 (headers + CSV injection), #40 (Upstash rate-limit storage), #41 (sign-up enumeration + offline-clear), #42 (tenant-isolation CI guard), plus #37 modifier-picker Radix migration. Earlier today: #21/#23/#24/#26/#28/#29/#30/#31/#32/#34. **`npm audit` = 0; 205 tests green; 0 open PRs.** Remaining: activate Upstash creds + human browser sign-off (see "Still open")._
 
 ## Where we are
 
@@ -170,9 +170,21 @@ First slice of the "register UX uplift to competitor standard" item. No schema, 
 - **#28** `eslint.config.mjs`: ignore generated/non-source files (`public/sw.js`, Serwist dev shims, the Next-generated `next-env.d.ts` whose typed-routes triple-slash tripped a rule after a build under Next 15.5, and `.claude/**`). `eslint .` went from ~93 phantom errors to clean; also hardens CI's `eslint .` against build-ordering.
 - **#30** root `metadata`: added `metadataBase` (removes Next's warning), `title` template (`%s · VallaPOS`), Open Graph + Twitter cards. Auth pages left untouched (they're `"use client"`; not refactoring auth pre-sign-off).
 
+## Security hardening (audit #38 → fixes #39–#42, #40) — 2026-06-14
+A read-only security audit (`docs/SECURITY_AUDIT.md`, #38) found **no Critical issues** — the core (tenant isolation, IDOR, role gates, idempotent checkout, scrypt PINs, card data brand/last4, secure cookies, server-action CSRF) is solid. The HIGH/MED gaps are now fixed (fanned out across 4 agents + the Upstash wiring):
+- **H-1 HTTP security headers (#39):** `next.config.ts` now sets HSTS, X-Frame-Options DENY, X-Content-Type-Options nosniff, Referrer-Policy, Permissions-Policy, X-DNS-Prefetch-Control on all routes, plus a **report-only CSP** (`Content-Security-Policy-Report-Only`) — enforce-mode w/ nonces is a follow-up.
+- **H-2 CSV formula injection (#39):** `report-aggregate.ts` `sanitizeTextCell()` prefixes a leading `= + - @ \t \r` with `'`, applied ONLY to the user-text cells (item/category names) so numeric amount cells stay SUM-able.
+- **H-3 rate-limit storage (#40):** Upstash Redis wired as Better Auth `secondaryStorage` + `rateLimit.storage="secondary-storage"` (shared/persistent across Vercel instances). **Optional** — unset = unchanged in-memory fallback; `storeSessionInDatabase:true` keeps the DB the session source of truth. ⚠ **User must set `UPSTASH_REDIS_REST_URL` + `_TOKEN` in Vercel (Prod+Preview) + `.env.local`** to activate.
+- **M-2 account enumeration (#41):** sign-up no longer reveals whether an email exists (neutral message on `USER_ALREADY_EXISTS`; sign-in was already generic).
+- **M-4 offline PII on sign-out (#41):** `SignOutButton` now flushes (if online) then clears the `vallapos-offline` IndexedDB queue; if unsynced sales remain offline it warns + can abort sign-out.
+- **M-1 tenant-isolation guard (#42):** a dependency-free static vitest check (`src/test/tenant-isolation.guard.test.ts`) fails CI if a tenant-owned model query omits `businessId`; honors `// tenant-ok:` opt-out. Found no real gaps today.
+- Verified together on `main`: typecheck + lint + **205 tests** + build green; `npm audit` = 0.
+
 ## Still open
-_The full 2026-06-14 batch is merged (`npm audit` = 0; 199 tests; 0 open PRs), employee migration applied to Neon. What's left is human-only verification + optional polish — no pending code._
-- **Browser sign-off (security bumps):** #23 (auth) and #24 (Next) are server-verified and CI-green, but the `authClient` React/cookie/redirect path and general render path still want a human click-through (sign-up → sign-in → sign-out, click around the register) to be fully trusted.
+_All Phase 2 + the security hardening batch are merged (`npm audit` = 0; 205 tests; 0 open PRs). What's left: a couple of security items needing your input, human verification, optional polish._
+- **⚠ Activate Upstash (H-3):** create a free Upstash Redis DB and set `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` in Vercel (Prod+Preview) and `.env.local`. Until then the rate limiter is still per-instance in-memory.
+- **Security follow-ups (deferred):** **M-3** require email verification (needs the parked Resend provider — do with receipt email); **M-5** stop the service worker caching authed pages (Serwist tuning — careful, risks the PWA; do as its own verified PR); CSP **enforce mode** with nonces (currently report-only).
+- **Browser sign-off (security bumps + hardening):** #23 (auth) and #24 (Next) are server-verified and CI-green, but the `authClient` React/cookie/redirect path + the new headers/sign-up/sign-out behavior still want a human click-through (sign-up → sign-in → sign-out, click around the register).
 - **Manual UI click-through** on a dev server: `npm run db:seed`, sign in (`owner@valla.test` / `supersecret123`), ring up the burger with **Cook + Add-ons**, cash checkout → receipt → open/close drawer → offline queue. Still wants a human pass.
 - **Live PWA verification:** real install + an actual offline checkout session (#13 was verified by build emission only).
 - **Receipt email:** wire Resend behind the `RESEND_API_KEY` scaffold from #11 — **parked by request.**
@@ -192,4 +204,4 @@ _The full 2026-06-14 batch is merged (`npm audit` = 0; 199 tests; 0 open PRs), e
 - Browser-POS reality: Tap-to-Pay & Bluetooth readers are native-only → card-present is sequenced to a later native shell; lead with cash + QR/Terminal.
 
 ## Next step
-**(1) Human browser sign-off** — the one thing automation can't cover: the security bumps + full ring-up flow (`! npm run db:seed` → sign in → ring up → receipt → refund/void → drawer → employees/clock-in → offline). **(2) Then** the remaining Phase 2 candidates: more register UX uplift (Radix Sheet/Numpad, sticky-cart split, image tiles, favorites, open-tickets), employee clock-in UI polish, multi-sensory tap confirmation; and Phase 3 (integrated payments — the monetization milestone). Resend receipt email stays parked.
+**(1) Activate Upstash** (set the two env vars in Vercel + `.env.local`) to turn on shared rate limiting. **(2) Human browser sign-off** — the one thing automation can't cover: the security bumps + full ring-up flow (`! npm run db:seed` → sign in → ring up → receipt → refund/void → drawer → employees/clock-in → offline). **(3) Then** the deferred security follow-ups (M-5 SW cache, CSP enforce, M-3 email verify w/ Resend) and Phase 2/3 candidates: more register UX (Radix Sheet/Numpad, sticky-cart split, image tiles, favorites, open-tickets), multi-sensory tap confirmation, and Phase 3 integrated payments (the monetization milestone).
