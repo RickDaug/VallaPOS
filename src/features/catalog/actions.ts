@@ -8,10 +8,28 @@ import {
   createCategorySchema,
   createItemSchema,
   idSchema,
+  updateItemSchema,
+  setItemActiveSchema,
+  createVariationSchema,
+  updateVariationSchema,
+  updateCategorySortOrderSchema,
   createModifierGroupSchema,
   createModifierSchema,
   linkSchema,
 } from "./schema";
+
+// Prisma's unique-constraint code, raised when a per-business SKU collides on
+// @@unique([businessId, sku]). We translate it into a friendly message.
+const PRISMA_UNIQUE_VIOLATION = "P2002";
+
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code?: unknown }).code === PRISMA_UNIQUE_VIOLATION
+  );
+}
 
 function revalidateCatalog(businessId: string) {
   revalidatePath(`/${businessId}/products`);
@@ -72,6 +90,173 @@ export async function deleteItem(input: z.infer<typeof idSchema>) {
   assertRole(ctx, "MANAGER");
 
   await db.item.deleteMany({ where: { id: data.id, businessId: ctx.businessId } });
+  revalidateCatalog(ctx.businessId);
+}
+
+/**
+ * Edit an existing item's name/type/category and the price of its "Default"
+ * variation. Items created via `createItem` always have a Default variation, so
+ * editing the price here keeps the simple single-price flow working; richer
+ * multi-size pricing is managed via the variation actions below.
+ */
+export async function updateItem(input: z.infer<typeof updateItemSchema>) {
+  const data = updateItemSchema.parse(input);
+  const ctx = await requireMembership(data.businessId);
+  assertRole(ctx, "MANAGER");
+
+  // The item must belong to this business.
+  const item = await db.item.findFirst({
+    where: { id: data.id, businessId: ctx.businessId },
+    select: { id: true },
+  });
+  if (!item) throw new Error("Item not found.");
+
+  // Validate the category belongs to this business (defense in depth).
+  if (data.categoryId) {
+    const category = await db.category.findFirst({
+      where: { id: data.categoryId, businessId: ctx.businessId },
+      select: { id: true },
+    });
+    if (!category) throw new Error("Category not found.");
+  }
+
+  // Find the Default variation (or the lowest-sorted one if a legacy item has
+  // no "Default") to carry the single-price edit.
+  const priceVariation = await db.variation.findFirst({
+    where: { itemId: item.id, businessId: ctx.businessId },
+    orderBy: [{ name: "asc" }, { sortOrder: "asc" }],
+    select: { id: true },
+  });
+
+  await db.$transaction(async (tx) => {
+    await tx.item.update({
+      where: { id: item.id },
+      data: {
+        name: data.name,
+        type: data.type,
+        categoryId: data.categoryId ?? null,
+      },
+    });
+    if (priceVariation) {
+      await tx.variation.update({
+        where: { id: priceVariation.id },
+        data: { priceCents: data.priceCents },
+      });
+    }
+  });
+  revalidateCatalog(ctx.businessId);
+}
+
+/** Archive (active=false) or unarchive an item. Archived items leave the register. */
+export async function setItemActive(input: z.infer<typeof setItemActiveSchema>) {
+  const data = setItemActiveSchema.parse(input);
+  const ctx = await requireMembership(data.businessId);
+  assertRole(ctx, "MANAGER");
+
+  // updateMany scopes by businessId so a forged id can't toggle another tenant's item.
+  await db.item.updateMany({
+    where: { id: data.id, businessId: ctx.businessId },
+    data: { active: data.active },
+  });
+  revalidateCatalog(ctx.businessId);
+}
+
+// ── Variations (sizes) ─────────────────────────────────────────────────────────
+
+export async function createVariation(input: z.infer<typeof createVariationSchema>) {
+  const data = createVariationSchema.parse(input);
+  const ctx = await requireMembership(data.businessId);
+  assertRole(ctx, "MANAGER");
+
+  // The parent item must belong to this business (defense in depth).
+  const item = await db.item.findFirst({
+    where: { id: data.itemId, businessId: ctx.businessId },
+    select: { id: true },
+  });
+  if (!item) throw new Error("Item not found.");
+
+  try {
+    await db.variation.create({
+      data: {
+        businessId: ctx.businessId,
+        itemId: item.id,
+        name: data.name,
+        priceCents: data.priceCents,
+        sku: data.sku,
+        sortOrder: data.sortOrder ?? 0,
+      },
+    });
+  } catch (err) {
+    if (isUniqueViolation(err)) throw new Error("That SKU is already in use.");
+    throw err;
+  }
+  revalidateCatalog(ctx.businessId);
+}
+
+export async function updateVariation(input: z.infer<typeof updateVariationSchema>) {
+  const data = updateVariationSchema.parse(input);
+  const ctx = await requireMembership(data.businessId);
+  assertRole(ctx, "MANAGER");
+
+  // The variation must belong to this business.
+  const variation = await db.variation.findFirst({
+    where: { id: data.id, businessId: ctx.businessId },
+    select: { id: true },
+  });
+  if (!variation) throw new Error("Variation not found.");
+
+  try {
+    await db.variation.update({
+      where: { id: variation.id },
+      data: {
+        name: data.name,
+        priceCents: data.priceCents,
+        sku: data.sku,
+        ...(data.sortOrder !== undefined ? { sortOrder: data.sortOrder } : {}),
+      },
+    });
+  } catch (err) {
+    if (isUniqueViolation(err)) throw new Error("That SKU is already in use.");
+    throw err;
+  }
+  revalidateCatalog(ctx.businessId);
+}
+
+export async function deleteVariation(input: z.infer<typeof idSchema>) {
+  const data = idSchema.parse(input);
+  const ctx = await requireMembership(data.businessId);
+  assertRole(ctx, "MANAGER");
+
+  // The variation must belong to this business; resolve its item to count siblings.
+  const variation = await db.variation.findFirst({
+    where: { id: data.id, businessId: ctx.businessId },
+    select: { id: true, itemId: true },
+  });
+  if (!variation) throw new Error("Variation not found.");
+
+  // Guard: an item must keep at least one variation (price lives on the variation).
+  const count = await db.variation.count({
+    where: { itemId: variation.itemId, businessId: ctx.businessId },
+  });
+  if (count <= 1) throw new Error("An item must keep at least one variation.");
+
+  await db.variation.deleteMany({ where: { id: variation.id, businessId: ctx.businessId } });
+  revalidateCatalog(ctx.businessId);
+}
+
+// ── Reorder ─────────────────────────────────────────────────────────────────
+
+export async function updateCategorySortOrder(
+  input: z.infer<typeof updateCategorySortOrderSchema>,
+) {
+  const data = updateCategorySortOrderSchema.parse(input);
+  const ctx = await requireMembership(data.businessId);
+  assertRole(ctx, "MANAGER");
+
+  await db.category.updateMany({
+    where: { id: data.id, businessId: ctx.businessId },
+    data: { sortOrder: data.sortOrder },
+  });
   revalidateCatalog(ctx.businessId);
 }
 

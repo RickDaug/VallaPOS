@@ -94,14 +94,25 @@ export async function getRegisterCatalog(businessId: string): Promise<SellableEn
 export interface ManagedCategory {
   id: string;
   name: string;
+  sortOrder: number;
+}
+
+export interface ManagedVariation {
+  id: string;
+  name: string;
+  priceCents: number;
+  sku: string | null;
+  sortOrder: number;
 }
 
 export interface ManagedItem {
   id: string;
   name: string;
   type: ItemType;
+  active: boolean;
+  categoryId: string | null;
   categoryName: string | null;
-  variations: { id: string; name: string; priceCents: number }[];
+  variations: ManagedVariation[];
   // Ids of the modifier groups linked to this item.
   modifierGroupIds: string[];
 }
@@ -125,18 +136,25 @@ export async function getManagedCatalog(businessId: string): Promise<ManagedCata
   const [categories, items, modifierGroups] = await Promise.all([
     db.category.findMany({
       where: { businessId },
-      orderBy: { sortOrder: "asc" },
-      select: { id: true, name: true },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      select: { id: true, name: true, sortOrder: true },
     }),
+    // All items (active + archived); the UI filters/sections archived ones.
+    // Active first, then by name, so the live catalog stays at the top.
     db.item.findMany({
       where: { businessId },
-      orderBy: { name: "asc" },
+      orderBy: [{ active: "desc" }, { name: "asc" }],
       select: {
         id: true,
         name: true,
         type: true,
+        active: true,
+        categoryId: true,
         category: { select: { name: true } },
-        variations: { orderBy: { sortOrder: "asc" }, select: { id: true, name: true, priceCents: true } },
+        variations: {
+          orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+          select: { id: true, name: true, priceCents: true, sku: true, sortOrder: true },
+        },
         modifierLinks: { select: { groupId: true } },
       },
     }),
@@ -162,6 +180,8 @@ export async function getManagedCatalog(businessId: string): Promise<ManagedCata
       id: i.id,
       name: i.name,
       type: i.type,
+      active: i.active,
+      categoryId: i.categoryId,
       categoryName: i.category?.name ?? null,
       variations: i.variations,
       modifierGroupIds: i.modifierLinks.map((l) => l.groupId),

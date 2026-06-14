@@ -26,6 +26,58 @@ export const idSchema = z.object({
   id: z.string().min(1),
 });
 
+// Edit an existing item: name, type, category, and the Default variation's price.
+export const updateItemSchema = z.object({
+  businessId: businessIdSchema,
+  id: z.string().min(1),
+  name: z.string().trim().min(1).max(80),
+  type: z.enum(["PRODUCT", "SERVICE"]),
+  categoryId: z.string().min(1).nullable().optional(),
+  priceCents: z.number().int().min(0).max(10_000_000),
+});
+
+// Archive / unarchive an item via the existing Item.active flag.
+export const setItemActiveSchema = z.object({
+  businessId: businessIdSchema,
+  id: z.string().min(1),
+  active: z.boolean(),
+});
+
+// SKU is optional; empty/whitespace becomes null (the column is nullable and
+// uniquely constrained per business, so we never store an empty string).
+const skuSchema = z
+  .string()
+  .trim()
+  .max(60)
+  .nullable()
+  .optional()
+  .transform((v) => (v && v.length > 0 ? v : null));
+
+export const createVariationSchema = z.object({
+  businessId: businessIdSchema,
+  itemId: z.string().min(1),
+  name: z.string().trim().min(1).max(60),
+  priceCents: z.number().int().min(0).max(10_000_000),
+  sku: skuSchema,
+  sortOrder: z.number().int().min(0).max(100_000).optional(),
+});
+
+export const updateVariationSchema = z.object({
+  businessId: businessIdSchema,
+  id: z.string().min(1),
+  name: z.string().trim().min(1).max(60),
+  priceCents: z.number().int().min(0).max(10_000_000),
+  sku: skuSchema,
+  sortOrder: z.number().int().min(0).max(100_000).optional(),
+});
+
+// Reorder a category (numeric sortOrder; lower sorts first).
+export const updateCategorySortOrderSchema = z.object({
+  businessId: businessIdSchema,
+  id: z.string().min(1),
+  sortOrder: z.number().int().min(0).max(100_000),
+});
+
 export const createModifierGroupSchema = z
   .object({
     businessId: businessIdSchema,
