@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
 
 export function ProductsManager({
@@ -35,6 +36,7 @@ export function ProductsManager({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [confirm, confirmDialog] = useConfirm();
 
   const [name, setName] = useState("");
   const [type, setType] = useState<"PRODUCT" | "SERVICE">("PRODUCT");
@@ -181,8 +183,9 @@ export function ProductsManager({
                     variant="ghost"
                     size="icon"
                     className="h-10 w-10 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                    onClick={() => {
-                      if (confirm(`Delete "${item.name}"?`)) run(() => deleteItem({ businessId, id: item.id }));
+                    onClick={async () => {
+                      if (await confirm({ title: `Delete "${item.name}"?`, confirmLabel: "Delete" }))
+                        run(() => deleteItem({ businessId, id: item.id }));
                     }}
                     disabled={pending}
                     aria-label={`Delete ${item.name}`}
@@ -266,8 +269,14 @@ export function ProductsManager({
                       variant="ghost"
                       size="icon"
                       className="h-10 w-10 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      onClick={() => {
-                        if (confirm(`Delete category "${c.name}"? Items become uncategorized.`))
+                      onClick={async () => {
+                        if (
+                          await confirm({
+                            title: `Delete category "${c.name}"?`,
+                            description: "Items in this category become uncategorized.",
+                            confirmLabel: "Delete",
+                          })
+                        )
                           run(() => deleteCategory({ businessId, id: c.id }));
                       }}
                       disabled={pending}
@@ -334,8 +343,14 @@ export function ProductsManager({
                         variant="ghost"
                         size="icon"
                         className="h-9 w-9 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                        onClick={() => {
-                          if (confirm(`Delete group "${g.name}" and its modifiers?`))
+                        onClick={async () => {
+                          if (
+                            await confirm({
+                              title: `Delete group "${g.name}"?`,
+                              description: "This group and all its modifiers will be removed.",
+                              confirmLabel: "Delete",
+                            })
+                          )
                             run(() => deleteModifierGroup({ businessId, id: g.id }));
                         }}
                         disabled={pending}
@@ -400,6 +415,7 @@ export function ProductsManager({
           </CardContent>
         </Card>
       </aside>
+      {confirmDialog}
     </div>
   );
 }
