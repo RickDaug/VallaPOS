@@ -2,7 +2,7 @@
 
 > **Read this first.** This is the single source of truth for what exists, what's wired, and what's next. Update it as work lands.
 
-_Last updated: 2026-06-14 — Phase 1 complete (#20 + #17 merged); first Phase 2 polish landed (#21 confirm dialog). Security: critical Better Auth advisories flagged, see "Still open"._
+_Last updated: 2026-06-14 — Phase 1 complete (#20 + #17 merged); Phase 2: #21 confirm dialog + #23 Better Auth security bump (1.2.8 → 1.6.18, critical advisories cleared, server-verified) landed. See "Still open" for the remaining browser sign-off + Next/esbuild/postcss advisories._
 
 ## Where we are
 
@@ -118,9 +118,17 @@ First Phase 2 polish item. Replaced the three `window.confirm()` calls in the ca
 - New `src/components/ui/confirm-dialog.tsx` — promise-based `useConfirm()` hook: `await confirm({ title, … })` resolves true/false; escape/overlay/cancel resolve false; destructive styling by default.
 - Adds `@radix-ui/react-dialog@1.1.16` (pinned). Verified: typecheck + lint + **104 tests** + build green. Behavior still wants the human click-through pass below.
 
+## Better Auth security bump (branch `security/better-auth-bump`, #23)
+Resolves the critical Better Auth advisories. **`better-auth` `1.2.8 → 1.6.18`** (pinned); `npm audit` now shows the Better Auth criticals cleared.
+- **No migration needed:** re-ran the schema generator against installed 1.6.18 and diffed — every expected column already exists; zero new columns/tables. Full write-up appended to `docs/BETTER_AUTH_AUDIT.md`.
+- **Config API unchanged** (`auth.ts` / `auth-client.ts` untouched); typecheck clean.
+- **Runtime-verified** against live Neon via new `prisma/smoke-auth.ts` (sign-up → hashed credential → sign-in → session; wrong-password rejected). Re-run after future auth bumps: `npx tsx prisma/smoke-auth.ts`.
+- typecheck + lint + 104 tests + build all green.
+
 ## Still open
 _All Phase 1 core features are merged. What's left is verification, security, + polish — not new features._
-- **⚠ Security (next up):** `npm audit` on `main` reports **critical Better Auth advisories** — open-redirect in `originCheck`, unauthenticated API-key creation via the api-key plugin, `disabledPaths`/rate-limit bypass via `rou3` double-slash, and a basePath DoS. Needs a **guarded Better Auth version bump** (own branch; re-run `@better-auth/cli generate`; verify sign-up/sign-in against Neon — auth is outward-facing, so a human sign-off on the flow is required before merge). Also pending: Next.js (image-optimizer SSRF/cache-confusion), esbuild, postcss advisories.
+- **Better Auth browser sign-off:** the bump (#23) is server-verified, but the `authClient` React/cookie/redirect path still wants a human click-through of sign-up → sign-in → sign-out before it's fully trusted.
+- **Remaining advisories (own PRs):** Next.js (image-optimizer SSRF / cache-confusion), esbuild, postcss — separate from auth; each needs its own guarded bump + verification.
 - **Manual UI click-through** on a dev server: `npm run db:seed`, sign in (`owner@valla.test` / `supersecret123`), ring up the burger with **Cook + Add-ons**, cash checkout → receipt → open/close drawer → offline queue. Still wants a human pass.
 - **Live PWA verification:** real install + an actual offline checkout session (#13 was verified by build emission only).
 - **Receipt email:** wire Resend behind the `RESEND_API_KEY` scaffold from #11 — **parked by request.**
@@ -140,4 +148,4 @@ _All Phase 1 core features are merged. What's left is verification, security, + 
 - Browser-POS reality: Tap-to-Pay & Bluetooth readers are native-only → card-present is sequenced to a later native shell; lead with cash + QR/Terminal.
 
 ## Next step
-**Security first:** address the critical Better Auth advisories (see "Still open") via a guarded version bump on its own branch — auth is outward-facing, so verify sign-up/sign-in against Neon and get a human sign-off before merge. In parallel, the manual dev-server click-through of the full flow (`! npm run db:seed` → sign in → ring up → receipt → drawer → offline) still wants a human pass. Remaining Phase 2 polish candidates: Resend receipt email, live PWA/offline verification, and the deferred register UX (Radix Sheet/Numpad, sticky-cart split view).
+The critical Better Auth advisories are resolved (#23, server-verified). Next: a human browser click-through to sign off the `authClient` path (sign-up → sign-in → sign-out), plus the full ring-up flow (`! npm run db:seed` → sign in → ring up → receipt → drawer → offline). Then pick up the remaining advisories (Next.js/esbuild/postcss, own PRs) and Phase 2 polish candidates: Resend receipt email, live PWA/offline verification, and the deferred register UX (Radix Sheet/Numpad, sticky-cart split view).
