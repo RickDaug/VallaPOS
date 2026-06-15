@@ -24,6 +24,11 @@ jobs:
       # npm ci needs an in-sync lockfile (dependency policy: lockfile committed).
       - run: npm ci
 
+      # Fail the build on high/critical vulnerabilities in PROD dependencies
+      # (dev-only advisories don't ship to users, so they're excluded).
+      - name: Audit
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Typecheck
         run: npm run typecheck
 

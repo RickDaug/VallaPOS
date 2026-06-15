@@ -11,6 +11,21 @@ import {
 } from "./pricing";
 import { checkoutSchema, type CheckoutInput } from "./schema";
 
+// Prisma's unique-constraint code, raised here when two concurrent requests with
+// the same clientUuid race past the pre-check and both try to insert on
+// @@unique([businessId, clientUuid]). We translate the loser into the existing
+// order so checkout stays idempotent (mirrors catalog's isUniqueViolation).
+const PRISMA_UNIQUE_VIOLATION = "P2002";
+
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code?: unknown }).code === PRISMA_UNIQUE_VIOLATION
+  );
+}
+
 export interface Receipt {
   orderId: string;
   number: number;
@@ -148,69 +163,88 @@ export async function checkout(input: CheckoutInput): Promise<Receipt> {
   }
   const changeCents = data.cashTenderedCents - totals.totalCents;
 
-  const order = await db.$transaction(async (tx) => {
-    // Atomically allocate the next per-business order number. The increment
-    // takes a row lock on this business's counter, so two concurrent cashiers
-    // are serialized and can never collide on @@unique([businessId, number]).
-    // upsert is defensive: a business without a counter row (e.g. created before
-    // this table existed) self-heals on its first sale.
-    const counter = await tx.orderCounter.upsert({
-      where: { businessId },
-      create: { businessId, lastNumber: 1 },
-      update: { lastNumber: { increment: 1 } },
-      select: { lastNumber: true },
-    });
-    const number = counter.lastNumber;
+  let order;
+  try {
+    order = await db.$transaction(async (tx) => {
+      // Atomically allocate the next per-business order number. The increment
+      // takes a row lock on this business's counter, so two concurrent cashiers
+      // are serialized and can never collide on @@unique([businessId, number]).
+      // upsert is defensive: a business without a counter row (e.g. created before
+      // this table existed) self-heals on its first sale.
+      const counter = await tx.orderCounter.upsert({
+        where: { businessId },
+        create: { businessId, lastNumber: 1 },
+        update: { lastNumber: { increment: 1 } },
+        select: { lastNumber: true },
+      });
+      const number = counter.lastNumber;
 
-    return tx.order.create({
-      data: {
-        businessId,
-        clientUuid: data.clientUuid,
-        number,
-        status: "PAID",
-        customerName: data.customerName,
-        subtotalCents: totals.subtotalCents,
-        discountCents: totals.discountCents,
-        taxCents: totals.taxCents,
-        tipCents: totals.tipCents,
-        totalCents: totals.totalCents,
-        lines: {
-          // lineRecords and priced.lines are index-aligned (same source order).
-          create: lineRecords.map((l, i) => {
-            const p = priced.lines[i]!;
-            return {
+      return tx.order.create({
+        data: {
+          businessId,
+          clientUuid: data.clientUuid,
+          number,
+          status: "PAID",
+          customerName: data.customerName,
+          subtotalCents: totals.subtotalCents,
+          discountCents: totals.discountCents,
+          taxCents: totals.taxCents,
+          tipCents: totals.tipCents,
+          totalCents: totals.totalCents,
+          lines: {
+            // lineRecords and priced.lines are index-aligned (same source order).
+            create: lineRecords.map((l, i) => {
+              const p = priced.lines[i]!;
+              return {
+                businessId,
+                variationId: l.variation.id,
+                nameSnapshot: l.nameSnapshot,
+                unitPriceCents: l.unitPriceCents,
+                quantity: l.quantity,
+                discountCents: p.discountCents,
+                taxCents: p.taxCents, // per-line tax; Σ == Order.taxCents
+                totalCents: p.totalCents,
+                modifiers: {
+                  // Snapshot each chosen modifier so catalog edits never rewrite
+                  // sold history (mirrors OrderLine.nameSnapshot/unitPriceCents).
+                  create: l.modifiers.map((m) => ({
+                    nameSnapshot: m.nameSnapshot,
+                    priceDeltaCents: m.priceDeltaCents,
+                  })),
+                },
+              };
+            }),
+          },
+          payments: {
+            create: {
               businessId,
-              variationId: l.variation.id,
-              nameSnapshot: l.nameSnapshot,
-              unitPriceCents: l.unitPriceCents,
-              quantity: l.quantity,
-              discountCents: p.discountCents,
-              taxCents: p.taxCents, // per-line tax; Σ == Order.taxCents
-              totalCents: p.totalCents,
-              modifiers: {
-                // Snapshot each chosen modifier so catalog edits never rewrite
-                // sold history (mirrors OrderLine.nameSnapshot/unitPriceCents).
-                create: l.modifiers.map((m) => ({
-                  nameSnapshot: m.nameSnapshot,
-                  priceDeltaCents: m.priceDeltaCents,
-                })),
-              },
-            };
-          }),
-        },
-        payments: {
-          create: {
-            businessId,
-            method: "CASH",
-            status: "CAPTURED",
-            amountCents: totals.totalCents,
-            tenderedCents: data.cashTenderedCents,
-            changeCents,
+              method: "CASH",
+              status: "CAPTURED",
+              amountCents: totals.totalCents,
+              tenderedCents: data.cashTenderedCents,
+              changeCents,
+            },
           },
         },
-      },
+      });
     });
-  });
+  } catch (e) {
+    // Concurrency: another request with the same clientUuid won the insert race
+    // after we passed the fast-path pre-check. The DB unique constraint blocks
+    // the double-insert; re-read the winner and return its receipt so checkout
+    // stays idempotent instead of surfacing an unhandled P2002.
+    if (isUniqueViolation(e)) {
+      const winner = await db.order.findUnique({
+        where: { businessId_clientUuid: { businessId, clientUuid: data.clientUuid } },
+        include: { payments: true },
+      });
+      if (winner) {
+        const payment = winner.payments[0];
+        return toReceipt(winner, payment?.tenderedCents ?? 0, payment?.changeCents ?? 0);
+      }
+    }
+    throw e;
+  }
 
   return toReceipt(order, data.cashTenderedCents, changeCents);
 }

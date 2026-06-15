@@ -182,6 +182,13 @@ A read-only security audit (`docs/SECURITY_AUDIT.md`, #38) found **no Critical i
 
 ## Still open
 _All Phase 2 + the security hardening batch are merged (`npm audit` = 0; 205 tests; 0 open PRs). What's left: a couple of security items needing your input, human verification, optional polish._
+
+**Security re-audit 2026-06-14 (6-agent read-only sweep, `docs/SECURITY_AUDIT.md` Re-audit section):** core still solid — no Critical/cross-tenant leak/auth-bypass/money hole; the #39–#42 fixes all re-verified holding. New open items, by priority:
+- **R-1 (High):** service worker caches authed HTML/RSC (`app/sw.ts` Serwist `defaultCache`, 24h) with no per-user keying and **no Cache-Storage purge on sign-out** → shared-device cross-user exposure. (This is the long-tracked M-5; now rated High.) Fix: `NetworkOnly` for `(app)/[businessId]/**` page+RSC, or `caches.delete()` the 3 page caches in `SignOutButton`.
+- **R-3 (Med):** checkout idempotency pre-check is outside the `$transaction` and `P2002` is uncaught — DB unique still blocks double-charge, but a concurrent offline double-send throws instead of returning the receipt (`register/actions.ts:37-44`). Fix: catch P2002 → re-read + return existing receipt.
+- **R-2 (Med):** `verifyMemberPin` (`employees/actions.ts:172`) has no brute-force throttle/lockout on 4-digit PINs (insider-only). Add per-membership attempt counter and/or 6+ digit PINs.
+- **R-4 (Med):** CI has no `npm audit` gate (`.github/workflows/ci.yml`) — add `npm audit --omit=dev --audit-level=high`.
+- Lower: R-5 CSP still report-only + no report-uri; R-6 `poweredByHeader` not disabled; R-7 offline PII unencrypted at rest (accept/document); R-8 pin `trustedOrigins`; R-9 tenant guard is heuristic; R-10 no non-negativity on catalog prices; R-11 `cashierId` not persisted.
 - **⚠ Activate Upstash (H-3):** create a free Upstash Redis DB and set `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` in Vercel (Prod+Preview) and `.env.local`. Until then the rate limiter is still per-instance in-memory.
 - **Security follow-ups (deferred):** **M-3** require email verification (needs the parked Resend provider — do with receipt email); **M-5** stop the service worker caching authed pages (Serwist tuning — careful, risks the PWA; do as its own verified PR); CSP **enforce mode** with nonces (currently report-only).
 - **Browser sign-off (security bumps + hardening):** #23 (auth) and #24 (Next) are server-verified and CI-green, but the `authClient` React/cookie/redirect path + the new headers/sign-up/sign-out behavior still want a human click-through (sign-up → sign-in → sign-out, click around the register).

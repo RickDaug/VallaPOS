@@ -24,6 +24,9 @@ export const auth = betterAuth({
   database: prismaAdapter(db, { provider: "postgresql" }),
   secret: env.BETTER_AUTH_SECRET,
   baseURL: env.BETTER_AUTH_URL,
+  // Pin the allowed origin set explicitly instead of relying on the implicit
+  // baseURL-derived default.
+  trustedOrigins: [env.BETTER_AUTH_URL],
   emailAndPassword: {
     enabled: true,
   },

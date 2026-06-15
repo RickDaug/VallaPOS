@@ -1,5 +1,49 @@
 # VallaPOS — Security Audit
 
+> ## Re-audit — 2026-06-14 (post #39–#42)
+>
+> **Auditor:** Automated read-only audit (Claude Opus 4.8), 6 parallel auditors across tenant-isolation/IDOR, auth/session, input/injection, money/business-logic, secrets/headers/config, and deps/PWA/CI. **Commit basis:** `main` @ `3fe4542` (clean tree). `npm audit` = **0**. No application code changed.
+>
+> **Verdict:** The core remains **solid — no Critical, no live cross-tenant leak, no auth bypass, no money-integrity hole.** The original #38 High/Medium findings are **confirmed fixed** (see "Status of prior findings" below). This pass found **no new High in application logic**; the one High is an infrastructure/PWA caching gap previously tracked as M-5. New actionable items are Medium/Low edge-hardening.
+>
+> ### New findings this pass
+>
+> | ID | Sev | Finding | Location | Status |
+> |----|-----|---------|----------|--------|
+> | R-1 | **High** | **Service worker caches authenticated HTML/RSC** via Serwist `defaultCache` (`NetworkFirst`, 24h, names `pages`/`pages-rsc`/`pages-rsc-prefetch`), **not keyed per-user and never purged on sign-out** (sign-out clears IndexedDB but not Cache Storage). On a shared register device, an offline nav after a user switch can serve User A's register/reports to User B. | `app/sw.ts:31-35`; `SignOutButton.tsx` (no `caches.delete`) | Open (was tracked as M-5, deferred) |
+> | R-2 | Med | **Unthrottled PIN brute-force.** `verifyMemberPin` is a Next server action *outside* Better Auth's rate limiter; any active CASHIER+ can loop `(membershipId, pin)` guesses against a co-member's 4-digit PIN (10k space) with no attempt counter/lockout. scrypt slows but doesn't stop it. Insider-only (same tenant). | `src/features/employees/actions.ts:172-184` | Open (new) |
+> | R-3 | Med | **Checkout not idempotent under concurrency.** The `clientUuid` pre-check (`findUnique`) is outside the `$transaction` and the `create`'s `P2002` is uncaught. The `@@unique([businessId, clientUuid])` still prevents a double-charge, but a concurrent offline double-send makes the losing request **throw instead of returning the existing receipt** → operator may manually re-ring. | `src/features/register/actions.ts:37-44` + `:151-213` | Open (new) |
+> | R-4 | Med | **No `npm audit` gate in CI.** The quality job runs typecheck/lint/test/build but never `npm audit`; with exact pins (no auto-bump), a future advisory in a pinned dep ships silently. | `.github/workflows/ci.yml` | Open (new) |
+> | R-5 | Med | **CSP still report-only** with `'unsafe-inline' 'unsafe-eval'` and **no `report-uri`/`report-to`** — blocks nothing and collects nothing. (Carryover from #39; enforce-mode w/ nonces is the tracked follow-up.) | `next.config.ts:12-37` | Open (deferred) |
+> | R-6 | Low | `poweredByHeader` not disabled → `X-Powered-By: Next.js` fingerprint. | `next.config.ts` | Open (new) |
+> | R-7 | Low | Offline order PII (`customerName`, line items, cash tendered) stored **unencrypted at rest** in IndexedDB. Cleared on sign-out, but exposed on a device seized while signed-in/offline. No PAN stored (cash/manual). Largely accepted POS risk. | `src/lib/offline/checkout-queue.ts:27-75` | Open (new, accept/document) |
+> | R-8 | Low | `trustedOrigins` not explicitly pinned — relies on Better Auth deriving from `BETTER_AUTH_URL`. Safe iff that env var is the exact prod origin in Vercel. | `src/lib/auth.ts:23-38` | Open (new) |
+> | R-9 | Low | Tenant-isolation guard is a heuristic text scan: doesn't check single-row id-keyed writes, is defeated by a pre-built `where` var, and doesn't enforce that every `businessId`-bearing model is in `TENANT_MODELS`. It's a safety net, not a proof. | `src/test/tenant-isolation.guard.test.ts:44-61` | Open (new, harden) |
+> | R-10 | Low | No non-negativity constraint on catalog `priceCents`/`priceDeltaCents`; a privileged catalog editor (not the checkout client) could set a negative price that zeroes a line's tax. Not client-exploitable. | `prisma/schema.prisma:206,233`; `register/pricing.ts:82-85` | Open (new) |
+> | R-11 | Info | `cashierId` never persisted on orders → no per-cashier attribution for loss-prevention. `ctx.membershipId` is already available. | `src/features/register/actions.ts:165-176` | Open (new) |
+> | R-12 | Info | Seed creds (`owner@valla.test` / `supersecret123`) are seed-only (not a runtime backdoor), but `db:seed` against prod `DATABASE_URL` would create a known-password OWNER. Operational caution only. | `prisma/seed.ts` | Note |
+>
+> ### Status of prior (#38) findings — all fixed, re-verified holding
+> - **H-1 security headers** → fixed #39: HSTS (`max-age=63072000; includeSubDomains; preload`), `X-Frame-Options: DENY`, nosniff, Referrer-Policy, Permissions-Policy, X-DNS-Prefetch-Control on `/:path*`. ✅
+> - **H-2 CSV formula injection** → fixed #39: `sanitizeTextCell` prefixes `' ` on leading `= + - @ \t \r`, applied to both user-text cells (item + category name); numeric cells left SUM-able. ✅
+> - **H-3 rate-limit storage** → wired #40: Upstash `secondaryStorage`; **still requires the two Upstash env vars set in Vercel** to be shared/persistent (in-memory per-instance until then). ⚠ activation pending.
+> - **M-2 sign-up enumeration** → fixed #41: neutral message on `USER_ALREADY_EXISTS`; sign-in generic; Better Auth equalizes missing-user timing. ✅
+> - **M-4 offline PII on sign-out** → fixed #41: `SignOutButton` flushes-or-confirms then `deleteDatabase("vallapos-offline")`. ✅ (but see R-1: Cache Storage is *not* purged.)
+> - **M-1 tenant-isolation CI guard** → added #42 (see R-9 for its limits). ✅
+>
+> ### Recommended order of work
+> 1. **R-1 (High)** — exclude `(app)/[businessId]/**` page+RSC from runtime caching (add a `NetworkOnly` matcher) **or** `caches.delete()` the three page caches in the sign-out path. Safest for a POS: don't cache authed routes at all.
+> 2. **R-3 (Med)** — wrap the checkout `create` in a `P2002` catch that re-reads and returns the existing receipt (true idempotency under concurrency). Small, high-value.
+> 3. **R-2 (Med)** — add per-membership failed-PIN throttle/lockout (Redis or DB counter) and/or require 6+ digit PINs.
+> 4. **R-4 (Med)** — add `npm audit --omit=dev --audit-level=high` to CI; consider Dependabot/Renovate given the no-`^` policy.
+> 5. **H-3 activation** + **R-5 CSP enforce w/ nonces** + the Low/Info items as polish.
+>
+> _The detailed #38 report below remains for history; its High/Med items are superseded by the "Status of prior findings" table above._
+>
+> ---
+
+# VallaPOS — Security Audit (#38, original)
+
 **Date:** 2026-06-14
 **Auditor:** Automated read-only audit (Claude Opus 4.8)
 **Scope:** Full application security review of the multi-tenant browser POS. READ-ONLY — no application code was changed; this document is the only file added.

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requireMembership, assertRole } from "@/lib/tenant";
+import { assertNotLocked, recordFailure, recordSuccess } from "@/lib/pin-throttle";
 import { hashPin, verifyPin } from "./pin";
 import {
   addMemberSchema,
@@ -168,6 +169,11 @@ export async function setMemberActive(input: SetActiveInput): Promise<void> {
  * Verify a PIN for a membership (for a future cashier-switch / clock flow).
  * Returns only a boolean — never the hash, never which step failed in a way that
  * leaks the stored value. Scoped by businessId; an inactive member fails.
+ *
+ * This action sits OUTSIDE Better Auth's rate limiter, so it's throttled here
+ * per (businessId, membershipId): too many consecutive failed guesses lock the
+ * target for a cool-down. A locked target returns the same `{ valid: false }` as
+ * a wrong PIN so a brute-forcer can't tell lockout from a miss.
  */
 export async function verifyMemberPin(input: VerifyPinInput): Promise<{ valid: boolean }> {
   const data = verifyPinSchema.parse(input);
@@ -175,12 +181,22 @@ export async function verifyMemberPin(input: VerifyPinInput): Promise<{ valid: b
   // Any member may verify a PIN (it's the gate for switching the active cashier).
   assertRole(ctx, "CASHIER");
 
+  try {
+    await assertNotLocked(ctx.businessId, data.membershipId);
+  } catch {
+    return { valid: false };
+  }
+
   const target = await db.membership.findFirst({
     where: { id: data.membershipId, businessId: ctx.businessId, active: true },
     select: { pinHash: true },
   });
   if (!target) return { valid: false };
-  return { valid: verifyPin(data.pin, target.pinHash) };
+
+  const valid = verifyPin(data.pin, target.pinHash);
+  if (valid) await recordSuccess(ctx.businessId, data.membershipId);
+  else await recordFailure(ctx.businessId, data.membershipId);
+  return { valid };
 }
 
 /**
