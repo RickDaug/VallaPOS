@@ -62,6 +62,22 @@ async function clearOfflineQueueForSignOut(): Promise<boolean> {
   } catch {
     // Best effort — never block sign-out on a wipe failure.
   }
+
+  // R-1: Purge the Serwist page caches so an offline navigation after a user
+  // switch on a shared device can't serve the previous operator's authed,
+  // business-scoped pages. These caches are written by Serwist's defaultCache
+  // (NetworkFirst). Best effort — never block sign-out on a delete failure.
+  if (typeof window !== "undefined" && "caches" in window) {
+    try {
+      await Promise.all(
+        ["pages", "pages-rsc", "pages-rsc-prefetch"].map((name) =>
+          caches.delete(name),
+        ),
+      );
+    } catch {
+      // Cache Storage unavailable — nothing to purge.
+    }
+  }
   return true;
 }
 
