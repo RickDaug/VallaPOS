@@ -82,24 +82,35 @@ model Verification {
 // Tenancy
 // ─────────────────────────────────────────────────────────────────────────────
 
-model Business {
-  id            String       @id @default(cuid())
-  name          String
-  // Single configurable rate for MVP; multi-rate/tax API comes later.
-  taxRateBps    Int          @default(0) // basis points; 825 = 8.25%
-  taxInclusive  Boolean      @default(false)
-  currency      String       @default("USD")
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+// STORE = retail/counter flow (instant checkout). RESTAURANT = dining flow
+// (open tabs on tables, a floor plan, per-seat split checks). Defaults to STORE
+// so existing businesses are unchanged.
+enum BusinessMode {
+  STORE
+  RESTAURANT
+}
 
-  memberships   Membership[]
-  categories    Category[]
-  items         Item[]
+model Business {
+  id           String       @id @default(cuid())
+  name         String
+  mode         BusinessMode @default(STORE)
+  // Single configurable rate for MVP; multi-rate/tax API comes later.
+  taxRateBps   Int          @default(0) // basis points; 825 = 8.25%
+  taxInclusive Boolean      @default(false)
+  currency     String       @default("USD")
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  memberships    Membership[]
+  categories     Category[]
+  items          Item[]
   modifierGroups ModifierGroup[]
-  orders        Order[]
-  orderCounter  OrderCounter?
+  orders         Order[]
+  orderCounter   OrderCounter?
   drawerSessions CashDrawerSession[]
-  timeEntries   TimeEntry[]
+  timeEntries    TimeEntry[]
+  rooms          FloorRoom[]
+  floorTables    FloorTable[]
 }
 
 // Per-business monotonic order-number allocator. One row per business; the
@@ -119,15 +130,15 @@ enum Role {
 }
 
 model Membership {
-  id         String   @id @default(cuid())
-  userId     String
-  businessId String
-  role       Role     @default(CASHIER)
-  active     Boolean  @default(true) // deactivate a member without deleting their history
-  pinHash    String?  // optional shared-device PIN (v1)
-  createdAt  DateTime @default(now())
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  id          String      @id @default(cuid())
+  userId      String
+  businessId  String
+  role        Role        @default(CASHIER)
+  active      Boolean     @default(true) // deactivate a member without deleting their history
+  pinHash     String? // optional shared-device PIN (v1)
+  createdAt   DateTime    @default(now())
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business    Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
   timeEntries TimeEntry[]
 
   @@unique([userId, businessId])
@@ -178,17 +189,17 @@ enum ItemType {
 }
 
 model Item {
-  id            String      @id @default(cuid())
+  id            String              @id @default(cuid())
   businessId    String
   categoryId    String?
   name          String
-  type          ItemType    @default(PRODUCT)
-  trackStock    Boolean     @default(false) // inventory OFF by default
-  active        Boolean     @default(true)
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  business      Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  category      Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  type          ItemType            @default(PRODUCT)
+  trackStock    Boolean             @default(false) // inventory OFF by default
+  active        Boolean             @default(true)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  business      Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  category      Category?           @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   variations    Variation[]
   modifierLinks ItemModifierGroup[]
 
@@ -197,15 +208,15 @@ model Item {
 }
 
 model Variation {
-  id         String   @id @default(cuid())
+  id         String  @id @default(cuid())
   businessId String
   itemId     String
-  name       String   @default("Default") // Small / Medium / Large
+  name       String  @default("Default") // Small / Medium / Large
   sku        String?
-  priceCents Int      // price lives here
-  stock      Int?     // null when not tracking stock
-  sortOrder  Int      @default(0)
-  item       Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  priceCents Int // price lives here
+  stock      Int? // null when not tracking stock
+  sortOrder  Int     @default(0)
+  item       Item    @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, sku])
   @@index([businessId])
@@ -213,26 +224,26 @@ model Variation {
 }
 
 model ModifierGroup {
-  id          String     @id @default(cuid())
-  businessId  String
-  name        String     // "Milk", "Add-ons"
-  minSelect   Int        @default(0)
-  maxSelect   Int        @default(1) // >1 allows multiple
-  business    Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  modifiers   Modifier[]
-  itemLinks   ItemModifierGroup[]
+  id         String              @id @default(cuid())
+  businessId String
+  name       String // "Milk", "Add-ons"
+  minSelect  Int                 @default(0)
+  maxSelect  Int                 @default(1) // >1 allows multiple
+  business   Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  modifiers  Modifier[]
+  itemLinks  ItemModifierGroup[]
 
   @@index([businessId])
 }
 
 model Modifier {
-  id            String        @id @default(cuid())
-  businessId    String
-  groupId       String
-  name          String        // "Oat milk", "Extra cheese"
-  priceDeltaCents Int         @default(0) // added to taxable base
-  sortOrder     Int           @default(0)
-  group         ModifierGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  id              String        @id @default(cuid())
+  businessId      String
+  groupId         String
+  name            String // "Oat milk", "Extra cheese"
+  priceDeltaCents Int           @default(0) // added to taxable base
+  sortOrder       Int           @default(0)
+  group           ModifierGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
   @@index([businessId])
   @@index([groupId])
@@ -246,6 +257,67 @@ model ItemModifierGroup {
   group   ModifierGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
   @@id([itemId, groupId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Restaurant: floor plan & tables (RESTAURANT mode only)
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum TableShape {
+  ROUND
+  SQUARE
+  RECT
+}
+
+// A section of the dining room: "Main", "Patio", "Bar". Tables live inside rooms.
+model FloorRoom {
+  id         String       @id @default(cuid())
+  businessId String
+  name       String
+  sortOrder  Int          @default(0)
+  createdAt  DateTime     @default(now())
+  business   Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  tables     FloorTable[]
+
+  @@unique([businessId, name])
+  @@index([businessId])
+}
+
+// A single table on the floor. x/y/width/height are pixel coordinates in a fixed
+// canvas space (the editor and the service view share the same coordinate space).
+model FloorTable {
+  id          String       @id @default(cuid())
+  businessId  String // denormalized so the tenant guard can scope without a join
+  roomId      String
+  label       String // "T1", "12", "Bar-3"
+  shape       TableShape   @default(SQUARE)
+  x           Int          @default(0)
+  y           Int          @default(0)
+  width       Int          @default(80)
+  height      Int          @default(80)
+  seats       Int          @default(4)
+  sortOrder   Int          @default(0)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  business    Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  room        FloorRoom    @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  assignments OrderTable[]
+
+  @@index([businessId])
+  @@index([roomId])
+}
+
+// Join: a tab (Order) is seated at one or more tables. More than one table for a
+// single order = merged tables. A FloorTable is "occupied" iff it has a row here
+// whose Order.status == OPEN.
+model OrderTable {
+  orderId String
+  tableId String
+  order   Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  table   FloorTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+
+  @@id([orderId, tableId])
+  @@index([tableId])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -275,24 +347,25 @@ enum PaymentStatus {
 }
 
 model Order {
-  id            String      @id @default(cuid())
+  id            String       @id @default(cuid())
   businessId    String
   // Client-generated UUID — idempotency key for offline sync (never double-insert).
   clientUuid    String
-  number        Int         // human-friendly per-business sequence
-  cashierId     String?     // Membership.id
+  number        Int // human-friendly per-business sequence
+  cashierId     String? // Membership.id
   customerName  String?
-  status        OrderStatus @default(OPEN)
-  subtotalCents Int         @default(0)
-  discountCents Int         @default(0)
-  taxCents      Int         @default(0)
-  tipCents      Int         @default(0)
-  totalCents    Int         @default(0)
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  business      Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  status        OrderStatus  @default(OPEN)
+  subtotalCents Int          @default(0)
+  discountCents Int          @default(0)
+  taxCents      Int          @default(0)
+  tipCents      Int          @default(0)
+  totalCents    Int          @default(0)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  business      Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
   lines         OrderLine[]
   payments      Payment[]
+  tables        OrderTable[] // empty for store/to-go orders; 1+ for restaurant tabs
 
   @@unique([businessId, clientUuid]) // idempotent offline sync
   @@unique([businessId, number])
@@ -301,21 +374,28 @@ model Order {
 }
 
 model OrderLine {
-  id            String   @id @default(cuid())
-  businessId    String
-  orderId       String
-  variationId   String?  // snapshot below survives catalog edits/deletes
-  nameSnapshot  String
-  unitPriceCents Int
-  quantity      Int      @default(1)
-  discountCents Int      @default(0)
-  taxCents      Int      @default(0)
-  totalCents    Int      // (unitPrice + modifiers) * qty - discount
-  modifiers     OrderLineModifier[]
-  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  id                 String              @id @default(cuid())
+  businessId         String
+  orderId            String
+  variationId        String? // snapshot below survives catalog edits/deletes
+  nameSnapshot       String
+  unitPriceCents     Int
+  quantity           Int                 @default(1)
+  discountCents      Int                 @default(0)
+  taxCents           Int                 @default(0)
+  totalCents         Int // (unitPrice + modifiers) * qty - discount
+  // Restaurant tabs: which seat ordered this line (null = shared/unassigned).
+  seat               Int?
+  // Restaurant split checks: the split payment that cleared this line (null =
+  // unsettled). A tab Order closes to PAID once every line is settled.
+  settledByPaymentId String?
+  modifiers          OrderLineModifier[]
+  order              Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  settledBy          Payment?            @relation("LineSettlement", fields: [settledByPaymentId], references: [id], onDelete: SetNull)
 
   @@index([businessId])
   @@index([orderId])
+  @@index([settledByPaymentId])
 }
 
 model OrderLineModifier {
@@ -335,14 +415,16 @@ model Payment {
   method        PaymentMethod @default(CASH)
   status        PaymentStatus @default(CAPTURED)
   amountCents   Int
-  tenderedCents Int?          // cash given
-  changeCents   Int?          // change due
+  tenderedCents Int? // cash given
+  changeCents   Int? // change due
   // Non-sensitive card metadata only (FACTA/PCI): brand + last4, never PAN/expiry.
   cardBrand     String?
   cardLast4     String?
-  processorRef  String?       // Stripe payment intent id, later
+  processorRef  String? // Stripe payment intent id, later
   createdAt     DateTime      @default(now())
   order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  // Restaurant split checks: the order lines this (split) payment settled.
+  settledLines  OrderLine[]   @relation("LineSettlement")
 
   @@index([businessId])
   @@index([orderId])
@@ -353,16 +435,16 @@ model Payment {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model CashDrawerSession {
-  id              String    @id @default(cuid())
-  businessId      String
-  openedById      String?   // Membership.id
-  openingFloatCents Int     @default(0)
-  expectedCents   Int?      // computed at close
-  countedCents    Int?      // entered at close (blind count supported)
-  varianceCents   Int?      // counted - expected
-  openedAt        DateTime  @default(now())
-  closedAt        DateTime?
-  business        Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  id                String    @id @default(cuid())
+  businessId        String
+  openedById        String? // Membership.id
+  openingFloatCents Int       @default(0)
+  expectedCents     Int? // computed at close
+  countedCents      Int? // entered at close (blind count supported)
+  varianceCents     Int? // counted - expected
+  openedAt          DateTime  @default(now())
+  closedAt          DateTime?
+  business          Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId])
 }

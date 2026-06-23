@@ -4,6 +4,7 @@ import { requireMembership, AuthError, ForbiddenError } from "@/lib/tenant";
 import { SignOutButton } from "@/components/SignOutButton";
 import { SideNav, BottomNav } from "@/components/app-nav";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { FullscreenToggle } from "@/components/fullscreen-toggle";
 
 export default async function BusinessLayout({
   children,
@@ -24,7 +25,7 @@ export default async function BusinessLayout({
 
   const business = await db.business.findUnique({
     where: { id: businessId },
-    select: { name: true },
+    select: { name: true, mode: true },
   });
   if (!business) notFound();
 
@@ -36,11 +37,12 @@ export default async function BusinessLayout({
           <div className="text-xl font-black tracking-tight">VallaPOS</div>
           <p className="mt-0.5 truncate text-sm text-sidebar-muted">{business.name}</p>
         </div>
-        <SideNav businessId={businessId} />
+        <SideNav businessId={businessId} mode={business.mode} />
         <div className="mt-auto flex items-center gap-2 pt-6">
           <div className="flex-1">
             <SignOutButton />
           </div>
+          <FullscreenToggle />
           <ThemeToggle />
         </div>
       </aside>
@@ -51,13 +53,16 @@ export default async function BusinessLayout({
           <span className="text-base font-black tracking-tight">VallaPOS</span>
           <span className="ml-2 truncate text-sm text-muted-foreground">{business.name}</span>
         </div>
-        <ThemeToggle className="text-muted-foreground hover:bg-muted hover:text-foreground" />
+        <div className="flex items-center gap-1">
+          <FullscreenToggle className="text-muted-foreground hover:bg-muted hover:text-foreground" />
+          <ThemeToggle className="text-muted-foreground hover:bg-muted hover:text-foreground" />
+        </div>
       </header>
 
       {/* Content (offset for mobile top bar + bottom nav) */}
       <main className="flex-1 px-4 pb-24 pt-20 md:px-6 lg:p-6">{children}</main>
 
-      <BottomNav businessId={businessId} />
+      <BottomNav businessId={businessId} mode={business.mode} />
     </div>
   );
 }

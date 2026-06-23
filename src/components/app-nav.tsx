@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   BarChart3,
   Boxes,
+  LayoutGrid,
   Receipt,
   Settings,
   ShoppingCart,
@@ -14,15 +15,23 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const NAV: { slug: string; label: string; Icon: LucideIcon }[] = [
-  { slug: "register", label: "Register", Icon: ShoppingCart },
-  { slug: "orders", label: "Orders", Icon: Receipt },
-  { slug: "products", label: "Products", Icon: Boxes },
-  { slug: "reports", label: "Reports", Icon: BarChart3 },
-  { slug: "drawer", label: "Drawer", Icon: Wallet },
-  { slug: "employees", label: "Team", Icon: Users },
-  { slug: "settings", label: "Settings", Icon: Settings },
-];
+type BusinessMode = "STORE" | "RESTAURANT";
+type NavItem = { slug: string; label: string; Icon: LucideIcon };
+
+// The "Floor" screen is the restaurant home, so it sits right after Register and
+// only appears in RESTAURANT mode.
+function navFor(mode: BusinessMode): NavItem[] {
+  return [
+    { slug: "register", label: "Register", Icon: ShoppingCart },
+    ...(mode === "RESTAURANT" ? [{ slug: "floor", label: "Floor", Icon: LayoutGrid }] : []),
+    { slug: "orders", label: "Orders", Icon: Receipt },
+    { slug: "products", label: "Products", Icon: Boxes },
+    { slug: "reports", label: "Reports", Icon: BarChart3 },
+    { slug: "drawer", label: "Drawer", Icon: Wallet },
+    { slug: "employees", label: "Team", Icon: Users },
+    { slug: "settings", label: "Settings", Icon: Settings },
+  ];
+}
 
 function useActive(businessId: string) {
   const pathname = usePathname();
@@ -30,11 +39,11 @@ function useActive(businessId: string) {
 }
 
 /** Desktop sidebar nav (vertical). */
-export function SideNav({ businessId }: { businessId: string }) {
+export function SideNav({ businessId, mode }: { businessId: string; mode: BusinessMode }) {
   const isActive = useActive(businessId);
   return (
     <nav className="space-y-1">
-      {NAV.map(({ slug, label, Icon }) => (
+      {navFor(mode).map(({ slug, label, Icon }) => (
         <Link
           key={slug}
           href={`/${businessId}/${slug}`}
@@ -55,14 +64,18 @@ export function SideNav({ businessId }: { businessId: string }) {
 }
 
 /** Mobile bottom-tab nav (fixed, safe-area aware). */
-export function BottomNav({ businessId }: { businessId: string }) {
+export function BottomNav({ businessId, mode }: { businessId: string; mode: BusinessMode }) {
   const isActive = useActive(businessId);
+  const items = navFor(mode);
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-7 border-t border-border bg-card pb-[env(safe-area-inset-bottom)] lg:hidden"
+      // Column count tracks the item count (7 in store, 8 in restaurant); set
+      // inline so Tailwind doesn't need to pre-generate a dynamic grid-cols class.
+      style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
+      className="fixed inset-x-0 bottom-0 z-40 grid border-t border-border bg-card pb-[env(safe-area-inset-bottom)] lg:hidden"
       aria-label="Primary"
     >
-      {NAV.map(({ slug, label, Icon }) => (
+      {items.map(({ slug, label, Icon }) => (
         <Link
           key={slug}
           href={`/${businessId}/${slug}`}

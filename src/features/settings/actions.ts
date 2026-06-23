@@ -14,6 +14,9 @@ const updateSettingsSchema = z.object({
   taxRateBps: z.number().int().min(0).max(10_000),
   currency: z.enum(CURRENCIES),
   taxInclusive: z.boolean(),
+  // STORE = instant retail checkout; RESTAURANT unlocks the floor plan + open
+  // tabs with per-seat split checks.
+  mode: z.enum(["STORE", "RESTAURANT"]),
 });
 
 export async function updateBusinessSettings(input: z.infer<typeof updateSettingsSchema>) {
@@ -28,6 +31,7 @@ export async function updateBusinessSettings(input: z.infer<typeof updateSetting
       taxRateBps: data.taxRateBps,
       currency: data.currency,
       taxInclusive: data.taxInclusive,
+      mode: data.mode,
     },
   });
 

@@ -44,3 +44,6 @@ yarn-error.log*
 
 # vercel
 .vercel
+
+# Claude Code session/worktree data
+.claude/
