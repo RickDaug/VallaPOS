@@ -10,13 +10,14 @@ import { Label } from "@/components/ui/label";
 
 const CURRENCIES = ["USD", "CAD", "EUR", "GBP", "AUD"] as const;
 type Currency = (typeof CURRENCIES)[number];
+type Mode = "STORE" | "RESTAURANT";
 
 export function SettingsForm({
   businessId,
   initial,
 }: {
   businessId: string;
-  initial: { name: string; taxRateBps: number; currency: string; taxInclusive: boolean };
+  initial: { name: string; taxRateBps: number; currency: string; taxInclusive: boolean; mode: Mode };
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -26,6 +27,7 @@ export function SettingsForm({
     (CURRENCIES as readonly string[]).includes(initial.currency) ? (initial.currency as Currency) : "USD",
   );
   const [taxInclusive, setTaxInclusive] = useState(initial.taxInclusive);
+  const [mode, setMode] = useState<Mode>(initial.mode);
   const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   function onSubmit(e: React.FormEvent) {
@@ -38,7 +40,7 @@ export function SettingsForm({
     }
     startTransition(async () => {
       try {
-        await updateBusinessSettings({ businessId, name: name.trim(), taxRateBps, currency, taxInclusive });
+        await updateBusinessSettings({ businessId, name: name.trim(), taxRateBps, currency, taxInclusive, mode });
         setMessage({ kind: "ok", text: "Settings saved." });
         router.refresh();
       } catch (err) {
@@ -54,6 +56,43 @@ export function SettingsForm({
           <div>
             <Label htmlFor="biz-name">Business name</Label>
             <Input id="biz-name" value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+
+          <div>
+            <Label>Business type</Label>
+            <div className="mt-1 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Business type">
+              {(
+                [
+                  { value: "STORE", title: "Store", blurb: "Ring up and pay instantly." },
+                  { value: "RESTAURANT", title: "Restaurant", blurb: "Tables, open tabs & split checks." },
+                ] as const
+              ).map((opt) => {
+                const selected = mode === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => setMode(opt.value)}
+                    className={`rounded-lg border p-3 text-left transition-colors ${
+                      selected
+                        ? "border-primary bg-primary/5 ring-1 ring-primary"
+                        : "border-input bg-card hover:bg-muted"
+                    }`}
+                  >
+                    <span className="block font-semibold text-foreground">{opt.title}</span>
+                    <span className="mt-0.5 block text-sm text-muted-foreground">{opt.blurb}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {mode === "RESTAURANT" && (
+              <p className="mt-2 text-sm text-muted-foreground">
+                A <span className="font-medium text-foreground">Floor</span> tab appears in the menu, and you can lay
+                out your dining room below.
+              </p>
+            )}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">

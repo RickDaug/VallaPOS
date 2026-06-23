@@ -10,8 +10,13 @@ export default function manifest(): MetadataRoute.Manifest {
     description: "Browser-based point of sale for mobile and local businesses.",
     start_url: "/",
     scope: "/",
-    display: "standalone",
-    orientation: "portrait",
+    // Launch chrome-less when installed; "minimal-ui" is the graceful fallback
+    // where fullscreen isn't honored. A floor plan + register want all the
+    // screen they can get, and the in-app button still toggles browser-tab use.
+    display: "fullscreen",
+    display_override: ["fullscreen", "minimal-ui", "standalone"],
+    // Tablets are commonly wall-mounted/landscape for the floor view; don't lock.
+    orientation: "any",
     background_color: "#fafbfc",
     theme_color: "#1f8a8a",
     icons: [
