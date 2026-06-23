@@ -30,9 +30,11 @@ Integer cents; tax bps; server recomputes all totals; every query `requireMember
 - [x] **L5 Tab actions + queries** — `register/resolve-lines.ts` (shared resolver, checkout refactored
       onto it), `tabs/{schema,queries,actions}.ts` (openTab, add/setQty/remove/assignSeat lines,
       mergeTables/transferTab, settleTab whole/by-seat closing the tab when fully settled). DONE.
-- [ ] **L6 Floor service view** — `app/(app)/[businessId]/floor/page.tsx` + `FloorService.tsx`.
-- [ ] **L7 Table detail / ordering UI** — reuse register catalog/cart/modifier-picker; `TableDetail.tsx`
-      (by-seat groups, add/qty/remove/seat/modifiers, merge/transfer, settle with NumberPad + tip).
+- [x] **L6 Floor service view** — `floor/page.tsx` + `tabs/components/FloorService.tsx` (room tabs,
+      status-colored canvas, tap free→openTab→detail, tap occupied→detail). DONE.
+- [x] **L7 Table detail / ordering UI** — `floor/[orderId]/page.tsx` (SSR: getTab + catalog + tables)
+      + `tabs/components/TableDetail.tsx` (by-seat groups, MenuGrid + modifier picker, qty/remove/
+      move-seat, merge/transfer dialog, SettleDialog whole/by-seat with NumberPad + tip). DONE.
 - [ ] **L8 Tests + verification** — unit (tab-math, floor schema) + action tests (mocked Prisma);
       typecheck+lint+full suite+build green.
 - [ ] **L9 Docs + PR** — STATE.md section; open the single PR.
