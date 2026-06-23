@@ -216,6 +216,53 @@ describe("checkout — idempotency", () => {
       }),
     );
   });
+
+  it("returns the existing receipt when a concurrent send loses the insert race (P2002)", async () => {
+    // The fast-path pre-check sees no prior order (both racers passed it), but the
+    // create loses the @@unique([businessId, clientUuid]) race and throws P2002.
+    // The action must catch it, re-read the winner, and return its receipt — not
+    // surface an unhandled error to the offline double-send.
+    orderFindUnique
+      .mockResolvedValueOnce(null) // pre-check: nothing yet
+      .mockResolvedValueOnce({
+        // re-read after P2002: the winning concurrent order
+        id: "order_winner",
+        number: 9,
+        subtotalCents: 1000,
+        discountCents: 0,
+        taxCents: 83,
+        tipCents: 0,
+        totalCents: 1083,
+        payments: [{ tenderedCents: 1500, changeCents: 417 }],
+      });
+    orderCreate.mockRejectedValueOnce(
+      Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+    );
+
+    const receipt = await checkout(input());
+
+    // No throw; the loser gets the winner's receipt (idempotent).
+    expect(receipt.orderId).toBe("order_winner");
+    expect(receipt.number).toBe(9);
+    expect(receipt.cashTenderedCents).toBe(1500);
+    expect(receipt.changeCents).toBe(417);
+    expect(receipt.totalCents).toBe(1083);
+    // The create was attempted (race), then the re-read happened (2nd findUnique).
+    expect(orderCreate).toHaveBeenCalledTimes(1);
+    expect(orderFindUnique).toHaveBeenCalledTimes(2);
+    expect(orderFindUnique).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: { businessId_clientUuid: { businessId: BUSINESS_ID, clientUuid: UUID } },
+      }),
+    );
+  });
+
+  it("rethrows a non-P2002 transaction error (does not swallow real failures)", async () => {
+    orderCreate.mockRejectedValueOnce(new Error("connection reset"));
+    await expect(checkout(input())).rejects.toThrow("connection reset");
+    // Only the pre-check read; no re-read on a non-unique error.
+    expect(orderFindUnique).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("checkout — success path writes Order/OrderLine/Payment", () => {
