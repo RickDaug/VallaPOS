@@ -35,9 +35,11 @@ Integer cents; tax bps; server recomputes all totals; every query `requireMember
 - [x] **L7 Table detail / ordering UI** — `floor/[orderId]/page.tsx` (SSR: getTab + catalog + tables)
       + `tabs/components/TableDetail.tsx` (by-seat groups, MenuGrid + modifier picker, qty/remove/
       move-seat, merge/transfer dialog, SettleDialog whole/by-seat with NumberPad + tip). DONE.
-- [ ] **L8 Tests + verification** — unit (tab-math, floor schema) + action tests (mocked Prisma);
-      typecheck+lint+full suite+build green.
-- [ ] **L9 Docs + PR** — STATE.md section; open the single PR.
+- [x] **L8 Tests + verification** — tab-math (13), tab actions (12), floor schema (8); tenant guard
+      extended to floorRoom/floorTable. 252 tests + typecheck + lint + build green. DONE.
+- [x] **L9 Docs + PR** — STATE.md "Restaurant mode" section; single PR opened. DONE.
+
+## All layers complete — awaiting (1) `! npx prisma migrate dev` and (2) a human browser pass.
 
 ## Resume tip
 `git log --oneline feat/restaurant-mode` shows the last completed layer. Each layer commit is
