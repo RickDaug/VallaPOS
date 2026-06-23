@@ -26,11 +26,10 @@ Integer cents; tax bps; server recomputes all totals; every query `requireMember
 - [x] **L3 Floor-plan editor (settings, MANAGER+)** — `src/features/floor/{schema,queries,actions}.ts`
       + `components/FloorPlanEditor.tsx` (rooms tabs, drag/resize canvas via pointer events, quick-add,
       0–100 cap, empty-state steps); wired into the settings page. DONE.
-- [ ] **L4 Tab math (pure)** — `src/features/tabs/tab-math.ts` (seat grouping, split-settlement plan,
-      remaining balance, all-settled predicate) + tests.
-- [ ] **L5 Tab actions + queries** — `src/features/tabs/{queries,actions}.ts` (openTab, addTabLines/
-      setQty/remove/assignSeat, mergeTables/transferTab, settleTab whole/by-seat). Refactor price/modifier
-      resolution out of `register/actions.ts` into a shared helper.
+- [x] **L4 Tab math (pure)** — `src/features/tabs/tab-math.ts` + 13 tests. DONE.
+- [x] **L5 Tab actions + queries** — `register/resolve-lines.ts` (shared resolver, checkout refactored
+      onto it), `tabs/{schema,queries,actions}.ts` (openTab, add/setQty/remove/assignSeat lines,
+      mergeTables/transferTab, settleTab whole/by-seat closing the tab when fully settled). DONE.
 - [ ] **L6 Floor service view** — `app/(app)/[businessId]/floor/page.tsx` + `FloorService.tsx`.
 - [ ] **L7 Table detail / ordering UI** — reuse register catalog/cart/modifier-picker; `TableDetail.tsx`
       (by-seat groups, add/qty/remove/seat/modifiers, merge/transfer, settle with NumberPad + tip).
