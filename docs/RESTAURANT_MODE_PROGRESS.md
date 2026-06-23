@@ -21,10 +21,11 @@ Integer cents; tax bps; server recomputes all totals; every query `requireMember
 
 ## Layers
 - [x] **L1 Schema + migration** — `prisma/schema.prisma` + migration created (not applied). DONE.
-- [ ] **L2 Business mode + Fullscreen** — settings field+UI, nav gating (show Floor in RESTAURANT),
-      `fullscreen-toggle.tsx`, manifest `display:fullscreen`+`orientation:any`.
-- [ ] **L3 Floor-plan editor (settings, MANAGER+)** — `src/features/floor/{queries,schema,actions}.ts`
-      + `FloorPlanEditor.tsx` (rooms, drag/resize canvas via pointer events, 0–100 cap, empty-state steps).
+- [x] **L2 Business mode + Fullscreen** — settings field+UI, nav gating, `fullscreen-toggle.tsx`,
+      manifest fullscreen. DONE.
+- [x] **L3 Floor-plan editor (settings, MANAGER+)** — `src/features/floor/{schema,queries,actions}.ts`
+      + `components/FloorPlanEditor.tsx` (rooms tabs, drag/resize canvas via pointer events, quick-add,
+      0–100 cap, empty-state steps); wired into the settings page. DONE.
 - [ ] **L4 Tab math (pure)** — `src/features/tabs/tab-math.ts` (seat grouping, split-settlement plan,
       remaining balance, all-settled predicate) + tests.
 - [ ] **L5 Tab actions + queries** — `src/features/tabs/{queries,actions}.ts` (openTab, addTabLines/
