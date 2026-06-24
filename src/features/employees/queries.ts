@@ -11,10 +11,12 @@ import { entryDurationSeconds, totalDurationSeconds, type TimeInterval } from ".
 
 export interface MemberRow {
   membershipId: string;
-  userId: string;
-  name: string | null;
-  email: string;
+  userId: string | null; // null for PIN-only staff
+  name: string | null; // display name (Membership.name for PIN-only, else User.name)
+  email: string | null; // null for PIN-only staff
   role: Role;
+  permissions: string[]; // granted capability keys
+  accountless: boolean; // true = PIN-only staff (no login)
   active: boolean;
   hasPin: boolean;
   createdAt: string; // ISO
@@ -29,7 +31,9 @@ export async function listMembers(businessId: string): Promise<MemberRow[]> {
     select: {
       id: true,
       userId: true,
+      name: true,
       role: true,
+      permissions: true,
       active: true,
       pinHash: true, // used ONLY to derive hasPin; never returned
       createdAt: true,
@@ -45,9 +49,13 @@ export async function listMembers(businessId: string): Promise<MemberRow[]> {
   return memberships.map((m) => ({
     membershipId: m.id,
     userId: m.userId,
-    name: m.user.name,
-    email: m.user.email,
+    // PIN-only staff carry their name on the membership; account members use the
+    // User's name (falling back to the membership name if ever set).
+    name: m.user?.name ?? m.name,
+    email: m.user?.email ?? null,
     role: m.role,
+    permissions: m.permissions,
+    accountless: m.userId === null,
     active: m.active,
     hasPin: m.pinHash != null,
     createdAt: m.createdAt.toISOString(),
@@ -59,7 +67,7 @@ export interface TimeEntryRow {
   id: string;
   membershipId: string;
   memberName: string | null;
-  memberEmail: string;
+  memberEmail: string | null;
   clockInAt: string; // ISO
   clockOutAt: string | null; // ISO
   durationSeconds: number; // open entries measured to `asOf`
@@ -96,7 +104,7 @@ export async function getTimesheet(
       membershipId: true,
       clockInAt: true,
       clockOutAt: true,
-      membership: { select: { user: { select: { name: true, email: true } } } },
+      membership: { select: { name: true, user: { select: { name: true, email: true } } } },
     },
   });
 
@@ -108,8 +116,8 @@ export async function getTimesheet(
   const rows: TimeEntryRow[] = entries.map((e) => ({
     id: e.id,
     membershipId: e.membershipId,
-    memberName: e.membership.user.name,
-    memberEmail: e.membership.user.email,
+    memberName: e.membership.user?.name ?? e.membership.name,
+    memberEmail: e.membership.user?.email ?? null,
     clockInAt: e.clockInAt.toISOString(),
     clockOutAt: e.clockOutAt ? e.clockOutAt.toISOString() : null,
     durationSeconds: entryDurationSeconds({ clockInAt: e.clockInAt, clockOutAt: e.clockOutAt }, asOf),

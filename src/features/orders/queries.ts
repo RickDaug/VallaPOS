@@ -206,10 +206,13 @@ export async function getCashierSalesReport(
   const members = cashierIds.length
     ? await db.membership.findMany({
         where: { id: { in: cashierIds }, businessId },
-        select: { id: true, user: { select: { name: true, email: true } } },
+        select: { id: true, name: true, user: { select: { name: true, email: true } } },
       })
     : [];
-  const nameById = new Map(members.map((m) => [m.id, m.user.name?.trim() || m.user.email]));
+  // PIN-only staff carry their name on the membership; account members use the User.
+  const nameById = new Map(
+    members.map((m) => [m.id, m.user?.name?.trim() || m.user?.email || m.name?.trim() || "Staff"]),
+  );
 
   return aggregateCashierSales(
     orders.map((o) => ({

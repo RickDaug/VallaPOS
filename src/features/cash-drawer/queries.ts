@@ -143,7 +143,8 @@ async function resolveOpenerName(
   if (!membershipId) return null;
   const membership = await db.membership.findFirst({
     where: { id: membershipId, businessId },
-    select: { user: { select: { name: true, email: true } } },
+    select: { name: true, user: { select: { name: true, email: true } } },
   });
-  return membership?.user.name ?? membership?.user.email ?? null;
+  if (!membership) return null;
+  return membership.user?.name ?? membership.user?.email ?? membership.name ?? null;
 }
