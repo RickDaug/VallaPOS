@@ -19,6 +19,7 @@ const orderLineCreate = vi.fn();
 const orderLineFindMany = vi.fn();
 const orderLineUpdateMany = vi.fn();
 const orderLineDeleteMany = vi.fn();
+const orderLineCount = vi.fn();
 const paymentCreate = vi.fn();
 const orderTableCreateMany = vi.fn();
 const orderTableDeleteMany = vi.fn();
@@ -41,6 +42,7 @@ vi.mock("@/lib/db", () => {
       findMany: (...a: unknown[]) => orderLineFindMany(...a),
       updateMany: (...a: unknown[]) => orderLineUpdateMany(...a),
       deleteMany: (...a: unknown[]) => orderLineDeleteMany(...a),
+      count: (...a: unknown[]) => orderLineCount(...a),
     },
     payment: { create: (...a: unknown[]) => paymentCreate(...a) },
     orderTable: {
@@ -172,6 +174,9 @@ describe("settleTab", () => {
       { totalCents: 500, discountCents: 0, taxCents: 41 },
     ]);
     orderFindFirstOrThrow.mockResolvedValue({ tipCents: 0 });
+    // Default: both planned lines get settled, none remain (whole-tab close).
+    orderLineUpdateMany.mockResolvedValue({ count: 2 });
+    orderLineCount.mockResolvedValue(0);
   });
 
   it("settles the whole tab and closes it to PAID", async () => {
@@ -180,7 +185,7 @@ describe("settleTab", () => {
     expect(res.amountCents).toBe(1083 + 541);
     expect(res.changeCents).toBe(2000 - 1624);
     expect(res.closed).toBe(true);
-    // first order.update carries the close (status PAID)
+    // the order.update carries the close (status PAID)
     const closeData = orderUpdate.mock.calls[0]![0].data;
     expect(closeData.status).toBe("PAID");
     expect(paymentCreate.mock.calls[0]![0].data.amountCents).toBe(1624);
@@ -188,6 +193,8 @@ describe("settleTab", () => {
 
   it("settles a single seat and leaves the tab open", async () => {
     orderFindFirst.mockResolvedValue(openOrder);
+    orderLineUpdateMany.mockResolvedValue({ count: 1 }); // only seat-1 line
+    orderLineCount.mockResolvedValue(1); // seat-2 line remains
     const res = await settleTab({ businessId: BUSINESS_ID, orderId: "order_1", seats: [1], tipCents: 0, cashTenderedCents: 2000 });
     expect(res.amountCents).toBe(1083);
     expect(res.closed).toBe(false);
@@ -199,9 +206,22 @@ describe("settleTab", () => {
 
   it("adds the tip to the collected amount", async () => {
     orderFindFirst.mockResolvedValue(openOrder);
+    orderLineUpdateMany.mockResolvedValue({ count: 1 });
+    orderLineCount.mockResolvedValue(1);
     const res = await settleTab({ businessId: BUSINESS_ID, orderId: "order_1", seats: [1], tipCents: 200, cashTenderedCents: 2000 });
     expect(paymentCreate.mock.calls[0]![0].data.amountCents).toBe(1083 + 200);
     expect(res.changeCents).toBe(2000 - 1283);
+  });
+
+  it("aborts (no over-collect) if a planned line was already settled by a concurrent settle", async () => {
+    orderFindFirst.mockResolvedValue(openOrder);
+    // Plan covers 2 lines, but only 1 was still unsettled when we wrote — race lost.
+    orderLineUpdateMany.mockResolvedValue({ count: 1 });
+    await expect(
+      settleTab({ businessId: BUSINESS_ID, orderId: "order_1", tipCents: 0, cashTenderedCents: 2000 }),
+    ).rejects.toThrow(/changed while you were settling/);
+    // The transaction rolls back; closure is never decided.
+    expect(orderLineCount).not.toHaveBeenCalled();
   });
 
   it("rejects tender below the amount due", async () => {

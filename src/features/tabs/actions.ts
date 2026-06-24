@@ -349,7 +349,7 @@ export async function settleTab(input: z.infer<typeof settleTabSchema>): Promise
   }
   const changeCents = data.cashTenderedCents - amountWithTip;
 
-  await db.$transaction(async (tx) => {
+  const closed = await db.$transaction(async (tx) => {
     const payment = await tx.payment.create({
       data: {
         businessId: ctx.businessId,
@@ -363,21 +363,36 @@ export async function settleTab(input: z.infer<typeof settleTabSchema>): Promise
       select: { id: true },
     });
 
-    // Mark exactly the planned lines settled (guard settledByPaymentId: null so a
-    // concurrent settle can't double-pay a line).
-    await tx.orderLine.updateMany({
+    // Mark exactly the planned lines settled. The settledByPaymentId: null guard
+    // means a line a concurrent settle already paid won't be touched here.
+    const result = await tx.orderLine.updateMany({
       where: { id: { in: plan.lineIds }, businessId: ctx.businessId, settledByPaymentId: null },
       data: { settledByPaymentId: payment.id },
     });
+    // Lost-race guard: if any planned line was already settled by a concurrent
+    // settle, the cash we just computed no longer matches what we actually
+    // settled — abort the whole transaction (payment included) so the till can't
+    // over-collect. The caller reloads the tab and retries on fresh data.
+    if (result.count !== plan.lineIds.length) {
+      throw new Error("This tab changed while you were settling — reload and try again.");
+    }
+
+    // Decide closure from authoritative in-transaction state, not the (possibly
+    // stale) plan: the tab closes only when no unsettled line remains.
+    const remaining = await tx.orderLine.count({
+      where: { orderId: data.orderId, businessId: ctx.businessId, settledByPaymentId: null },
+    });
+    const isClosed = remaining === 0;
 
     await tx.order.update({
       where: { id: data.orderId },
-      data: { tipCents: { increment: data.tipCents }, ...(plan.closesTab ? { status: "PAID" } : {}) },
+      data: { tipCents: { increment: data.tipCents }, ...(isClosed ? { status: "PAID" as const } : {}) },
     });
 
     await recomputeOrderTotals(tx, data.orderId, ctx.businessId, taxInclusive);
+    return isClosed;
   });
 
   revalidateFloor(ctx.businessId);
-  return { amountCents: plan.amountCents, tipCents: data.tipCents, changeCents, closed: plan.closesTab };
+  return { amountCents: plan.amountCents, tipCents: data.tipCents, changeCents, closed };
 }
