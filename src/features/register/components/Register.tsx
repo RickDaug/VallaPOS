@@ -1,14 +1,35 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, CloudOff, Plus, RefreshCw, Search, WifiOff } from "lucide-react";
+import {
+  Check,
+  CloudOff,
+  LayoutGrid,
+  List,
+  Plus,
+  RefreshCw,
+  Search,
+  ShoppingCart,
+  Star,
+  WifiOff,
+} from "lucide-react";
 import { formatMoney } from "@/lib/money";
 import { lockOperator } from "@/features/employees/actions";
 import { computePricedOrder, type PricedLineInput } from "@/features/register/pricing";
 import type { SellableEntry, SellableModifierGroup } from "@/features/catalog/queries";
 import { type Receipt } from "@/features/register/actions";
 import { useOfflineCheckout } from "@/lib/offline/use-offline-checkout";
+import {
+  type Density,
+  FAVORITES_PSEUDO_CATEGORY,
+  isFavorite,
+  loadDensity,
+  loadFavorites,
+  saveDensity,
+  saveFavorites,
+  toggleFavorite,
+} from "@/features/register/preferences";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +42,7 @@ import {
   DialogFooter,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { quickTenderOptions, dollarsToCents } from "@/features/register/tender";
 import { cn } from "@/lib/utils";
 
@@ -70,27 +92,71 @@ export function Register({
   const [pending, setPending] = useState(false);
   // Item awaiting modifier selection (null = picker closed).
   const [picking, setPicking] = useState<SellableEntry | null>(null);
+  // Per-device, per-business favorites (variation ids) + grid/list density.
+  const [favorites, setFavorites] = useState<string[]>([]);
+  const [density, setDensity] = useState<Density>("grid");
+  // Mobile cart Sheet (desktop renders the cart inline and ignores this).
+  const [cartOpen, setCartOpen] = useState(false);
   const { online, pending: queuedCount, syncing, submit } = useOfflineCheckout();
 
   const money = (c: number) => formatMoney(c, currency);
 
-  // "All" plus the distinct categories present in the catalog, for the tab row.
+  // Hydrate per-device prefs from localStorage after mount (avoids SSR mismatch).
+  useEffect(() => {
+    setFavorites(loadFavorites(businessId));
+    setDensity(loadDensity());
+  }, [businessId]);
+
+  function onToggleFavorite(variationId: string) {
+    setFavorites((cur) => {
+      const next = toggleFavorite(cur, variationId);
+      saveFavorites(businessId, next);
+      return next;
+    });
+  }
+
+  function onToggleDensity() {
+    setDensity((cur) => {
+      const next: Density = cur === "grid" ? "list" : "grid";
+      saveDensity(next);
+      return next;
+    });
+  }
+
+  // "All" plus a "Favorites" pseudo-tab (only when some exist) plus the distinct
+  // catalog categories, for the tab row.
   const categories = useMemo(() => {
     const set = new Set(catalog.map((e) => e.category));
-    return ["All", ...[...set].sort((a, b) => a.localeCompare(b))];
-  }, [catalog]);
+    const base = ["All", ...[...set].sort((a, b) => a.localeCompare(b))];
+    return favorites.length > 0 ? ["All", FAVORITES_PSEUDO_CATEGORY, ...base.slice(1)] : base;
+  }, [catalog, favorites.length]);
+
+  // If the active Favorites tab empties out (last star removed), fall back to All.
+  useEffect(() => {
+    if (activeCategory === FAVORITES_PSEUDO_CATEGORY && favorites.length === 0) {
+      setActiveCategory("All");
+    }
+  }, [activeCategory, favorites.length]);
 
   const filtered = useMemo(
     () =>
-      catalog.filter(
-        (e) =>
-          (activeCategory === "All" || e.category === activeCategory) &&
-          `${e.label} ${e.category}`.toLowerCase().includes(query.toLowerCase()),
-      ),
-    [catalog, query, activeCategory],
+      catalog.filter((e) => {
+        const matchesCategory =
+          activeCategory === "All"
+            ? true
+            : activeCategory === FAVORITES_PSEUDO_CATEGORY
+              ? favorites.includes(e.variationId)
+              : e.category === activeCategory;
+        return (
+          matchesCategory &&
+          `${e.label} ${e.category}`.toLowerCase().includes(query.toLowerCase())
+        );
+      }),
+    [catalog, query, activeCategory, favorites],
   );
 
   const cartDiscountCents = Math.max(0, Math.round(parseFloat(discountDollars || "0") * 100)) || 0;
+  const cartCount = cart.reduce((n, l) => n + l.qty, 0);
 
   const totals = useMemo(() => {
     const lines: PricedLineInput[] = cart.map((l) => ({
@@ -156,6 +222,7 @@ export function Register({
     setReceipt(null);
     setQueued(false);
     setError(null);
+    setCartOpen(false);
   }
 
   // After a completed sale, re-lock the terminal so the next order requires a PIN
@@ -253,6 +320,27 @@ export function Register({
     );
   }
 
+  const cartPanel = (
+    <CartPanel
+      cart={cart}
+      money={money}
+      totals={totals}
+      taxInclusive={taxInclusive}
+      discountDollars={discountDollars}
+      setDiscountDollars={setDiscountDollars}
+      tipRate={tipRate}
+      setTipRate={setTipRate}
+      tendering={tendering}
+      setTendering={setTendering}
+      tenderDollars={tenderDollars}
+      setTenderDollars={setTenderDollars}
+      error={error}
+      pending={pending}
+      changeQty={changeQty}
+      completeSale={completeSale}
+    />
+  );
+
   return (
     <div className="space-y-4">
       {picking && (
@@ -271,15 +359,26 @@ export function Register({
       {/* Catalog */}
       <Card>
         <CardContent className="p-4 md:p-5">
-          <div className="relative mb-4">
-            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search items"
-              aria-label="Search items"
-              className="pl-10"
-            />
+          <div className="mb-4 flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search items"
+                aria-label="Search items"
+                className="pl-10"
+              />
+            </div>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={onToggleDensity}
+              aria-label={density === "grid" ? "Switch to list view" : "Switch to grid view"}
+              title={density === "grid" ? "List view" : "Grid view"}
+            >
+              {density === "grid" ? <List size={18} /> : <LayoutGrid size={18} />}
+            </Button>
           </div>
           {categories.length > 2 && (
             <div className="-mx-1 mb-4 flex gap-2 overflow-x-auto px-1 pb-1" role="tablist" aria-label="Filter by category">
@@ -303,191 +402,329 @@ export function Register({
             </div>
           )}
           {filtered.length === 0 ? (
-            <EmptyState />
+            <EmptyState favoritesEmpty={activeCategory === FAVORITES_PSEUDO_CATEGORY} />
+          ) : density === "list" ? (
+            <ul className="divide-y divide-border rounded-lg border border-border">
+              {filtered.map((entry) => (
+                <li key={entry.variationId} className="flex items-center gap-2 p-3">
+                  <FavoriteStar
+                    active={isFavorite(favorites, entry.variationId)}
+                    label={entry.label}
+                    onToggle={() => onToggleFavorite(entry.variationId)}
+                  />
+                  <button
+                    onClick={() => addToCart(entry)}
+                    className="flex flex-1 items-center justify-between gap-3 rounded-md px-2 py-1 text-left transition-colors hover:bg-muted active:scale-[0.99]"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate font-semibold">{entry.label}</span>
+                      <span className="text-xs text-muted-foreground">{entry.category}</span>
+                    </span>
+                    <span className="numeric shrink-0 font-black">{money(entry.priceCents)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {filtered.map((entry) => (
-                <button
+                <div
                   key={entry.variationId}
-                  onClick={() => addToCart(entry)}
-                  className="group rounded-lg border border-border bg-card p-4 text-left transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md active:scale-[0.98]"
+                  className="group relative rounded-lg border border-border bg-card p-4 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
                 >
-                  <div className="mb-6 flex items-center justify-between">
-                    <Badge variant={entry.type === "SERVICE" ? "primary" : "muted"}>{entry.category}</Badge>
-                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-muted-foreground group-hover:bg-primary group-hover:text-primary-foreground">
-                      <Plus size={16} />
-                    </span>
-                  </div>
-                  <h3 className="font-semibold leading-tight">{entry.label}</h3>
-                  <p className="numeric mt-1 text-2xl font-black">{money(entry.priceCents)}</p>
-                </button>
+                  <FavoriteStar
+                    active={isFavorite(favorites, entry.variationId)}
+                    label={entry.label}
+                    onToggle={() => onToggleFavorite(entry.variationId)}
+                    className="absolute right-2 top-2"
+                  />
+                  <button
+                    onClick={() => addToCart(entry)}
+                    className="block w-full text-left active:scale-[0.98]"
+                  >
+                    <div className="mb-6 flex items-center justify-between">
+                      <Badge variant={entry.type === "SERVICE" ? "primary" : "muted"}>{entry.category}</Badge>
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-muted-foreground group-hover:bg-primary group-hover:text-primary-foreground">
+                        <Plus size={16} />
+                      </span>
+                    </div>
+                    <h3 className="font-semibold leading-tight">{entry.label}</h3>
+                    <p className="numeric mt-1 text-2xl font-black">{money(entry.priceCents)}</p>
+                  </button>
+                </div>
               ))}
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Cart */}
-      <Card className="h-fit xl:sticky xl:top-6">
-        <CardContent className="p-4 md:p-5">
-          <h2 className="mb-4 text-lg font-bold">Current sale</h2>
-          <div className="min-h-32 space-y-2">
-            {cart.length === 0 && (
-              <p className="rounded-lg bg-muted p-4 text-sm text-muted-foreground">
-                Cart is empty. Tap an item to start.
-              </p>
-            )}
-            {cart.map((line) => {
-              const lineUnit =
-                line.priceCents + line.modifiers.reduce((a, m) => a + m.priceDeltaCents, 0);
-              return (
-                <div key={line.key} className="flex items-center justify-between rounded-lg border border-border p-3">
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold">{line.label}</p>
-                    {line.modifiers.length > 0 && (
-                      <ul className="mt-0.5 space-y-0.5">
-                        {line.modifiers.map((m) => (
-                          <li key={m.id} className="numeric truncate text-xs text-muted-foreground">
-                            + {m.name}
-                            {m.priceDeltaCents !== 0 && <> ({money(m.priceDeltaCents)})</>}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    <p className="numeric text-sm text-muted-foreground">{money(lineUnit)} each</p>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <Button
-                      variant="secondary"
-                      size="icon"
-                      className="h-10 w-10 rounded-full"
-                      onClick={() => changeQty(line.key, -1)}
-                      aria-label={`Remove one ${line.label}`}
-                    >
-                      −
-                    </Button>
-                    <span className="numeric w-6 text-center font-bold">{line.qty}</span>
-                    <Button
-                      size="icon"
-                      className="h-10 w-10 rounded-full"
-                      onClick={() => changeQty(line.key, 1)}
-                      aria-label={`Add one ${line.label}`}
-                    >
-                      +
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="mt-5 space-y-3 border-t border-border pt-4 text-sm">
-            <Row label="Subtotal" value={money(totals.subtotalCents)} />
-            <label className="flex items-center justify-between gap-3">
-              <span className="text-muted-foreground">Discount ($)</span>
-              <Input
-                inputMode="decimal"
-                value={discountDollars}
-                onChange={(e) => setDiscountDollars(e.target.value)}
-                placeholder="0.00"
-                className="numeric h-10 w-24 text-right"
-              />
-            </label>
-            <Row label={taxInclusive ? "Tax (included)" : "Tax"} value={money(totals.taxCents)} />
-            <div>
-              <p className="mb-1.5 text-muted-foreground">Tip</p>
-              <div className="flex gap-2">
-                {TIP_PRESETS.map((rate) => (
-                  <button
-                    key={rate}
-                    onClick={() => setTipRate(rate)}
-                    className={cn(
-                      "h-10 flex-1 rounded-md text-sm font-semibold transition-colors",
-                      tipRate === rate
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-foreground hover:bg-secondary",
-                    )}
-                  >
-                    {rate === 0 ? "None" : `${rate * 100}%`}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <Row label="Tip total" value={money(totals.tipCents)} />
-            <div className="flex items-center justify-between pt-3 text-2xl font-black">
-              <span>Total</span>
-              <span className="numeric">{money(totals.totalCents)}</span>
-            </div>
-
-            {error && (
-              <p className="text-sm font-medium text-destructive" role="alert">
-                {error}
-              </p>
-            )}
-
-            {!tendering ? (
-              <Button
-                variant="success"
-                size="lg"
-                disabled={cart.length === 0}
-                onClick={() => {
-                  setTendering(true);
-                  // Start empty so the numpad/quick-cash chips fill it cleanly.
-                  setTenderDollars("");
-                }}
-                className="mt-2 w-full"
-              >
-                Charge {money(totals.totalCents)}
-              </Button>
-            ) : (
-              <div className="mt-2 space-y-3 rounded-lg bg-muted p-4">
-                <div>
-                  <span className="mb-1 block font-medium">Cash received</span>
-                  <div
-                    className="numeric flex h-14 items-center justify-end rounded-md border border-border bg-card px-4 text-3xl font-black"
-                    aria-live="polite"
-                  >
-                    {money(dollarsToCents(tenderDollars))}
-                  </div>
-                </div>
-                <div className="grid grid-cols-4 gap-2">
-                  {quickTenderOptions(totals.totalCents).map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => setTenderDollars((c / 100).toFixed(2))}
-                      className="h-11 rounded-md border border-border bg-card text-sm font-bold transition-colors hover:bg-secondary active:scale-[0.98]"
-                    >
-                      {c === totals.totalCents ? "Exact" : money(c)}
-                    </button>
-                  ))}
-                </div>
-                <NumberPad value={tenderDollars} onChange={setTenderDollars} />
-                <div className="flex items-center justify-between border-t border-border pt-3 text-lg font-bold">
-                  <span>Change due</span>
-                  <span className="numeric">
-                    {money(Math.max(0, dollarsToCents(tenderDollars) - totals.totalCents))}
-                  </span>
-                </div>
-                <Button
-                  variant="success"
-                  size="lg"
-                  onClick={completeSale}
-                  disabled={pending || dollarsToCents(tenderDollars) < totals.totalCents}
-                  className="w-full"
-                >
-                  {pending ? "Saving…" : "Complete sale"}
-                </Button>
-                <Button variant="outline" onClick={() => setTendering(false)} className="w-full">
-                  Back
-                </Button>
-              </div>
-            )}
-          </div>
-        </CardContent>
+      {/* Cart — inline on desktop (xl+), in a slide-up Sheet on mobile. */}
+      <Card className="hidden h-fit xl:sticky xl:top-6 xl:block">
+        <CardContent className="p-4 md:p-5">{cartPanel}</CardContent>
       </Card>
+
+      <Sheet open={cartOpen} onOpenChange={setCartOpen}>
+        <SheetContent side="bottom" className="xl:hidden">
+          <SheetHeader>
+            <SheetTitle>Current sale</SheetTitle>
+          </SheetHeader>
+          <div className="mt-2">{cartPanel}</div>
+        </SheetContent>
+      </Sheet>
       </div>
+
+      {/* Mobile cart bar — opens the Sheet; hidden on desktop where the cart is inline. */}
+      <button
+        type="button"
+        onClick={() => setCartOpen(true)}
+        className="fixed inset-x-3 bottom-3 z-40 flex items-center justify-between gap-3 rounded-xl bg-primary px-5 py-3 text-primary-foreground shadow-lg active:scale-[0.99] xl:hidden"
+        aria-label={`Open cart, ${cartCount} ${cartCount === 1 ? "item" : "items"}, total ${money(totals.totalCents)}`}
+      >
+        <span className="flex items-center gap-2 font-bold">
+          <span className="relative">
+            <ShoppingCart size={20} />
+            {cartCount > 0 && (
+              <span className="numeric absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-card px-1 text-[10px] font-black text-foreground">
+                {cartCount}
+              </span>
+            )}
+          </span>
+          View cart
+        </span>
+        <span className="numeric font-black">{money(totals.totalCents)}</span>
+      </button>
     </div>
+  );
+}
+
+/** Star toggle for favoriting a catalog entry. Stops click propagation so it
+ *  never also adds the item to the cart. */
+function FavoriteStar({
+  active,
+  label,
+  onToggle,
+  className,
+}: {
+  active: boolean;
+  label: string;
+  onToggle: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      aria-pressed={active}
+      aria-label={active ? `Remove ${label} from favorites` : `Add ${label} to favorites`}
+      title={active ? "Remove favorite" : "Add favorite"}
+      className={cn(
+        "flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        active ? "text-warning" : "text-muted-foreground",
+        className,
+      )}
+    >
+      <Star size={18} fill={active ? "currentColor" : "none"} />
+    </button>
+  );
+}
+
+/** The current-sale panel (cart lines + totals + tender). Rendered inline on
+ *  desktop and inside the mobile Sheet — identical behavior in both. */
+function CartPanel({
+  cart,
+  money,
+  totals,
+  taxInclusive,
+  discountDollars,
+  setDiscountDollars,
+  tipRate,
+  setTipRate,
+  tendering,
+  setTendering,
+  tenderDollars,
+  setTenderDollars,
+  error,
+  pending,
+  changeQty,
+  completeSale,
+}: {
+  cart: CartLine[];
+  money: (c: number) => string;
+  totals: { subtotalCents: number; taxCents: number; tipCents: number; totalCents: number };
+  taxInclusive: boolean;
+  discountDollars: string;
+  setDiscountDollars: (v: string) => void;
+  tipRate: number;
+  setTipRate: (v: number) => void;
+  tendering: boolean;
+  setTendering: (v: boolean) => void;
+  tenderDollars: string;
+  setTenderDollars: (v: string) => void;
+  error: string | null;
+  pending: boolean;
+  changeQty: (key: string, delta: number) => void;
+  completeSale: () => void;
+}) {
+  return (
+    <>
+      <h2 className="mb-4 hidden text-lg font-bold xl:block">Current sale</h2>
+      <div className="min-h-32 space-y-2">
+        {cart.length === 0 && (
+          <p className="rounded-lg bg-muted p-4 text-sm text-muted-foreground">
+            Cart is empty. Tap an item to start.
+          </p>
+        )}
+        {cart.map((line) => {
+          const lineUnit =
+            line.priceCents + line.modifiers.reduce((a, m) => a + m.priceDeltaCents, 0);
+          return (
+            <div key={line.key} className="flex items-center justify-between rounded-lg border border-border p-3">
+              <div className="min-w-0">
+                <p className="truncate font-semibold">{line.label}</p>
+                {line.modifiers.length > 0 && (
+                  <ul className="mt-0.5 space-y-0.5">
+                    {line.modifiers.map((m) => (
+                      <li key={m.id} className="numeric truncate text-xs text-muted-foreground">
+                        + {m.name}
+                        {m.priceDeltaCents !== 0 && <> ({money(m.priceDeltaCents)})</>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p className="numeric text-sm text-muted-foreground">{money(lineUnit)} each</p>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className="h-10 w-10 rounded-full"
+                  onClick={() => changeQty(line.key, -1)}
+                  aria-label={`Remove one ${line.label}`}
+                >
+                  −
+                </Button>
+                <span className="numeric w-6 text-center font-bold">{line.qty}</span>
+                <Button
+                  size="icon"
+                  className="h-10 w-10 rounded-full"
+                  onClick={() => changeQty(line.key, 1)}
+                  aria-label={`Add one ${line.label}`}
+                >
+                  +
+                </Button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-5 space-y-3 border-t border-border pt-4 text-sm">
+        <Row label="Subtotal" value={money(totals.subtotalCents)} />
+        <label className="flex items-center justify-between gap-3">
+          <span className="text-muted-foreground">Discount ($)</span>
+          <Input
+            inputMode="decimal"
+            value={discountDollars}
+            onChange={(e) => setDiscountDollars(e.target.value)}
+            placeholder="0.00"
+            className="numeric h-10 w-24 text-right"
+          />
+        </label>
+        <Row label={taxInclusive ? "Tax (included)" : "Tax"} value={money(totals.taxCents)} />
+        <div>
+          <p className="mb-1.5 text-muted-foreground">Tip</p>
+          <div className="flex gap-2">
+            {TIP_PRESETS.map((rate) => (
+              <button
+                key={rate}
+                onClick={() => setTipRate(rate)}
+                className={cn(
+                  "h-10 flex-1 rounded-md text-sm font-semibold transition-colors",
+                  tipRate === rate
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-foreground hover:bg-secondary",
+                )}
+              >
+                {rate === 0 ? "None" : `${rate * 100}%`}
+              </button>
+            ))}
+          </div>
+        </div>
+        <Row label="Tip total" value={money(totals.tipCents)} />
+        <div className="flex items-center justify-between pt-3 text-2xl font-black">
+          <span>Total</span>
+          <span className="numeric">{money(totals.totalCents)}</span>
+        </div>
+
+        {error && (
+          <p className="text-sm font-medium text-destructive" role="alert">
+            {error}
+          </p>
+        )}
+
+        {!tendering ? (
+          <Button
+            variant="success"
+            size="lg"
+            disabled={cart.length === 0}
+            onClick={() => {
+              setTendering(true);
+              // Start empty so the numpad/quick-cash chips fill it cleanly.
+              setTenderDollars("");
+            }}
+            className="mt-2 w-full"
+          >
+            Charge {money(totals.totalCents)}
+          </Button>
+        ) : (
+          <div className="mt-2 space-y-3 rounded-lg bg-muted p-4">
+            <div>
+              <span className="mb-1 block font-medium">Cash received</span>
+              <div
+                className="numeric flex h-14 items-center justify-end rounded-md border border-border bg-card px-4 text-3xl font-black"
+                aria-live="polite"
+              >
+                {money(dollarsToCents(tenderDollars))}
+              </div>
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              {quickTenderOptions(totals.totalCents).map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setTenderDollars((c / 100).toFixed(2))}
+                  className="h-11 rounded-md border border-border bg-card text-sm font-bold transition-colors hover:bg-secondary active:scale-[0.98]"
+                >
+                  {c === totals.totalCents ? "Exact" : money(c)}
+                </button>
+              ))}
+            </div>
+            <NumberPad value={tenderDollars} onChange={setTenderDollars} />
+            <div className="flex items-center justify-between border-t border-border pt-3 text-lg font-bold">
+              <span>Change due</span>
+              <span className="numeric">
+                {money(Math.max(0, dollarsToCents(tenderDollars) - totals.totalCents))}
+              </span>
+            </div>
+            <Button
+              variant="success"
+              size="lg"
+              onClick={completeSale}
+              disabled={pending || dollarsToCents(tenderDollars) < totals.totalCents}
+              className="w-full"
+            >
+              {pending ? "Saving…" : "Complete sale"}
+            </Button>
+            <Button variant="outline" onClick={() => setTendering(false)} className="w-full">
+              Back
+            </Button>
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -660,11 +897,22 @@ function ModifierPicker({
   );
 }
 
-function EmptyState() {
+function EmptyState({ favoritesEmpty }: { favoritesEmpty?: boolean }) {
   return (
     <div className="flex flex-col items-center gap-2 rounded-lg bg-muted p-10 text-center">
-      <Search size={28} className="text-muted-foreground" />
-      <p className="text-sm text-muted-foreground">No items found. Add products in the Products screen.</p>
+      {favoritesEmpty ? (
+        <>
+          <Star size={28} className="text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">
+            No favorites yet. Tap the star on an item to pin it here.
+          </p>
+        </>
+      ) : (
+        <>
+          <Search size={28} className="text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">No items found. Add products in the Products screen.</p>
+        </>
+      )}
     </div>
   );
 }
