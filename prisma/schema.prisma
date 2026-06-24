@@ -131,13 +131,19 @@ enum Role {
 
 model Membership {
   id          String      @id @default(cuid())
-  userId      String
+  // Null for PIN-only staff who have no login account; otherwise the Better Auth user.
+  userId      String?
+  // Display name for PIN-only staff (accountless); account members use User.name/email.
+  name        String?
   businessId  String
   role        Role        @default(CASHIER)
+  // Granular capability grants (see src/lib/capabilities.ts). OWNER ignores this
+  // (implicitly all-access); non-owners are granted a capability iff it's listed.
+  permissions String[]    @default([])
   active      Boolean     @default(true) // deactivate a member without deleting their history
   pinHash     String? // optional shared-device PIN (v1)
   createdAt   DateTime    @default(now())
-  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
   business    Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
   timeEntries TimeEntry[]
 

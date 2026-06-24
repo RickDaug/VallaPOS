@@ -4,9 +4,13 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requireMembership, assertRole } from "@/lib/tenant";
 import { assertNotLocked, recordFailure, recordSuccess } from "@/lib/pin-throttle";
+import { defaultCapabilitiesFor, sanitizeCapabilities } from "@/lib/capabilities";
 import { hashPin, verifyPin } from "./pin";
 import {
   addMemberSchema,
+  addStaffMemberSchema,
+  updateMemberNameSchema,
+  setPermissionsSchema,
   changeRoleSchema,
   setPinSchema,
   clearPinSchema,
@@ -14,6 +18,9 @@ import {
   verifyPinSchema,
   clockSchema,
   type AddMemberInput,
+  type AddStaffMemberInput,
+  type UpdateMemberNameInput,
+  type SetPermissionsInput,
   type ChangeRoleInput,
   type SetPinInput,
   type ClearPinInput,
@@ -65,11 +72,77 @@ export async function addMember(
   if (existing) return { error: "already_member" };
 
   const membership = await db.membership.create({
-    data: { userId: user.id, businessId: ctx.businessId, role: data.role },
+    data: {
+      userId: user.id,
+      businessId: ctx.businessId,
+      role: data.role,
+      permissions: defaultCapabilitiesFor(data.role),
+    },
     select: { id: true },
   });
   revalidateEmployees(ctx.businessId);
   return { membershipId: membership.id };
+}
+
+/**
+ * Add a PIN-only staff member with NO login account — the common case for hourly
+ * workers who just use the till. Creates a Membership with `userId: null`, a
+ * display name, a hashed PIN, and role-default capabilities. MANAGER+.
+ */
+export async function addStaffMember(input: AddStaffMemberInput): Promise<{ membershipId: string }> {
+  const data = addStaffMemberSchema.parse(input);
+  const ctx = await requireMembership(data.businessId);
+  assertRole(ctx, "MANAGER");
+
+  const membership = await db.membership.create({
+    data: {
+      userId: null,
+      name: data.name,
+      businessId: ctx.businessId,
+      role: data.role,
+      permissions: defaultCapabilitiesFor(data.role),
+      pinHash: hashPin(data.pin),
+    },
+    select: { id: true },
+  });
+  revalidateEmployees(ctx.businessId);
+  return { membershipId: membership.id };
+}
+
+/** Rename a member (display name). MANAGER+, tenant-scoped. */
+export async function updateMemberName(input: UpdateMemberNameInput): Promise<void> {
+  const data = updateMemberNameSchema.parse(input);
+  const ctx = await requireMembership(data.businessId);
+  assertRole(ctx, "MANAGER");
+
+  await db.membership.updateMany({
+    where: { id: data.membershipId, businessId: ctx.businessId },
+    data: { name: data.name },
+  });
+  revalidateEmployees(ctx.businessId);
+}
+
+/**
+ * Set a member's granular capability grants. OWNER-only (so a manager can't
+ * escalate their own/others' access). Unknown keys are dropped. An OWNER target's
+ * grants are cosmetic (OWNER is all-access in code) but stored for consistency.
+ */
+export async function setMemberPermissions(input: SetPermissionsInput): Promise<void> {
+  const data = setPermissionsSchema.parse(input);
+  const ctx = await requireMembership(data.businessId);
+  assertRole(ctx, "OWNER");
+
+  const target = await db.membership.findFirst({
+    where: { id: data.membershipId, businessId: ctx.businessId },
+    select: { id: true },
+  });
+  if (!target) throw new Error("Member not found.");
+
+  await db.membership.updateMany({
+    where: { id: target.id, businessId: ctx.businessId },
+    data: { permissions: sanitizeCapabilities(data.permissions) },
+  });
+  revalidateEmployees(ctx.businessId);
 }
 
 /**

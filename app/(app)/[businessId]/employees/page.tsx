@@ -33,7 +33,7 @@ export default async function EmployeesPage({
 
   const rows = timesheet.entries.map((e) => ({
     id: e.id,
-    label: e.memberName ?? e.memberEmail,
+    label: e.memberName ?? e.memberEmail ?? "Staff",
     range: `${fmtTime(e.clockInAt)} → ${e.clockOutAt ? fmtTime(e.clockOutAt) : "now"}`,
     duration: formatDuration(e.durationSeconds),
     open: e.open,
@@ -58,7 +58,7 @@ export default async function EmployeesPage({
       {canManage && (
         <section>
           <h2 className="mb-3 text-lg font-bold">Team</h2>
-          <MemberAdmin businessId={businessId} members={members} />
+          <MemberAdmin businessId={businessId} members={members} canEditPermissions={ctx.role === "OWNER"} />
         </section>
       )}
     </section>

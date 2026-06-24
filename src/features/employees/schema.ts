@@ -35,6 +35,35 @@ export const addMemberSchema = z.object({
 });
 export type AddMemberInput = z.infer<typeof addMemberSchema>;
 
+/**
+ * Add a PIN-only staff member with NO login account — just a display name, a
+ * role, and a PIN. The PIN is hashed server-side; capabilities are seeded from
+ * the role default.
+ */
+export const addStaffMemberSchema = z.object({
+  businessId: businessIdSchema,
+  name: z.string().trim().min(1, "Enter a name.").max(60),
+  role: roleSchema,
+  pin: pinSchema,
+});
+export type AddStaffMemberInput = z.infer<typeof addStaffMemberSchema>;
+
+/** Rename a member (display name; used for PIN-only staff). */
+export const updateMemberNameSchema = z.object({
+  businessId: businessIdSchema,
+  membershipId: idSchema,
+  name: z.string().trim().min(1, "Enter a name.").max(60),
+});
+export type UpdateMemberNameInput = z.infer<typeof updateMemberNameSchema>;
+
+/** Set a member's granular capability grants (OWNER-only). */
+export const setPermissionsSchema = z.object({
+  businessId: businessIdSchema,
+  membershipId: idSchema,
+  permissions: z.array(z.string().min(1)).max(50),
+});
+export type SetPermissionsInput = z.infer<typeof setPermissionsSchema>;
+
 /** Change an existing member's role. */
 export const changeRoleSchema = z.object({
   businessId: businessIdSchema,

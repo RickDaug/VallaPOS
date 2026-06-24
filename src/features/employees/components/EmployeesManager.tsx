@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import type { Role } from "@prisma/client";
 import {
   addMember,
+  addStaffMember,
+  setMemberPermissions,
   changeMemberRole,
   setMemberPin,
   clearMemberPin,
@@ -15,6 +17,7 @@ import {
 import { PIN_MIN_LENGTH, PIN_MAX_LENGTH } from "@/features/employees/schema";
 import { formatDuration } from "@/features/employees/duration";
 import type { MemberRow } from "@/features/employees/queries";
+import { CAPABILITIES, CAPABILITY_LABELS, type Capability } from "@/lib/capabilities";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -182,6 +185,151 @@ function AddMemberForm({ businessId }: { businessId: string }) {
   );
 }
 
+/** Add a PIN-only staff member (no email/account) — name + role + PIN. */
+function AddStaffForm({ businessId }: { businessId: string }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [name, setName] = useState("");
+  const [role, setRole] = useState<Role>("CASHIER");
+  const [pin, setPin] = useState("");
+  const [message, setMessage] = useState<{ kind: "error" | "ok"; text: string } | null>(null);
+
+  function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setMessage(null);
+    startTransition(async () => {
+      try {
+        await addStaffMember({ businessId, name: name.trim(), role, pin });
+        setName("");
+        setPin("");
+        setMessage({ kind: "ok", text: "Staff member added." });
+        router.refresh();
+      } catch (err) {
+        setMessage({ kind: "error", text: err instanceof Error ? err.message : "Could not add staff." });
+      }
+    });
+  }
+
+  return (
+    <Card>
+      <CardContent className="p-5 md:p-6">
+        <h2 className="text-lg font-bold">Add staff (PIN only)</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          No email or account needed — they sign in on this device with their PIN.
+        </p>
+        <form onSubmit={onSubmit} className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="flex-1">
+            <Label htmlFor="staff-name">Name</Label>
+            <Input
+              id="staff-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Sam"
+              autoComplete="off"
+            />
+          </div>
+          <div>
+            <Label htmlFor="staff-role">Role</Label>
+            <select
+              id="staff-role"
+              value={role}
+              onChange={(e) => setRole(e.target.value as Role)}
+              className="flex h-12 w-full rounded-md border border-input bg-card px-3 text-base text-foreground"
+            >
+              {ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label htmlFor="staff-pin">PIN ({PIN_MIN_LENGTH}–{PIN_MAX_LENGTH} digits)</Label>
+            <Input
+              id="staff-pin"
+              inputMode="numeric"
+              autoComplete="off"
+              value={pin}
+              maxLength={PIN_MAX_LENGTH}
+              onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+              placeholder="••••"
+              className="numeric w-28"
+            />
+          </div>
+          <Button type="submit" disabled={pending}>
+            {pending ? "Adding…" : "Add staff"}
+          </Button>
+        </form>
+        {message && (
+          <p
+            className={`mt-3 text-sm font-medium ${message.kind === "error" ? "text-destructive" : "text-success"}`}
+            role={message.kind === "error" ? "alert" : "status"}
+          >
+            {message.text}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** OWNER-only granular capability checkboxes for one member. */
+function PermissionsEditor({ businessId, member }: { businessId: string; member: MemberRow }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const granted = new Set(member.permissions);
+
+  if (member.role === "OWNER") {
+    return <p className="text-xs text-muted-foreground">Owners have full access.</p>;
+  }
+
+  function toggle(cap: Capability) {
+    setError(null);
+    const next = new Set(granted);
+    if (next.has(cap)) next.delete(cap);
+    else next.add(cap);
+    startTransition(async () => {
+      try {
+        await setMemberPermissions({ businessId, membershipId: member.membershipId, permissions: [...next] });
+        router.refresh();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not update permissions.");
+      }
+    });
+  }
+
+  return (
+    <div>
+      <p className="mb-1.5 text-xs font-medium text-muted-foreground">Can access</p>
+      <div className="flex flex-wrap gap-1.5">
+        {CAPABILITIES.map((cap) => {
+          const on = granted.has(cap);
+          return (
+            <button
+              key={cap}
+              type="button"
+              disabled={pending}
+              aria-pressed={on}
+              onClick={() => toggle(cap)}
+              className={`rounded-full border px-3 py-1 text-xs font-medium ${
+                on ? "border-primary bg-primary/10 text-foreground" : "border-input text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              {CAPABILITY_LABELS[cap]}
+            </button>
+          );
+        })}
+      </div>
+      {error && (
+        <p className="mt-1 text-xs font-medium text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** PIN set/reset/clear control for one member. */
 function PinControl({
   businessId,
@@ -283,7 +431,15 @@ function PinControl({
 }
 
 /** One member row with role / PIN / active controls. */
-function MemberCard({ businessId, member }: { businessId: string; member: MemberRow }) {
+function MemberCard({
+  businessId,
+  member,
+  canEditPermissions,
+}: {
+  businessId: string;
+  member: MemberRow;
+  canEditPermissions: boolean;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -333,8 +489,15 @@ function MemberCard({ businessId, member }: { businessId: string; member: Member
                   <Badge variant="destructive">Inactive</Badge>
                 </span>
               )}
+              {member.accountless && (
+                <span className="ml-2 align-middle">
+                  <Badge variant="muted">PIN only</Badge>
+                </span>
+              )}
             </p>
-            <p className="truncate text-sm text-muted-foreground">{member.email}</p>
+            <p className="truncate text-sm text-muted-foreground">
+              {member.email ?? (member.accountless ? "No login account" : "")}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             {roleBadge(member.role)}
@@ -365,6 +528,11 @@ function MemberCard({ businessId, member }: { businessId: string; member: Member
             {member.active ? "Deactivate" : "Reactivate"}
           </Button>
         </div>
+        {canEditPermissions && (
+          <div className="border-t border-border pt-3">
+            <PermissionsEditor businessId={businessId} member={member} />
+          </div>
+        )}
         {error && (
           <p className="text-sm font-medium text-destructive" role="alert">
             {error}
@@ -375,20 +543,30 @@ function MemberCard({ businessId, member }: { businessId: string; member: Member
   );
 }
 
-/** Manager view: add members + manage roles/PINs/active state. */
+/** Manager view: add members + manage roles/PINs/active state/permissions. */
 export function MemberAdmin({
   businessId,
   members,
+  canEditPermissions,
 }: {
   businessId: string;
   members: MemberRow[];
+  canEditPermissions: boolean;
 }) {
   return (
     <div className="space-y-4">
-      <AddMemberForm businessId={businessId} />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <AddStaffForm businessId={businessId} />
+        <AddMemberForm businessId={businessId} />
+      </div>
       <div className="space-y-2">
         {members.map((m) => (
-          <MemberCard key={m.membershipId} businessId={businessId} member={m} />
+          <MemberCard
+            key={m.membershipId}
+            businessId={businessId}
+            member={m}
+            canEditPermissions={canEditPermissions}
+          />
         ))}
       </div>
     </div>
