@@ -29,10 +29,17 @@ export function ReceiptActions({
     try {
       const res = await emailReceipt({ businessId, orderId, email });
       if (res.ok) {
-        setNotice("Receipt sent.");
+        setNotice(`Receipt sent to ${email.trim()}.`);
         setEmailing(false);
+        setEmail("");
       } else if (res.reason === "email_not_configured") {
-        setNotice("Emailed receipts are coming soon — no email provider is configured yet.");
+        setNotice(
+          "Emailed receipts aren't enabled yet — set RESEND_API_KEY to turn them on.",
+        );
+      } else if (res.reason === "invalid_email") {
+        setNotice("That doesn't look like a valid email address.");
+      } else if (res.reason === "send_failed") {
+        setNotice("Couldn't send the receipt — please try again.");
       } else {
         setNotice("Order not found.");
       }
