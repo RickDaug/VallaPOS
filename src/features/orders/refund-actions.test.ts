@@ -22,6 +22,9 @@ vi.mock("@/lib/tenant", () => {
 vi.mock("@/lib/operator-guard", () => ({
   requireCapability: (...args: unknown[]) => requireCapability(...args),
 }));
+// actions.ts also imports the Resend send wrapper (./email → @/lib/env, which
+// throws without env). These tests don't exercise email, so stub it.
+vi.mock("./email", () => ({ isEmailConfigured: vi.fn(), sendReceiptEmail: vi.fn() }));
 vi.mock("@/lib/db", () => {
   const tx = {
     order: {
