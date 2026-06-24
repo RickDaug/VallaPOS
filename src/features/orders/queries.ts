@@ -1,7 +1,12 @@
 import "server-only";
 import { db } from "@/lib/db";
 import type { OrderStatus, PaymentMethod } from "@prisma/client";
-import { aggregateItemSales, type ItemSalesReport } from "@/features/orders/report-aggregate";
+import {
+  aggregateItemSales,
+  aggregateCashierSales,
+  type ItemSalesReport,
+  type CashierSalesRow,
+} from "@/features/orders/report-aggregate";
 
 export interface OrderRow {
   id: string;
@@ -178,6 +183,38 @@ export async function getItemSalesReport(
       totalCents: l.totalCents,
       taxCents: l.taxCents,
       categoryName: l.variationId ? (categoryByVariation.get(l.variationId) ?? null) : null,
+    })),
+  );
+}
+
+/**
+ * Net sales per cashier over PAID orders in [start, end), scoped by businessId.
+ * The cashier name is resolved from the membership's user (name, else email);
+ * orders with no cashier are grouped under "Unattributed".
+ */
+export async function getCashierSalesReport(
+  businessId: string,
+  start: Date,
+  end: Date,
+): Promise<CashierSalesRow[]> {
+  const orders = await db.order.findMany({
+    where: { businessId, status: "PAID", createdAt: { gte: start, lt: end } },
+    select: { cashierId: true, subtotalCents: true, discountCents: true },
+  });
+
+  const cashierIds = [...new Set(orders.map((o) => o.cashierId).filter((v): v is string => !!v))];
+  const members = cashierIds.length
+    ? await db.membership.findMany({
+        where: { id: { in: cashierIds }, businessId },
+        select: { id: true, user: { select: { name: true, email: true } } },
+      })
+    : [];
+  const nameById = new Map(members.map((m) => [m.id, m.user.name?.trim() || m.user.email]));
+
+  return aggregateCashierSales(
+    orders.map((o) => ({
+      cashier: o.cashierId ? (nameById.get(o.cashierId) ?? "Unknown") : "Unattributed",
+      netSalesCents: o.subtotalCents - o.discountCents,
     })),
   );
 }

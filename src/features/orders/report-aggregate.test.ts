@@ -1,12 +1,31 @@
 import { describe, it, expect } from "vitest";
 import {
   aggregateItemSales,
+  aggregateCashierSales,
   buildReportCsv,
   centsToAmount,
   csvField,
   sanitizeTextCell,
   type AggregateLineInput,
 } from "@/features/orders/report-aggregate";
+
+describe("aggregateCashierSales", () => {
+  it("rolls orders up per cashier, sorted by net sales desc then name", () => {
+    const rows = aggregateCashierSales([
+      { cashier: "Ada", netSalesCents: 1000 },
+      { cashier: "Bo", netSalesCents: 3000 },
+      { cashier: "Ada", netSalesCents: 500 },
+    ]);
+    expect(rows).toEqual([
+      { cashier: "Bo", orderCount: 1, netSalesCents: 3000 },
+      { cashier: "Ada", orderCount: 2, netSalesCents: 1500 },
+    ]);
+  });
+
+  it("returns an empty list for no orders", () => {
+    expect(aggregateCashierSales([])).toEqual([]);
+  });
+});
 
 const line = (over: Partial<AggregateLineInput>): AggregateLineInput => ({
   nameSnapshot: "Burger",

@@ -33,6 +33,31 @@ export interface ItemSalesReport {
   byCategory: CategorySalesRow[];
 }
 
+export interface CashierSalesRow {
+  cashier: string; // resolved display name (or "Unattributed" when no cashier)
+  orderCount: number;
+  netSalesCents: number;
+}
+
+/**
+ * Roll orders up per cashier (one input row per order). Sorted by net sales
+ * descending, then name ascending for a stable tie-break.
+ */
+export function aggregateCashierSales(
+  orders: { cashier: string; netSalesCents: number }[],
+): CashierSalesRow[] {
+  const map = new Map<string, CashierSalesRow>();
+  for (const o of orders) {
+    const row = map.get(o.cashier) ?? { cashier: o.cashier, orderCount: 0, netSalesCents: 0 };
+    row.orderCount += 1;
+    row.netSalesCents += o.netSalesCents;
+    map.set(o.cashier, row);
+  }
+  return [...map.values()].sort(
+    (a, b) => b.netSalesCents - a.netSalesCents || a.cashier.localeCompare(b.cashier),
+  );
+}
+
 const UNCATEGORIZED = "Uncategorized";
 
 /**
