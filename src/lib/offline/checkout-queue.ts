@@ -18,17 +18,38 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import type { CheckoutInput } from "@/features/register/schema";
 import { checkout } from "@/features/register/actions";
+import {
+  clearOfflineKey,
+  decryptJson,
+  encryptJson,
+  getOrCreateOfflineKey,
+  isEncryptedEnvelope,
+  type EncryptedEnvelope,
+} from "./crypto";
 
 const DB_NAME = "vallapos-offline";
 const DB_VERSION = 1;
 const STORE = "checkouts";
 
-/** A sale captured offline, waiting to be replayed to the server. */
+/**
+ * A sale captured offline, waiting to be replayed to the server.
+ *
+ * R-7: the order PII (`customerName`, line items, cash tendered, discounts) is
+ * NOT stored in the clear. It's AES-GCM encrypted under a per-browser
+ * non-extractable key and persisted as the `enc` envelope. `clientUuid`,
+ * `queuedAt`, and `attempts` stay in the clear because they carry no PII and are
+ * needed for the primary key, the FIFO index, and diagnostics respectively.
+ *
+ * `payload` (legacy plaintext) is retained as optional for backward-compat with
+ * any entries queued before this change — readers fall back to it gracefully.
+ */
 export interface QueuedCheckout {
   /** Primary key — the idempotency key. Same as `payload.clientUuid`. */
   clientUuid: string;
-  /** The untouched server-action payload. */
-  payload: CheckoutInput;
+  /** Encrypted server-action payload (current format). */
+  enc?: EncryptedEnvelope;
+  /** Legacy plaintext payload — only present on entries queued before R-7. */
+  payload?: CheckoutInput;
   /** When the sale was rung up (epoch ms), for display + FIFO replay. */
   queuedAt: number;
   /** Replay attempts so far (diagnostics only; we keep retrying). */
@@ -60,12 +81,42 @@ function getDB(): Promise<IDBPDatabase<OfflineDB>> {
   return dbPromise;
 }
 
-/** Persist a checkout payload for later replay. Keyed by `clientUuid`. */
+/**
+ * Recover the original checkout payload from a queued entry, decrypting the
+ * current `enc` envelope or — best-effort — falling back to a legacy plaintext
+ * `payload`. Returns `null` for an entry whose ciphertext can't be decrypted
+ * (wrong/lost key, tampered, or unrecognized): the caller treats it gracefully
+ * rather than throwing, so one bad entry can't wedge the queue.
+ */
+export async function decodeQueuedPayload(
+  entry: QueuedCheckout,
+): Promise<CheckoutInput | null> {
+  if (isEncryptedEnvelope(entry.enc)) {
+    try {
+      const key = await getOrCreateOfflineKey();
+      return await decryptJson<CheckoutInput>(key, entry.enc);
+    } catch {
+      // Undecryptable (lost key, tampered, format drift) — drop gracefully.
+      return null;
+    }
+  }
+  // Legacy plaintext entry queued before R-7 — accept it for replay.
+  if (entry.payload) return entry.payload;
+  return null;
+}
+
+/**
+ * Persist a checkout payload for later replay. Keyed by `clientUuid`. The PII
+ * payload is encrypted at rest (R-7); only the non-PII idempotency key,
+ * timestamp, and attempt counter are stored in the clear.
+ */
 export async function enqueueCheckout(payload: CheckoutInput): Promise<QueuedCheckout> {
   const db = await getDB();
+  const key = await getOrCreateOfflineKey();
+  const enc = await encryptJson(key, payload);
   const entry: QueuedCheckout = {
     clientUuid: payload.clientUuid,
-    payload,
+    enc,
     queuedAt: Date.now(),
     attempts: 0,
   };
@@ -132,8 +183,16 @@ export async function replayQueuedCheckouts(): Promise<number> {
   if (typeof navigator !== "undefined" && !navigator.onLine) return pendingCount();
   const queued = await listQueuedCheckouts();
   for (const entry of queued) {
+    const payload = await decodeQueuedPayload(entry);
+    if (!payload) {
+      // Undecryptable / unrecognized entry (lost key, tampered, legacy gap) —
+      // we can't replay it and we can't read its contents, so drop it rather
+      // than wedge the queue on a sale we can never send.
+      await removeQueuedCheckout(entry.clientUuid);
+      continue;
+    }
     try {
-      await checkout(entry.payload);
+      await checkout(payload);
       await removeQueuedCheckout(entry.clientUuid);
     } catch (err) {
       if (isNetworkError(err)) break; // still offline — stop, retry later
@@ -147,12 +206,14 @@ export async function replayQueuedCheckouts(): Promise<number> {
 }
 
 /**
- * Destroy the entire offline checkout queue (PII at-rest hygiene, M-4).
+ * Destroy the entire offline checkout queue (PII at-rest hygiene, M-4 + R-7).
  *
  * Deletes the whole IndexedDB database so no order payloads — line items,
  * `customerName`, cash tendered — linger on a shared/borrowed device after
- * sign-out. Callers MUST drain/replay (or get explicit user consent) first:
- * this is an unconditional, irreversible wipe of any un-synced sales.
+ * sign-out. Also drops the per-browser encryption key so nothing remains that
+ * could decrypt a stray envelope. Callers MUST drain/replay (or get explicit
+ * user consent) first: this is an unconditional, irreversible wipe of any
+ * un-synced sales.
  */
 export async function clearOfflineQueue(): Promise<void> {
   if (typeof indexedDB === "undefined") return;
@@ -172,4 +233,10 @@ export async function clearOfflineQueue(): Promise<void> {
     req.onerror = () => resolve();
     req.onblocked = () => resolve();
   });
+  // Then forget the encryption key (best effort — never block sign-out on it).
+  try {
+    await clearOfflineKey();
+  } catch {
+    // ignore — best effort
+  }
 }
