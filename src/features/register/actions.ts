@@ -41,7 +41,7 @@ export interface Receipt {
  */
 export async function checkout(input: CheckoutInput): Promise<Receipt> {
   const data = checkoutSchema.parse(input);
-  const { businessId } = await requireMembership(data.businessId);
+  const { businessId, membershipId } = await requireMembership(data.businessId);
 
   // Idempotency: if this clientUuid already produced an order, return it.
   const existing = await db.order.findUnique({
@@ -99,6 +99,7 @@ export async function checkout(input: CheckoutInput): Promise<Receipt> {
           clientUuid: data.clientUuid,
           number,
           status: "PAID",
+          cashierId: membershipId, // who rang the sale (matches the tab flow)
           customerName: data.customerName,
           subtotalCents: totals.subtotalCents,
           discountCents: totals.discountCents,
