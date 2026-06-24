@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireMembership } from "@/lib/tenant";
-import { getDailyReport, getItemSalesReport } from "@/features/orders/queries";
+import { getDailyReport, getItemSalesReport, getCashierSalesReport } from "@/features/orders/queries";
 import { getDrawerDaySummary } from "@/features/cash-drawer/queries";
 import { formatMoney } from "@/lib/money";
 import { Card, CardContent } from "@/components/ui/card";
@@ -40,6 +40,7 @@ export default async function ReportsPage({
   const report = await getDailyReport(businessId, start, end);
   const drawer = await getDrawerDaySummary(businessId, start, end);
   const itemSales = await getItemSalesReport(businessId, start, end);
+  const cashierSales = await getCashierSalesReport(businessId, start, end);
   const money = (c: number) => formatMoney(c, business.currency);
 
   return (
@@ -177,6 +178,36 @@ export default async function ReportsPage({
                     <tr key={c.category} className="border-b border-border/60 last:border-0">
                       <td className="py-2 pr-2">{c.category}</td>
                       <td className="numeric py-2 text-right tabular-nums">{c.quantity}</td>
+                      <td className="numeric py-2 text-right font-semibold">{money(c.netSalesCents)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="mt-6">
+        <Card>
+          <CardContent className="p-5">
+            <h2 className="mb-4 text-lg font-bold">Sales by cashier</h2>
+            {cashierSales.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No sales this day.</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                    <th className="pb-2 font-medium">Cashier</th>
+                    <th className="pb-2 text-right font-medium">Orders</th>
+                    <th className="pb-2 text-right font-medium">Net sales</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cashierSales.map((c) => (
+                    <tr key={c.cashier} className="border-b border-border/60 last:border-0">
+                      <td className="py-2 pr-2">{c.cashier}</td>
+                      <td className="numeric py-2 text-right tabular-nums">{c.orderCount}</td>
                       <td className="numeric py-2 text-right font-semibold">{money(c.netSalesCents)}</td>
                     </tr>
                   ))}
