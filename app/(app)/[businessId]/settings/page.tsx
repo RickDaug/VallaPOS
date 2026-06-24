@@ -23,7 +23,16 @@ export default async function SettingsPage({
 
   const business = await db.business.findUnique({
     where: { id: businessId },
-    select: { name: true, taxRateBps: true, currency: true, taxInclusive: true, mode: true },
+    select: {
+      name: true,
+      taxRateBps: true,
+      currency: true,
+      taxInclusive: true,
+      mode: true,
+      qrPayEnabled: true,
+      qrPayLabel: true,
+      qrPayValue: true,
+    },
   });
   if (!business) notFound();
 

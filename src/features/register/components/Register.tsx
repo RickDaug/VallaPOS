@@ -18,8 +18,12 @@ import { formatMoney } from "@/lib/money";
 import { lockOperator } from "@/features/employees/actions";
 import { computePricedOrder, type PricedLineInput } from "@/features/register/pricing";
 import type { SellableEntry, SellableModifierGroup } from "@/features/catalog/queries";
+import { QRCodeSVG } from "qrcode.react";
 import { type Receipt } from "@/features/register/actions";
 import type { TenderMethod } from "@/features/register/schema";
+
+/** Merchant-configured QR payment (confirm-based). null when not enabled. */
+type QrPayConfig = { label: string | null; value: string };
 import { useOfflineCheckout } from "@/lib/offline/use-offline-checkout";
 import {
   type Density,
@@ -72,12 +76,14 @@ export function Register({
   taxRateBps,
   currency,
   taxInclusive,
+  qrPay,
 }: {
   businessId: string;
   catalog: SellableEntry[];
   taxRateBps: number;
   currency: string;
   taxInclusive: boolean;
+  qrPay: QrPayConfig | null;
 }) {
   const router = useRouter();
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -104,6 +110,10 @@ export function Register({
   const { online, pending: queuedCount, syncing, submit } = useOfflineCheckout();
 
   const money = (c: number) => formatMoney(c, currency);
+
+  // Display label for a tender method (QR shows the merchant's configured rail).
+  const tenderLabel = (method: TenderMethod) =>
+    method === "CASH" ? "Cash" : method === "QR" ? qrPay?.label || "QR" : "Other";
 
   // Hydrate per-device prefs from localStorage after mount (avoids SSR mismatch).
   useEffect(() => {
@@ -246,9 +256,9 @@ export function Register({
 
   async function completeSale() {
     setError(null);
-    const manual = tenderMethod === "MANUAL";
-    const cashTenderedCents = manual ? 0 : Math.round(parseFloat(tenderDollars || "0") * 100);
-    if (!manual && cashTenderedCents < totals.totalCents) {
+    const nonCash = tenderMethod !== "CASH";
+    const cashTenderedCents = nonCash ? 0 : Math.round(parseFloat(tenderDollars || "0") * 100);
+    if (!nonCash && cashTenderedCents < totals.totalCents) {
       setError("Cash tendered is less than the total.");
       return;
     }
@@ -266,7 +276,7 @@ export function Register({
         cartDiscountCents,
         method: tenderMethod,
         cashTenderedCents,
-        manualNote: manual ? manualNote.trim() || undefined : undefined,
+        manualNote: nonCash ? manualNote.trim() || undefined : undefined,
       });
       if (result.status === "completed") {
         setReceipt(result.receipt);
@@ -294,10 +304,13 @@ export function Register({
           </p>
           <div className="mt-6 space-y-2 border-t border-border pt-4 text-left text-sm">
             <Row label="Total" value={money(totals.totalCents)} />
-            {tenderMethod === "MANUAL" ? (
-              <Row label="Payment" value={`Other${manualNote.trim() ? ` · ${manualNote.trim()}` : ""}`} />
-            ) : (
+            {tenderMethod === "CASH" ? (
               <Row label="Cash" value={money(Math.round(parseFloat(tenderDollars || "0") * 100))} />
+            ) : (
+              <Row
+                label="Payment"
+                value={`${tenderLabel(tenderMethod)}${manualNote.trim() ? ` · ${manualNote.trim()}` : ""}`}
+              />
             )}
           </div>
           <Button onClick={finishAndLock} size="lg" className="mt-6 w-full">
@@ -317,25 +330,26 @@ export function Register({
           </div>
           <h2 className="text-xl font-bold">Sale complete</h2>
           <p className="mt-1 text-sm text-muted-foreground">Order #{receipt.number}</p>
-          {receipt.method === "MANUAL" ? (
-            <>
-              <p className="numeric mt-6 text-5xl font-black text-success">{money(receipt.totalCents)}</p>
-              <p className="text-sm font-medium text-muted-foreground">
-                paid · Other{receipt.manualNote ? ` · ${receipt.manualNote}` : ""}
-              </p>
-              <div className="mt-6 space-y-2 border-t border-border pt-4 text-left text-sm">
-                <Row label="Total" value={money(receipt.totalCents)} />
-                <Row label="Tax" value={money(receipt.taxCents)} />
-                {receipt.tipCents > 0 && <Row label="Tip" value={money(receipt.tipCents)} />}
-              </div>
-            </>
-          ) : (
+          {receipt.method === "CASH" ? (
             <>
               <p className="numeric mt-6 text-5xl font-black text-success">{money(receipt.changeCents)}</p>
               <p className="text-sm font-medium text-muted-foreground">change due</p>
               <div className="mt-6 space-y-2 border-t border-border pt-4 text-left text-sm">
                 <Row label="Total" value={money(receipt.totalCents)} />
                 <Row label="Cash" value={money(receipt.cashTenderedCents)} />
+                <Row label="Tax" value={money(receipt.taxCents)} />
+                {receipt.tipCents > 0 && <Row label="Tip" value={money(receipt.tipCents)} />}
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="numeric mt-6 text-5xl font-black text-success">{money(receipt.totalCents)}</p>
+              <p className="text-sm font-medium text-muted-foreground">
+                paid · {tenderLabel(receipt.method)}
+                {receipt.manualNote ? ` · ${receipt.manualNote}` : ""}
+              </p>
+              <div className="mt-6 space-y-2 border-t border-border pt-4 text-left text-sm">
+                <Row label="Total" value={money(receipt.totalCents)} />
                 <Row label="Tax" value={money(receipt.taxCents)} />
                 {receipt.tipCents > 0 && <Row label="Tip" value={money(receipt.tipCents)} />}
               </div>
@@ -363,6 +377,8 @@ export function Register({
       setTendering={setTendering}
       tenderMethod={tenderMethod}
       setTenderMethod={setTenderMethod}
+      tenderLabel={tenderLabel}
+      qrPay={qrPay}
       tenderDollars={tenderDollars}
       setTenderDollars={setTenderDollars}
       manualNote={manualNote}
@@ -579,6 +595,8 @@ function CartPanel({
   setTendering,
   tenderMethod,
   setTenderMethod,
+  tenderLabel,
+  qrPay,
   tenderDollars,
   setTenderDollars,
   manualNote,
@@ -600,6 +618,8 @@ function CartPanel({
   setTendering: (v: boolean) => void;
   tenderMethod: TenderMethod;
   setTenderMethod: (v: TenderMethod) => void;
+  tenderLabel: (m: TenderMethod) => string;
+  qrPay: QrPayConfig | null;
   tenderDollars: string;
   setTenderDollars: (v: string) => void;
   manualNote: string;
@@ -722,25 +742,32 @@ function CartPanel({
           </Button>
         ) : (
           <div className="mt-2 space-y-3 rounded-lg bg-muted p-4">
-            {/* Tender method: Cash (numpad + change) vs Other (paid outside the app). */}
-            <div className="grid grid-cols-2 gap-2" role="tablist" aria-label="Payment method">
-              {(["CASH", "MANUAL"] as const).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  role="tab"
-                  aria-selected={tenderMethod === m}
-                  onClick={() => setTenderMethod(m)}
-                  className={cn(
-                    "h-11 rounded-md text-sm font-semibold transition-colors",
-                    tenderMethod === m
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-card text-foreground hover:bg-secondary",
-                  )}
-                >
-                  {m === "CASH" ? "Cash" : "Other"}
-                </button>
-              ))}
+            {/* Tender method: Cash (numpad + change), QR (scan to pay) when the
+                merchant has configured it, and Other (any out-of-band payment). */}
+            <div
+              className={cn("grid gap-2", qrPay ? "grid-cols-3" : "grid-cols-2")}
+              role="tablist"
+              aria-label="Payment method"
+            >
+              {(qrPay ? (["CASH", "QR", "MANUAL"] as const) : (["CASH", "MANUAL"] as const)).map(
+                (m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    role="tab"
+                    aria-selected={tenderMethod === m}
+                    onClick={() => setTenderMethod(m)}
+                    className={cn(
+                      "h-11 rounded-md text-sm font-semibold transition-colors",
+                      tenderMethod === m
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-card text-foreground hover:bg-secondary",
+                    )}
+                  >
+                    {tenderLabel(m)}
+                  </button>
+                ),
+              )}
             </div>
 
             {tenderMethod === "CASH" ? (
@@ -773,6 +800,31 @@ function CartPanel({
                     {money(Math.max(0, dollarsToCents(tenderDollars) - totals.totalCents))}
                   </span>
                 </div>
+              </>
+            ) : tenderMethod === "QR" && qrPay ? (
+              <>
+                <div className="flex flex-col items-center gap-3 rounded-md border border-border bg-card p-4">
+                  <div className="rounded-lg bg-white p-3">
+                    <QRCodeSVG value={qrPay.value} size={176} />
+                  </div>
+                  <p className="text-center text-sm text-muted-foreground">
+                    {qrPay.label ? `Scan to pay with ${qrPay.label}` : "Scan to pay"}
+                  </p>
+                  <p className="numeric text-2xl font-black">{money(totals.totalCents)}</p>
+                </div>
+                <label className="block">
+                  <span className="mb-1 block font-medium">Reference (optional)</span>
+                  <Input
+                    value={manualNote}
+                    onChange={(e) => setManualNote(e.target.value)}
+                    placeholder="Confirmation #, sender…"
+                    maxLength={120}
+                    aria-label="Payment reference"
+                  />
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  Have the customer scan and pay, then confirm to record the sale.
+                </p>
               </>
             ) : (
               <>
@@ -809,7 +861,7 @@ function CartPanel({
             >
               {pending
                 ? "Saving…"
-                : tenderMethod === "MANUAL"
+                : tenderMethod !== "CASH"
                   ? `Record ${money(totals.totalCents)}`
                   : "Complete sale"}
             </Button>

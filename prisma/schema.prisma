@@ -98,6 +98,15 @@ model Business {
   taxRateBps   Int          @default(0) // basis points; 825 = 8.25%
   taxInclusive Boolean      @default(false)
   currency     String       @default("USD")
+  // Merchant-configured QR payment (confirm-based, no PSP): the cashier shows
+  // qrPayValue as a QR (a payment handle/link — PIX key, UPI id, Venmo,
+  // PayPal.me, a payment-link URL), the customer scans + pays out-of-band, and
+  // the sale is recorded as method=QR. qrPayLabel is the rail name shown to the
+  // cashier (e.g. "PIX"). All nullable/defaulted so existing businesses are
+  // untouched and QR is simply off until configured.
+  qrPayEnabled Boolean      @default(false)
+  qrPayLabel   String? // e.g. "PIX", "UPI", "Venmo"
+  qrPayValue   String? // the string encoded into the QR
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 

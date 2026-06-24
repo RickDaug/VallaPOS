@@ -1,10 +1,11 @@
 import { z } from "zod";
 
 /** Tender methods the register can record at checkout. CASH settles with cash +
- *  change; MANUAL ("Other") records a payment taken outside the app — an
- *  external card reader, check, or transfer — with no card data and no change.
- *  (CARD/QR are reserved for the later integrated-payments work.) */
-export const TENDER_METHODS = ["CASH", "MANUAL"] as const;
+ *  change; QR shows the merchant's configured payment QR (confirm-based, no PSP)
+ *  and MANUAL ("Other") records any other payment taken outside the app — both
+ *  capture the server total with no card data and no change. (CARD is reserved
+ *  for the later processor-backed integrated-payments work.) */
+export const TENDER_METHODS = ["CASH", "QR", "MANUAL"] as const;
 export type TenderMethod = (typeof TENDER_METHODS)[number];
 
 export const checkoutSchema = z.object({

@@ -14,11 +14,24 @@ export default async function RegisterPage({
 
   const business = await db.business.findUnique({
     where: { id: businessId },
-    select: { taxRateBps: true, currency: true, taxInclusive: true },
+    select: {
+      taxRateBps: true,
+      currency: true,
+      taxInclusive: true,
+      qrPayEnabled: true,
+      qrPayLabel: true,
+      qrPayValue: true,
+    },
   });
   if (!business) notFound();
 
   const catalog = await getRegisterCatalog(businessId);
+
+  // Only surface the QR tender when it's enabled AND has something to encode.
+  const qrPay =
+    business.qrPayEnabled && business.qrPayValue
+      ? { label: business.qrPayLabel, value: business.qrPayValue }
+      : null;
 
   return (
     <section>
@@ -32,6 +45,7 @@ export default async function RegisterPage({
         taxRateBps={business.taxRateBps}
         currency={business.currency}
         taxInclusive={business.taxInclusive}
+        qrPay={qrPay}
       />
     </section>
   );

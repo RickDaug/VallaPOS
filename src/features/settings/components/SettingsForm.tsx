@@ -17,7 +17,16 @@ export function SettingsForm({
   initial,
 }: {
   businessId: string;
-  initial: { name: string; taxRateBps: number; currency: string; taxInclusive: boolean; mode: Mode };
+  initial: {
+    name: string;
+    taxRateBps: number;
+    currency: string;
+    taxInclusive: boolean;
+    mode: Mode;
+    qrPayEnabled: boolean;
+    qrPayLabel: string | null;
+    qrPayValue: string | null;
+  };
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -28,6 +37,9 @@ export function SettingsForm({
   );
   const [taxInclusive, setTaxInclusive] = useState(initial.taxInclusive);
   const [mode, setMode] = useState<Mode>(initial.mode);
+  const [qrPayEnabled, setQrPayEnabled] = useState(initial.qrPayEnabled);
+  const [qrPayLabel, setQrPayLabel] = useState(initial.qrPayLabel ?? "");
+  const [qrPayValue, setQrPayValue] = useState(initial.qrPayValue ?? "");
   const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   function onSubmit(e: React.FormEvent) {
@@ -38,9 +50,23 @@ export function SettingsForm({
       setMessage({ kind: "err", text: "Enter a tax rate between 0 and 100%." });
       return;
     }
+    if (qrPayEnabled && !qrPayValue.trim()) {
+      setMessage({ kind: "err", text: "Add a QR payment value before enabling QR payments." });
+      return;
+    }
     startTransition(async () => {
       try {
-        await updateBusinessSettings({ businessId, name: name.trim(), taxRateBps, currency, taxInclusive, mode });
+        await updateBusinessSettings({
+          businessId,
+          name: name.trim(),
+          taxRateBps,
+          currency,
+          taxInclusive,
+          mode,
+          qrPayEnabled,
+          qrPayLabel: qrPayLabel.trim(),
+          qrPayValue: qrPayValue.trim(),
+        });
         setMessage({ kind: "ok", text: "Settings saved." });
         router.refresh();
       } catch (err) {
@@ -136,6 +162,50 @@ export function SettingsForm({
               className="h-5 w-5 accent-primary"
             />
           </label>
+
+          <div className="rounded-lg border border-border p-4">
+            <label className="flex items-center justify-between gap-3">
+              <span>
+                <span className="block font-medium text-foreground">QR payment</span>
+                <span className="text-sm text-muted-foreground">
+                  Show a QR for the customer to scan and pay (PIX, UPI, Venmo, PayPal.me, a
+                  payment link…). Recorded as a confirmed sale — no card data is stored.
+                </span>
+              </span>
+              <input
+                type="checkbox"
+                checked={qrPayEnabled}
+                onChange={(e) => setQrPayEnabled(e.target.checked)}
+                className="h-5 w-5 accent-primary"
+                aria-label="Enable QR payments"
+              />
+            </label>
+
+            {qrPayEnabled && (
+              <div className="mt-4 grid gap-4 sm:grid-cols-[140px_1fr]">
+                <div>
+                  <Label htmlFor="qr-label">Label</Label>
+                  <Input
+                    id="qr-label"
+                    value={qrPayLabel}
+                    onChange={(e) => setQrPayLabel(e.target.value)}
+                    placeholder="PIX"
+                    maxLength={40}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="qr-value">Payment value (encoded in the QR)</Label>
+                  <Input
+                    id="qr-value"
+                    value={qrPayValue}
+                    onChange={(e) => setQrPayValue(e.target.value)}
+                    placeholder="https://venmo.com/u/yourname  ·  a PIX key  ·  upi://…"
+                    maxLength={512}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
 
           {message && (
             <p
