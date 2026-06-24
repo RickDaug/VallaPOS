@@ -43,6 +43,21 @@ export function FloorService({
   const [error, setError] = useState<string | null>(null);
   const elapsed = useElapsed();
 
+  // Keep the floor live across devices: re-fetch the server data every 15s while
+  // the tab is visible, so one server sees another's open/closed tabs without a
+  // manual reload. Pauses when the page is hidden to avoid pointless churn.
+  useEffect(() => {
+    const tick = () => {
+      if (document.visibilityState === "visible") router.refresh();
+    };
+    const id = setInterval(tick, 15_000);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [router]);
+
   const activeRoom = rooms.find((r) => r.id === activeRoomId) ?? rooms[0] ?? null;
   const pct = (n: number, total: number) => `${(n / total) * 100}%`;
 

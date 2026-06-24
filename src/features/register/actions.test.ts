@@ -281,6 +281,7 @@ describe("checkout — success path writes Order/OrderLine/Payment", () => {
       clientUuid: UUID,
       number: 7, // from the counter upsert
       status: "PAID",
+      cashierId: "mem_1", // the signed-in member who rang the sale (R-11)
       customerName: "Ada",
       tipCents: 100,
     });
