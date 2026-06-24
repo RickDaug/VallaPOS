@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderReceiptEmail } from "./receipt-email";
+import { renderReceiptEmail, validateRecipientEmail } from "./receipt-email";
 import type { OrderReceipt } from "./queries";
 
 function receipt(overrides: Partial<OrderReceipt> = {}): OrderReceipt {
@@ -70,5 +70,62 @@ describe("renderReceiptEmail", () => {
     expect(html).toContain("Bob &amp; &lt;b&gt;Sons&lt;/b&gt;");
     expect(html).toContain("&lt;script&gt;");
     expect(html).not.toContain("<script>");
+  });
+
+  it("renders the payment method", () => {
+    const { text, html } = renderReceiptEmail(receipt());
+    expect(text).toContain("Paid: Cash");
+    expect(html).toContain("Paid · Cash");
+  });
+
+  it("only surfaces positive payments (ignores refund reversals)", () => {
+    const { text } = renderReceiptEmail(
+      receipt({
+        payments: [
+          { method: "CARD", amountCents: 1083, tenderedCents: null, changeCents: null },
+          { method: "CARD", amountCents: -1083, tenderedCents: null, changeCents: null },
+        ],
+      }),
+    );
+    // One positive CARD payment → a single "Card" label, no negative line.
+    expect(text).toContain("Paid: Card");
+    expect(text).not.toContain("-$10.83");
+  });
+
+  it("includes line modifiers with their price delta", () => {
+    const { text, html } = renderReceiptEmail(
+      receipt({
+        lines: [
+          {
+            id: "l1",
+            name: "Burger",
+            quantity: 1,
+            unitPriceCents: 800,
+            discountCents: 0,
+            taxCents: 0,
+            totalCents: 900,
+            modifiers: [{ id: "m1", name: "Bacon", priceDeltaCents: 100 }],
+          },
+        ],
+      }),
+    );
+    expect(text).toContain("+ Bacon");
+    expect(text).toContain("$1.00");
+    expect(html).toContain("Bacon");
+  });
+});
+
+describe("validateRecipientEmail", () => {
+  it("accepts and normalizes a valid address", () => {
+    expect(validateRecipientEmail("  Customer@Example.COM ")).toBe("customer@example.com");
+  });
+
+  it("rejects malformed addresses", () => {
+    expect(validateRecipientEmail("not-an-email")).toBeNull();
+    expect(validateRecipientEmail("a@b")).toBeNull();
+    expect(validateRecipientEmail("")).toBeNull();
+    expect(validateRecipientEmail(null)).toBeNull();
+    expect(validateRecipientEmail(undefined)).toBeNull();
+    expect(validateRecipientEmail(42)).toBeNull();
   });
 });

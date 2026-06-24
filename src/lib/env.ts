@@ -13,6 +13,13 @@ import { z } from "zod";
 const optionalUpstashUrl = z.string().url().optional().catch(undefined);
 const optionalUpstashToken = z.string().min(1).optional().catch(undefined);
 
+// Email-receipt provider (Resend). Both are OPTIONAL enhancements — when unset
+// (or invalid) the receipt email action degrades to `email_not_configured` and
+// the app/build keep working unchanged. `.catch(undefined)` mirrors the Upstash
+// handling: a malformed value pasted into Vercel can never take down the build.
+const optionalResendKey = z.string().min(1).optional().catch(undefined);
+const optionalReceiptFrom = z.string().email().optional().catch(undefined);
+
 const schema = z.object({
   DATABASE_URL: z.string().url(),
   BETTER_AUTH_SECRET: z.string().min(16),
@@ -24,6 +31,11 @@ const schema = z.object({
   // in-memory limiting (see src/lib/redis.ts createSecondaryStorage).
   UPSTASH_REDIS_REST_URL: optionalUpstashUrl,
   UPSTASH_REDIS_REST_TOKEN: optionalUpstashToken,
+  // Optional: Resend email-receipts. RESEND_API_KEY enables sending; the
+  // optional RECEIPT_FROM_EMAIL overrides the default sender address. Unset =
+  // emailReceipt returns `email_not_configured` (see src/features/orders/email.ts).
+  RESEND_API_KEY: optionalResendKey,
+  RECEIPT_FROM_EMAIL: optionalReceiptFrom,
 });
 
 const parsed = schema.safeParse(process.env);
@@ -49,5 +61,15 @@ if (
     "⚠ UPSTASH_REDIS_REST_URL/TOKEN is set but invalid — ignoring it and " +
       "falling back to per-instance in-memory rate limiting. Fix the value in " +
       "your environment to enable shared Redis-backed limiting.",
+  );
+}
+
+// Same treatment for an invalid RECEIPT_FROM_EMAIL: dropped to undefined so the
+// build survives, but warn so the operator knows the default sender will be used
+// (or, if RESEND_API_KEY needs a verified sender, why sends may fail).
+if (process.env.RECEIPT_FROM_EMAIL && !env.RECEIPT_FROM_EMAIL) {
+  console.warn(
+    "⚠ RECEIPT_FROM_EMAIL is set but is not a valid email — ignoring it and " +
+      "falling back to the default sender address.",
   );
 }
