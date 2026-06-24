@@ -76,6 +76,7 @@ function input(over: Partial<CheckoutInput> = {}): CheckoutInput {
     businessId: BUSINESS_ID,
     clientUuid: UUID,
     lines: [{ variationId: "var_1", quantity: 1 }],
+    method: "CASH",
     cashTenderedCents: 5000,
     tipCents: 0,
     cartDiscountCents: 0,
@@ -419,6 +420,43 @@ describe("checkout — modifiers + per-line tax", () => {
       ),
     ).rejects.toThrow();
     expect(orderCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe("checkout — MANUAL / Other tender", () => {
+  it("records a MANUAL payment with no tender/change and a reference note", async () => {
+    const receipt = await checkout(
+      input({ method: "MANUAL", manualNote: "Check #12", cashTenderedCents: 0 }),
+    );
+
+    // $10 @ 8.25% => 1083; the manual payment captures exactly the total.
+    expect(receipt.method).toBe("MANUAL");
+    expect(receipt.totalCents).toBe(1083);
+    expect(receipt.cashTenderedCents).toBe(0);
+    expect(receipt.changeCents).toBe(0);
+    expect(receipt.manualNote).toBe("Check #12");
+
+    expect(createdOrderData().payments.create).toMatchObject({
+      businessId: BUSINESS_ID,
+      method: "MANUAL",
+      status: "CAPTURED",
+      amountCents: 1083,
+      tenderedCents: null,
+      changeCents: null,
+      processorRef: "Check #12",
+    });
+  });
+
+  it("does NOT require cash to cover the total for a MANUAL tender", async () => {
+    // cashTenderedCents below the total would reject a CASH sale; MANUAL ignores it.
+    const receipt = await checkout(input({ method: "MANUAL", cashTenderedCents: 0 }));
+    expect(receipt.method).toBe("MANUAL");
+    expect(orderCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("stores a null reference when the note is blank/whitespace", async () => {
+    await checkout(input({ method: "MANUAL", manualNote: "   ", cashTenderedCents: 0 }));
+    expect(createdOrderData().payments.create.processorRef).toBeNull();
   });
 });
 

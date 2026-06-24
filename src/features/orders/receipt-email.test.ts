@@ -21,7 +21,9 @@ function receipt(overrides: Partial<OrderReceipt> = {}): OrderReceipt {
     lines: [
       { id: "l1", name: "Taco", quantity: 2, unitPriceCents: 500, discountCents: 0, taxCents: 83, totalCents: 1000, modifiers: [] },
     ],
-    payments: [{ method: "CASH", amountCents: 1083, tenderedCents: 2000, changeCents: 917 }],
+    payments: [
+      { method: "CASH", amountCents: 1083, tenderedCents: 2000, changeCents: 917, manualNote: null },
+    ],
     ...overrides,
   };
 }
@@ -82,8 +84,8 @@ describe("renderReceiptEmail", () => {
     const { text } = renderReceiptEmail(
       receipt({
         payments: [
-          { method: "CARD", amountCents: 1083, tenderedCents: null, changeCents: null },
-          { method: "CARD", amountCents: -1083, tenderedCents: null, changeCents: null },
+          { method: "CARD", amountCents: 1083, tenderedCents: null, changeCents: null, manualNote: null },
+          { method: "CARD", amountCents: -1083, tenderedCents: null, changeCents: null, manualNote: null },
         ],
       }),
     );

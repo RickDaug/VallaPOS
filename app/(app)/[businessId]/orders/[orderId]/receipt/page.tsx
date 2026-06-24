@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { requireMembership } from "@/lib/tenant";
 import { roleAtLeast } from "@/lib/roles";
 import { getOrderReceipt } from "@/features/orders/queries";
+import { paymentMethodLabel } from "@/features/orders/payment-method";
 import { formatMoney } from "@/lib/money";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -121,7 +122,11 @@ export default async function ReceiptPage({
           {/* Payment */}
           <div className="mt-4 space-y-2 border-t border-border pt-4 text-sm">
             {receipt.payments.map((p, i) => (
-              <Row key={i} label={`Paid · ${p.method}`} value={money(p.amountCents)} />
+              <Row
+                key={i}
+                label={`Paid · ${paymentMethodLabel(p.method)}${p.manualNote ? ` · ${p.manualNote}` : ""}`}
+                value={money(p.amountCents)}
+              />
             ))}
             {cashPayment?.tenderedCents != null && (
               <Row label="Cash tendered" value={money(cashPayment.tenderedCents)} />

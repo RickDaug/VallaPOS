@@ -47,7 +47,9 @@ function fakeReceipt(): OrderReceipt {
     taxRateBps: 825,
     taxInclusive: false,
     lines: [],
-    payments: [{ method: "CASH", amountCents: 1083, tenderedCents: 2000, changeCents: 917 }],
+    payments: [
+      { method: "CASH", amountCents: 1083, tenderedCents: 2000, changeCents: 917, manualNote: null },
+    ],
   };
 }
 

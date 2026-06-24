@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+/** Tender methods the register can record at checkout. CASH settles with cash +
+ *  change; MANUAL ("Other") records a payment taken outside the app — an
+ *  external card reader, check, or transfer — with no card data and no change.
+ *  (CARD/QR are reserved for the later integrated-payments work.) */
+export const TENDER_METHODS = ["CASH", "MANUAL"] as const;
+export type TenderMethod = (typeof TENDER_METHODS)[number];
+
 export const checkoutSchema = z.object({
   businessId: z.string().min(1),
   // Client-generated UUID — idempotency key for offline-safe checkout.
@@ -18,7 +25,15 @@ export const checkoutSchema = z.object({
     .min(1, "Cart is empty"),
   tipCents: z.number().int().min(0).default(0),
   cartDiscountCents: z.number().int().min(0).default(0),
-  cashTenderedCents: z.number().int().min(0),
+  // How the sale was tendered. Defaults to CASH so existing/offline payloads
+  // (queued before this field existed) replay unchanged.
+  method: z.enum(TENDER_METHODS).default("CASH"),
+  // Cash given by the customer. Required-in-spirit for CASH (the action rejects
+  // a tender below the server total); irrelevant for MANUAL, hence defaulted.
+  cashTenderedCents: z.number().int().min(0).default(0),
+  // Optional free-text reference for a MANUAL tender (e.g. "Check #1234",
+  // "Zelle", "external card"). Ignored for CASH.
+  manualNote: z.string().trim().max(120).optional(),
   customerName: z.string().trim().max(80).optional(),
 });
 

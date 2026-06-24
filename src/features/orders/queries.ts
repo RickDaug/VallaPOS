@@ -238,6 +238,8 @@ export interface ReceiptPayment {
   amountCents: number;
   tenderedCents: number | null;
   changeCents: number | null;
+  // Manual ("Other") tender reference note, when one was entered (else null).
+  manualNote: string | null;
 }
 
 export interface OrderReceipt {
@@ -307,7 +309,13 @@ export async function getOrderReceipt(
       },
       payments: {
         orderBy: { createdAt: "asc" },
-        select: { method: true, amountCents: true, tenderedCents: true, changeCents: true },
+        select: {
+          method: true,
+          amountCents: true,
+          tenderedCents: true,
+          changeCents: true,
+          processorRef: true,
+        },
       },
     },
   });
@@ -348,6 +356,7 @@ export async function getOrderReceipt(
       amountCents: p.amountCents,
       tenderedCents: p.tenderedCents,
       changeCents: p.changeCents,
+      manualNote: p.processorRef,
     })),
   };
 }

@@ -19,6 +19,7 @@ import { lockOperator } from "@/features/employees/actions";
 import { computePricedOrder, type PricedLineInput } from "@/features/register/pricing";
 import type { SellableEntry, SellableModifierGroup } from "@/features/catalog/queries";
 import { type Receipt } from "@/features/register/actions";
+import type { TenderMethod } from "@/features/register/schema";
 import { useOfflineCheckout } from "@/lib/offline/use-offline-checkout";
 import {
   type Density,
@@ -85,7 +86,10 @@ export function Register({
   const [tipRate, setTipRate] = useState(0);
   const [discountDollars, setDiscountDollars] = useState("");
   const [tendering, setTendering] = useState(false);
+  // CASH (numpad + change) vs MANUAL/"Other" (payment taken outside the app).
+  const [tenderMethod, setTenderMethod] = useState<TenderMethod>("CASH");
   const [tenderDollars, setTenderDollars] = useState("");
+  const [manualNote, setManualNote] = useState("");
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [queued, setQueued] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -218,6 +222,8 @@ export function Register({
     setTipRate(0);
     setDiscountDollars("");
     setTenderDollars("");
+    setTenderMethod("CASH");
+    setManualNote("");
     setTendering(false);
     setReceipt(null);
     setQueued(false);
@@ -240,8 +246,9 @@ export function Register({
 
   async function completeSale() {
     setError(null);
-    const cashTenderedCents = Math.round(parseFloat(tenderDollars || "0") * 100);
-    if (cashTenderedCents < totals.totalCents) {
+    const manual = tenderMethod === "MANUAL";
+    const cashTenderedCents = manual ? 0 : Math.round(parseFloat(tenderDollars || "0") * 100);
+    if (!manual && cashTenderedCents < totals.totalCents) {
       setError("Cash tendered is less than the total.");
       return;
     }
@@ -257,7 +264,9 @@ export function Register({
         })),
         tipCents: totals.tipCents,
         cartDiscountCents,
+        method: tenderMethod,
         cashTenderedCents,
+        manualNote: manual ? manualNote.trim() || undefined : undefined,
       });
       if (result.status === "completed") {
         setReceipt(result.receipt);
@@ -285,7 +294,11 @@ export function Register({
           </p>
           <div className="mt-6 space-y-2 border-t border-border pt-4 text-left text-sm">
             <Row label="Total" value={money(totals.totalCents)} />
-            <Row label="Cash" value={money(Math.round(parseFloat(tenderDollars || "0") * 100))} />
+            {tenderMethod === "MANUAL" ? (
+              <Row label="Payment" value={`Other${manualNote.trim() ? ` · ${manualNote.trim()}` : ""}`} />
+            ) : (
+              <Row label="Cash" value={money(Math.round(parseFloat(tenderDollars || "0") * 100))} />
+            )}
           </div>
           <Button onClick={finishAndLock} size="lg" className="mt-6 w-full">
             New sale
@@ -304,14 +317,30 @@ export function Register({
           </div>
           <h2 className="text-xl font-bold">Sale complete</h2>
           <p className="mt-1 text-sm text-muted-foreground">Order #{receipt.number}</p>
-          <p className="numeric mt-6 text-5xl font-black text-success">{money(receipt.changeCents)}</p>
-          <p className="text-sm font-medium text-muted-foreground">change due</p>
-          <div className="mt-6 space-y-2 border-t border-border pt-4 text-left text-sm">
-            <Row label="Total" value={money(receipt.totalCents)} />
-            <Row label="Cash" value={money(receipt.cashTenderedCents)} />
-            <Row label="Tax" value={money(receipt.taxCents)} />
-            {receipt.tipCents > 0 && <Row label="Tip" value={money(receipt.tipCents)} />}
-          </div>
+          {receipt.method === "MANUAL" ? (
+            <>
+              <p className="numeric mt-6 text-5xl font-black text-success">{money(receipt.totalCents)}</p>
+              <p className="text-sm font-medium text-muted-foreground">
+                paid · Other{receipt.manualNote ? ` · ${receipt.manualNote}` : ""}
+              </p>
+              <div className="mt-6 space-y-2 border-t border-border pt-4 text-left text-sm">
+                <Row label="Total" value={money(receipt.totalCents)} />
+                <Row label="Tax" value={money(receipt.taxCents)} />
+                {receipt.tipCents > 0 && <Row label="Tip" value={money(receipt.tipCents)} />}
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="numeric mt-6 text-5xl font-black text-success">{money(receipt.changeCents)}</p>
+              <p className="text-sm font-medium text-muted-foreground">change due</p>
+              <div className="mt-6 space-y-2 border-t border-border pt-4 text-left text-sm">
+                <Row label="Total" value={money(receipt.totalCents)} />
+                <Row label="Cash" value={money(receipt.cashTenderedCents)} />
+                <Row label="Tax" value={money(receipt.taxCents)} />
+                {receipt.tipCents > 0 && <Row label="Tip" value={money(receipt.tipCents)} />}
+              </div>
+            </>
+          )}
           <Button onClick={finishAndLock} size="lg" className="mt-6 w-full">
             New sale
           </Button>
@@ -332,8 +361,12 @@ export function Register({
       setTipRate={setTipRate}
       tendering={tendering}
       setTendering={setTendering}
+      tenderMethod={tenderMethod}
+      setTenderMethod={setTenderMethod}
       tenderDollars={tenderDollars}
       setTenderDollars={setTenderDollars}
+      manualNote={manualNote}
+      setManualNote={setManualNote}
       error={error}
       pending={pending}
       changeQty={changeQty}
@@ -544,8 +577,12 @@ function CartPanel({
   setTipRate,
   tendering,
   setTendering,
+  tenderMethod,
+  setTenderMethod,
   tenderDollars,
   setTenderDollars,
+  manualNote,
+  setManualNote,
   error,
   pending,
   changeQty,
@@ -561,8 +598,12 @@ function CartPanel({
   setTipRate: (v: number) => void;
   tendering: boolean;
   setTendering: (v: boolean) => void;
+  tenderMethod: TenderMethod;
+  setTenderMethod: (v: TenderMethod) => void;
   tenderDollars: string;
   setTenderDollars: (v: string) => void;
+  manualNote: string;
+  setManualNote: (v: string) => void;
   error: string | null;
   pending: boolean;
   changeQty: (key: string, delta: number) => void;
@@ -681,42 +722,96 @@ function CartPanel({
           </Button>
         ) : (
           <div className="mt-2 space-y-3 rounded-lg bg-muted p-4">
-            <div>
-              <span className="mb-1 block font-medium">Cash received</span>
-              <div
-                className="numeric flex h-14 items-center justify-end rounded-md border border-border bg-card px-4 text-3xl font-black"
-                aria-live="polite"
-              >
-                {money(dollarsToCents(tenderDollars))}
-              </div>
-            </div>
-            <div className="grid grid-cols-4 gap-2">
-              {quickTenderOptions(totals.totalCents).map((c) => (
+            {/* Tender method: Cash (numpad + change) vs Other (paid outside the app). */}
+            <div className="grid grid-cols-2 gap-2" role="tablist" aria-label="Payment method">
+              {(["CASH", "MANUAL"] as const).map((m) => (
                 <button
-                  key={c}
+                  key={m}
                   type="button"
-                  onClick={() => setTenderDollars((c / 100).toFixed(2))}
-                  className="h-11 rounded-md border border-border bg-card text-sm font-bold transition-colors hover:bg-secondary active:scale-[0.98]"
+                  role="tab"
+                  aria-selected={tenderMethod === m}
+                  onClick={() => setTenderMethod(m)}
+                  className={cn(
+                    "h-11 rounded-md text-sm font-semibold transition-colors",
+                    tenderMethod === m
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-card text-foreground hover:bg-secondary",
+                  )}
                 >
-                  {c === totals.totalCents ? "Exact" : money(c)}
+                  {m === "CASH" ? "Cash" : "Other"}
                 </button>
               ))}
             </div>
-            <NumberPad value={tenderDollars} onChange={setTenderDollars} />
-            <div className="flex items-center justify-between border-t border-border pt-3 text-lg font-bold">
-              <span>Change due</span>
-              <span className="numeric">
-                {money(Math.max(0, dollarsToCents(tenderDollars) - totals.totalCents))}
-              </span>
-            </div>
+
+            {tenderMethod === "CASH" ? (
+              <>
+                <div>
+                  <span className="mb-1 block font-medium">Cash received</span>
+                  <div
+                    className="numeric flex h-14 items-center justify-end rounded-md border border-border bg-card px-4 text-3xl font-black"
+                    aria-live="polite"
+                  >
+                    {money(dollarsToCents(tenderDollars))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {quickTenderOptions(totals.totalCents).map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setTenderDollars((c / 100).toFixed(2))}
+                      className="h-11 rounded-md border border-border bg-card text-sm font-bold transition-colors hover:bg-secondary active:scale-[0.98]"
+                    >
+                      {c === totals.totalCents ? "Exact" : money(c)}
+                    </button>
+                  ))}
+                </div>
+                <NumberPad value={tenderDollars} onChange={setTenderDollars} />
+                <div className="flex items-center justify-between border-t border-border pt-3 text-lg font-bold">
+                  <span>Change due</span>
+                  <span className="numeric">
+                    {money(Math.max(0, dollarsToCents(tenderDollars) - totals.totalCents))}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center justify-between rounded-md border border-border bg-card px-4 py-3 text-lg font-bold">
+                  <span>Amount</span>
+                  <span className="numeric">{money(totals.totalCents)}</span>
+                </div>
+                <label className="block">
+                  <span className="mb-1 block font-medium">Reference (optional)</span>
+                  <Input
+                    value={manualNote}
+                    onChange={(e) => setManualNote(e.target.value)}
+                    placeholder="Card, check, transfer…"
+                    maxLength={120}
+                    aria-label="Payment reference"
+                  />
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  Records a payment taken outside the app (external card reader, check, bank
+                  transfer). No card data is stored.
+                </p>
+              </>
+            )}
+
             <Button
               variant="success"
               size="lg"
               onClick={completeSale}
-              disabled={pending || dollarsToCents(tenderDollars) < totals.totalCents}
+              disabled={
+                pending ||
+                (tenderMethod === "CASH" && dollarsToCents(tenderDollars) < totals.totalCents)
+              }
               className="w-full"
             >
-              {pending ? "Saving…" : "Complete sale"}
+              {pending
+                ? "Saving…"
+                : tenderMethod === "MANUAL"
+                  ? `Record ${money(totals.totalCents)}`
+                  : "Complete sale"}
             </Button>
             <Button variant="outline" onClick={() => setTendering(false)} className="w-full">
               Back
