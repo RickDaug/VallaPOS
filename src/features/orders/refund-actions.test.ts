@@ -1,32 +1,27 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import type { Role } from "@prisma/client";
 
 // --- Mocks ----------------------------------------------------------------
 // voidOrder/refundOrder are exercised with REAL refund math + REAL zod, but the
 // DB and tenant choke point are stubbed. We assert tenant scoping, the MANAGER
 // role gate, the reversing-payment writes inside the transaction, the status
 // transitions, and the guard rails (already-settled, over-refund, etc.).
-const requireMembership = vi.fn();
+const requireCapability = vi.fn();
 const orderFindFirst = vi.fn();
 const paymentCreateMany = vi.fn();
 const paymentUpdateMany = vi.fn();
 const orderUpdate = vi.fn();
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-// Fully stub the tenant module (its real impl pulls in auth.ts → env.ts, which
-// throws without env). assertRole stays faithful via the pure roles.ts ranks,
-// and ForbiddenError matches the real one's "REQUIRES_*" message shape.
+// Stub the tenant module (its real impl pulls in auth.ts → env.ts, which throws
+// without env). emailReceipt still imports requireMembership from here.
 vi.mock("@/lib/tenant", () => {
   class ForbiddenError extends Error {}
-  const RANK: Record<string, number> = { CASHIER: 0, MANAGER: 1, OWNER: 2 };
-  return {
-    ForbiddenError,
-    requireMembership: (...args: unknown[]) => requireMembership(...args),
-    assertRole: (ctx: { role: string }, min: string) => {
-      if ((RANK[ctx.role] ?? 0) < (RANK[min] ?? 0)) throw new ForbiddenError(`REQUIRES_${min}`);
-    },
-  };
+  return { ForbiddenError, requireMembership: vi.fn() };
 });
+// voidOrder/refundOrder now gate on the active operator's refund_void capability.
+vi.mock("@/lib/operator-guard", () => ({
+  requireCapability: (...args: unknown[]) => requireCapability(...args),
+}));
 vi.mock("@/lib/db", () => {
   const tx = {
     order: {
@@ -54,12 +49,15 @@ function order(status: string, payments: Payment[]) {
   return { id: ORDER_ID, status, payments };
 }
 
-function asRole(role: Role) {
-  requireMembership.mockResolvedValue({
-    userId: "u1",
+// The active operator is allowed to refund/void.
+function allowRefund() {
+  requireCapability.mockResolvedValue({
     businessId: BUSINESS_ID,
     membershipId: "m1",
-    role,
+    role: "MANAGER",
+    permissions: ["refund_void"],
+    name: "Manager",
+    deviceMembershipId: "m1",
   });
 }
 
@@ -71,23 +69,23 @@ function createdReversals(): any[] {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  asRole("MANAGER");
+  allowRefund();
   orderUpdate.mockResolvedValue({});
   paymentCreateMany.mockResolvedValue({ count: 1 });
   paymentUpdateMany.mockResolvedValue({ count: 1 });
 });
 
 describe("voidOrder — auth + tenant", () => {
-  it("goes through requireMembership with the input businessId", async () => {
+  it("gates on the refund_void capability for this business", async () => {
     orderFindFirst.mockResolvedValue(order("PAID", [{ id: "p1", method: "CASH", amountCents: 1083 }]));
     await voidOrder({ businessId: BUSINESS_ID, orderId: ORDER_ID });
-    expect(requireMembership).toHaveBeenCalledWith(BUSINESS_ID);
+    expect(requireCapability).toHaveBeenCalledWith(BUSINESS_ID, "refund_void");
   });
 
-  it("rejects a CASHIER (MANAGER+ gate)", async () => {
-    asRole("CASHIER");
+  it("rejects an operator lacking refund_void", async () => {
+    requireCapability.mockRejectedValue(new Error("REQUIRES_CAPABILITY_refund_void"));
     await expect(voidOrder({ businessId: BUSINESS_ID, orderId: ORDER_ID })).rejects.toThrow(
-      "REQUIRES_MANAGER",
+      "REQUIRES_CAPABILITY_refund_void",
     );
     expect(orderFindFirst).not.toHaveBeenCalled();
   });

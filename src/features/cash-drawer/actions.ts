@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { requireMembership, assertRole } from "@/lib/tenant";
+import { requireCapability } from "@/lib/operator-guard";
 import { getCashCollectedSince } from "./queries";
 import { reconcile } from "./reconcile";
 import {
@@ -39,8 +39,7 @@ export interface CloseDrawerResult {
 /** Open a new drawer session. Rejects if one is already open for the business. */
 export async function openDrawer(input: OpenDrawerInput): Promise<OpenDrawerResult> {
   const data = openDrawerSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "CASHIER"); // any member may open a drawer
+  const ctx = await requireCapability(data.businessId, "cash_drawer");
 
   const existing = await db.cashDrawerSession.findFirst({
     where: { businessId: ctx.businessId, closedAt: null },
@@ -77,8 +76,7 @@ export async function openDrawer(input: OpenDrawerInput): Promise<OpenDrawerResu
  */
 export async function closeDrawer(input: CloseDrawerInput): Promise<CloseDrawerResult> {
   const data = closeDrawerSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER"); // reconciling a drawer is a manager control point
+  const ctx = await requireCapability(data.businessId, "cash_drawer");
 
   const session = await db.cashDrawerSession.findFirst({
     where: { id: data.sessionId, businessId: ctx.businessId, closedAt: null },

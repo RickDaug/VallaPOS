@@ -24,6 +24,12 @@ vi.mock("@/lib/pin-throttle", () => ({
   recordFailure: vi.fn(),
   recordSuccess: vi.fn(),
 }));
+// operator.ts imports env (cookies); the operator actions aren't tested here.
+vi.mock("@/lib/operator", () => ({
+  setActiveOperator: vi.fn(),
+  clearActiveOperator: vi.fn(),
+  getActiveOperator: vi.fn(),
+}));
 vi.mock("@/lib/db", () => ({
   db: {
     membership: {

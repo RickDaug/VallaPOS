@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 // stubbed. We assert: openTab rejects double-open and stamps an OPEN order;
 // addTabLines recomputes server-side + rejects foreign modifiers; settleTab
 // computes the amount itself, validates tender, closes only when fully settled.
-const requireMembership = vi.fn();
+const requireCapability = vi.fn();
 
 const orderFindFirst = vi.fn();
 const floorTableFindFirst = vi.fn();
@@ -24,8 +24,8 @@ const paymentCreate = vi.fn();
 const orderTableCreateMany = vi.fn();
 const orderTableDeleteMany = vi.fn();
 
-vi.mock("@/lib/tenant", () => ({
-  requireMembership: (...args: unknown[]) => requireMembership(...args),
+vi.mock("@/lib/operator-guard", () => ({
+  requireCapability: (...args: unknown[]) => requireCapability(...args),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
@@ -68,11 +68,13 @@ const BUSINESS_ID = "biz_1";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  requireMembership.mockResolvedValue({
-    userId: "u1",
+  requireCapability.mockResolvedValue({
     businessId: BUSINESS_ID,
     membershipId: "m1",
     role: "CASHIER",
+    permissions: ["take_orders"],
+    name: "Cashier",
+    deviceMembershipId: "m1",
   });
 });
 

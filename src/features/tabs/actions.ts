@@ -5,7 +5,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
-import { requireMembership } from "@/lib/tenant";
+import { requireCapability } from "@/lib/operator-guard";
 import { computePricedOrder, priceLine } from "@/features/register/pricing";
 import { resolveOrderLines } from "@/features/register/resolve-lines";
 import { planSettlement, type TabLine } from "./tab-math";
@@ -76,7 +76,7 @@ async function recomputeOrderTotals(
 
 export async function openTab(input: z.infer<typeof openTabSchema>): Promise<string> {
   const data = openTabSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
+  const ctx = await requireCapability(data.businessId, "take_orders");
 
   const table = await db.floorTable.findFirst({
     where: { id: data.tableId, businessId: ctx.businessId },
@@ -118,7 +118,7 @@ export async function openTab(input: z.infer<typeof openTabSchema>): Promise<str
 
 export async function mergeTables(input: z.infer<typeof mergeTablesSchema>) {
   const data = mergeTablesSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
+  const ctx = await requireCapability(data.businessId, "take_orders");
   await loadOpenOrder(data.orderId, ctx.businessId);
 
   const table = await db.floorTable.findFirst({
@@ -149,7 +149,7 @@ export async function mergeTables(input: z.infer<typeof mergeTablesSchema>) {
 
 export async function transferTab(input: z.infer<typeof transferTabSchema>) {
   const data = transferTabSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
+  const ctx = await requireCapability(data.businessId, "take_orders");
   await loadOpenOrder(data.orderId, ctx.businessId);
 
   const toTable = await db.floorTable.findFirst({
@@ -183,7 +183,7 @@ export async function transferTab(input: z.infer<typeof transferTabSchema>) {
 
 export async function addTabLines(input: z.infer<typeof addTabLinesSchema>) {
   const data = addTabLinesSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
+  const ctx = await requireCapability(data.businessId, "take_orders");
   await loadOpenOrder(data.orderId, ctx.businessId);
 
   const business = await db.business.findUniqueOrThrow({
@@ -226,7 +226,7 @@ export async function addTabLines(input: z.infer<typeof addTabLinesSchema>) {
 
 export async function setTabLineQty(input: z.infer<typeof setTabLineQtySchema>) {
   const data = setTabLineQtySchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
+  const ctx = await requireCapability(data.businessId, "take_orders");
   await loadOpenOrder(data.orderId, ctx.businessId);
 
   const line = await db.orderLine.findFirst({
@@ -273,7 +273,7 @@ export async function setTabLineQty(input: z.infer<typeof setTabLineQtySchema>) 
 
 export async function removeTabLine(input: z.infer<typeof tabLineRefSchema>) {
   const data = tabLineRefSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
+  const ctx = await requireCapability(data.businessId, "take_orders");
   await loadOpenOrder(data.orderId, ctx.businessId);
 
   const line = await db.orderLine.findFirst({
@@ -297,7 +297,7 @@ export async function removeTabLine(input: z.infer<typeof tabLineRefSchema>) {
 
 export async function assignLineSeat(input: z.infer<typeof assignLineSeatSchema>) {
   const data = assignLineSeatSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
+  const ctx = await requireCapability(data.businessId, "take_orders");
   await loadOpenOrder(data.orderId, ctx.businessId);
 
   const line = await db.orderLine.findFirst({
@@ -325,7 +325,7 @@ export interface SettleResult {
 
 export async function settleTab(input: z.infer<typeof settleTabSchema>): Promise<SettleResult> {
   const data = settleTabSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
+  const ctx = await requireCapability(data.businessId, "take_orders");
 
   const order = await db.order.findFirst({
     where: { id: data.orderId, businessId: ctx.businessId, status: "OPEN" },

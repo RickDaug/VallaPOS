@@ -1,5 +1,6 @@
 import { requireMembership } from "@/lib/tenant";
-import { roleAtLeast } from "@/lib/roles";
+import { getActiveOperator } from "@/lib/operator";
+import { can } from "@/lib/capabilities";
 import {
   listMembers,
   getTodayTimesheet,
@@ -23,7 +24,10 @@ export default async function EmployeesPage({
 }) {
   const { businessId } = await params;
   const ctx = await requireMembership(businessId);
-  const canManage = roleAtLeast(ctx.role, "MANAGER");
+  // Team management is gated by the active operator's capability, not the device.
+  const operator = await getActiveOperator(businessId);
+  const canManage = !!operator && can(operator.role, operator.permissions, "manage_team");
+  const canEditPermissions = operator?.role === "OWNER";
 
   const [openEntry, timesheet, members] = await Promise.all([
     getOpenEntryFor(businessId, ctx.membershipId),
@@ -58,7 +62,7 @@ export default async function EmployeesPage({
       {canManage && (
         <section>
           <h2 className="mb-3 text-lg font-bold">Team</h2>
-          <MemberAdmin businessId={businessId} members={members} canEditPermissions={ctx.role === "OWNER"} />
+          <MemberAdmin businessId={businessId} members={members} canEditPermissions={canEditPermissions} />
         </section>
       )}
     </section>

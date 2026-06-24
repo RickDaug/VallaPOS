@@ -1,10 +1,11 @@
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireMembership } from "@/lib/tenant";
-import { roleAtLeast } from "@/lib/roles";
 import { SettingsForm } from "@/features/settings/components/SettingsForm";
 import { FloorPlanEditor } from "@/features/floor/components/FloorPlanEditor";
 import { getFloorLayout } from "@/features/floor/queries";
+import { pageHasCapability } from "@/lib/operator-guard";
+import { NoAccess } from "@/components/no-access";
 
 export default async function SettingsPage({
   params,
@@ -12,7 +13,13 @@ export default async function SettingsPage({
   params: Promise<{ businessId: string }>;
 }) {
   const { businessId } = await params;
-  const { role } = await requireMembership(businessId);
+  await requireMembership(businessId);
+
+  // Capability-gated for the active operator: business settings (manage_settings)
+  // and/or the floor plan (manage_products). No access to either → NoAccess.
+  const canSettings = await pageHasCapability(businessId, "manage_settings");
+  const canFloor = await pageHasCapability(businessId, "manage_products");
+  if (!canSettings && !canFloor) return <NoAccess what="settings" />;
 
   const business = await db.business.findUnique({
     where: { id: businessId },
@@ -20,9 +27,7 @@ export default async function SettingsPage({
   });
   if (!business) notFound();
 
-  // The floor plan is a manager-level operational tool (not an owner-only
-  // business setting), shown only when the business runs in RESTAURANT mode.
-  const showFloorEditor = business.mode === "RESTAURANT" && roleAtLeast(role, "MANAGER");
+  const showFloorEditor = business.mode === "RESTAURANT" && canFloor;
   const rooms = showFloorEditor ? await getFloorLayout(businessId) : [];
 
   return (
@@ -32,11 +37,11 @@ export default async function SettingsPage({
           <h1 className="text-2xl font-black md:text-3xl">Settings</h1>
           <p className="text-sm text-muted-foreground">Business type, name, sales tax, and currency.</p>
         </header>
-        {role === "OWNER" ? (
+        {canSettings ? (
           <SettingsForm businessId={businessId} initial={business} />
         ) : (
           <div className="max-w-lg rounded-xl border border-border bg-card p-6 text-muted-foreground shadow-sm">
-            Only the business owner can change these settings.
+            You don&apos;t have permission to change business settings.
           </div>
         )}
       </div>

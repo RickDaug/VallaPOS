@@ -27,6 +27,7 @@ import {
   transferTab,
   settleTab,
 } from "@/features/tabs/actions";
+import { lockOperator } from "@/features/employees/actions";
 import type { TabView, TabLineView } from "@/features/tabs/queries";
 import type { SellableEntry, SellableModifierGroup } from "@/features/catalog/queries";
 
@@ -95,8 +96,13 @@ export function TableDetail({
     startTransition(async () => {
       try {
         await fn();
-        if (opts?.closeOnDone) router.push(`/${businessId}/floor`);
-        else router.refresh();
+        if (opts?.closeOnDone) {
+          // A closed tab is a completed sale → re-lock so the next order needs a PIN.
+          await lockOperator({ businessId }).catch(() => {});
+          router.push(`/${businessId}/floor`);
+        } else {
+          router.refresh();
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Something went wrong.");
       }

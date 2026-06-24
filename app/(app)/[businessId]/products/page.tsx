@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { requireMembership } from "@/lib/tenant";
 import { getManagedCatalog } from "@/features/catalog/queries";
 import { ProductsManager } from "@/features/catalog/components/ProductsManager";
+import { pageHasCapability } from "@/lib/operator-guard";
+import { NoAccess } from "@/components/no-access";
 
 export default async function ProductsPage({
   params,
@@ -11,6 +13,7 @@ export default async function ProductsPage({
 }) {
   const { businessId } = await params;
   await requireMembership(businessId);
+  if (!(await pageHasCapability(businessId, "manage_products"))) return <NoAccess what="products" />;
 
   const business = await db.business.findUnique({
     where: { id: businessId },

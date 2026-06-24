@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { requireMembership, assertRole } from "@/lib/tenant";
+import { requireMembership } from "@/lib/tenant";
+import { requireCapability } from "@/lib/operator-guard";
 import { getOrderReceipt } from "./queries";
 import { renderReceiptEmail } from "./receipt-email";
 import {
@@ -109,8 +110,7 @@ const SETTLED: ReadonlySet<OrderStatus> = new Set<OrderStatus>(["VOIDED", "REFUN
  */
 export async function voidOrder(input: VoidOrderInput): Promise<RefundVoidResult> {
   const data = voidOrderSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "refund_void");
 
   return db.$transaction(async (tx) => {
     const order = await tx.order.findFirst({
@@ -147,8 +147,7 @@ export async function voidOrder(input: VoidOrderInput): Promise<RefundVoidResult
  */
 export async function refundOrder(input: RefundOrderInput): Promise<RefundVoidResult> {
   const data = refundOrderSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "refund_void");
 
   return db.$transaction(async (tx) => {
     const order = await tx.order.findFirst({

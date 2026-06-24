@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { requireMembership } from "@/lib/tenant";
+import { requireCapability } from "@/lib/operator-guard";
 import { computePricedOrder } from "./pricing";
 import { resolveOrderLines } from "./resolve-lines";
 import { checkoutSchema, type CheckoutInput } from "./schema";
@@ -41,7 +41,9 @@ export interface Receipt {
  */
 export async function checkout(input: CheckoutInput): Promise<Receipt> {
   const data = checkoutSchema.parse(input);
-  const { businessId, membershipId } = await requireMembership(data.businessId);
+  // The active operator (PIN-identified) must be allowed to take orders; the sale
+  // is attributed to them.
+  const { businessId, membershipId } = await requireCapability(data.businessId, "take_orders");
 
   // Idempotency: if this clientUuid already produced an order, return it.
   const existing = await db.order.findUnique({

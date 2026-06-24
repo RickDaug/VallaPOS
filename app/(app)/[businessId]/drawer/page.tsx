@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { requireMembership } from "@/lib/tenant";
 import { roleAtLeast } from "@/lib/roles";
 import { getRunningExpected, listDrawerSessions } from "@/features/cash-drawer/queries";
+import { pageHasCapability } from "@/lib/operator-guard";
+import { NoAccess } from "@/components/no-access";
 import { formatMoney } from "@/lib/money";
 import {
   OpenDrawerForm,
@@ -27,6 +29,7 @@ export default async function DrawerPage({
 }) {
   const { businessId } = await params;
   const { role } = await requireMembership(businessId);
+  if (!(await pageHasCapability(businessId, "cash_drawer"))) return <NoAccess what="the cash drawer" />;
 
   const business = await db.business.findUnique({
     where: { id: businessId },

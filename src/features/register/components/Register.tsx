@@ -1,8 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Check, CloudOff, Plus, RefreshCw, Search, WifiOff } from "lucide-react";
 import { formatMoney } from "@/lib/money";
+import { lockOperator } from "@/features/employees/actions";
 import { computePricedOrder, type PricedLineInput } from "@/features/register/pricing";
 import type { SellableEntry, SellableModifierGroup } from "@/features/catalog/queries";
 import { type Receipt } from "@/features/register/actions";
@@ -54,6 +56,7 @@ export function Register({
   currency: string;
   taxInclusive: boolean;
 }) {
+  const router = useRouter();
   const [cart, setCart] = useState<CartLine[]>([]);
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("All");
@@ -155,6 +158,19 @@ export function Register({
     setError(null);
   }
 
+  // After a completed sale, re-lock the terminal so the next order requires a PIN
+  // (the chosen "re-lock after each sale" behavior). The shell re-renders to the
+  // operator lock screen on refresh.
+  async function finishAndLock() {
+    try {
+      await lockOperator({ businessId });
+    } catch {
+      /* best effort — idle auto-lock is the backstop */
+    }
+    resetSale();
+    router.refresh();
+  }
+
   async function completeSale() {
     setError(null);
     const cashTenderedCents = Math.round(parseFloat(tenderDollars || "0") * 100);
@@ -204,7 +220,7 @@ export function Register({
             <Row label="Total" value={money(totals.totalCents)} />
             <Row label="Cash" value={money(Math.round(parseFloat(tenderDollars || "0") * 100))} />
           </div>
-          <Button onClick={resetSale} size="lg" className="mt-6 w-full">
+          <Button onClick={finishAndLock} size="lg" className="mt-6 w-full">
             New sale
           </Button>
         </CardContent>
@@ -229,7 +245,7 @@ export function Register({
             <Row label="Tax" value={money(receipt.taxCents)} />
             {receipt.tipCents > 0 && <Row label="Tip" value={money(receipt.tipCents)} />}
           </div>
-          <Button onClick={resetSale} size="lg" className="mt-6 w-full">
+          <Button onClick={finishAndLock} size="lg" className="mt-6 w-full">
             New sale
           </Button>
         </CardContent>

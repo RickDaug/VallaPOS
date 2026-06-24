@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { requireMembership, assertRole } from "@/lib/tenant";
+import { requireCapability } from "@/lib/operator-guard";
 import {
   createRoomSchema,
   renameRoomSchema,
@@ -58,8 +58,7 @@ async function assertUnderTableCap(businessId: string, adding: number) {
 
 export async function createRoom(input: z.infer<typeof createRoomSchema>) {
   const data = createRoomSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "manage_products");
 
   // New rooms sort after existing ones.
   const count = await db.floorRoom.count({ where: { businessId: ctx.businessId } });
@@ -78,8 +77,7 @@ export async function createRoom(input: z.infer<typeof createRoomSchema>) {
 
 export async function renameRoom(input: z.infer<typeof renameRoomSchema>) {
   const data = renameRoomSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "manage_products");
 
   try {
     // Scoped by businessId so a tenant can't rename another's room.
@@ -96,8 +94,7 @@ export async function renameRoom(input: z.infer<typeof renameRoomSchema>) {
 
 export async function reorderRoom(input: z.infer<typeof reorderRoomSchema>) {
   const data = reorderRoomSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "manage_products");
 
   await db.floorRoom.updateMany({
     where: { id: data.id, businessId: ctx.businessId },
@@ -108,8 +105,7 @@ export async function reorderRoom(input: z.infer<typeof reorderRoomSchema>) {
 
 export async function deleteRoom(input: z.infer<typeof roomIdSchema>) {
   const data = roomIdSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "manage_products");
 
   // Cascade drops the room's tables (FloorTable.roomId onDelete: Cascade).
   await db.floorRoom.deleteMany({ where: { id: data.id, businessId: ctx.businessId } });
@@ -120,8 +116,7 @@ export async function deleteRoom(input: z.infer<typeof roomIdSchema>) {
 
 export async function createTable(input: z.infer<typeof createTableSchema>) {
   const data = createTableSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "manage_products");
   await assertRoomOwned(data.roomId, ctx.businessId);
   await assertUnderTableCap(ctx.businessId, 1);
 
@@ -147,8 +142,7 @@ export async function createTable(input: z.infer<typeof createTableSchema>) {
 
 export async function updateTable(input: z.infer<typeof updateTableSchema>) {
   const data = updateTableSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "manage_products");
 
   // Only the provided fields are written; coords/sizes are re-clamped server-side.
   const patch: Record<string, unknown> = {};
@@ -169,8 +163,7 @@ export async function updateTable(input: z.infer<typeof updateTableSchema>) {
 
 export async function deleteTable(input: z.infer<typeof deleteTableSchema>) {
   const data = deleteTableSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "manage_products");
 
   await db.floorTable.deleteMany({ where: { id: data.id, businessId: ctx.businessId } });
   revalidateFloor(ctx.businessId);
@@ -178,8 +171,7 @@ export async function deleteTable(input: z.infer<typeof deleteTableSchema>) {
 
 export async function quickAddTables(input: z.infer<typeof quickAddTablesSchema>) {
   const data = quickAddTablesSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "manage_products");
   await assertRoomOwned(data.roomId, ctx.businessId);
   await assertUnderTableCap(ctx.businessId, data.count);
 
