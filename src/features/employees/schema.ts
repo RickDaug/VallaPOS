@@ -103,6 +103,10 @@ export const verifyPinSchema = z.object({
 });
 export type VerifyPinInput = z.infer<typeof verifyPinSchema>;
 
+/** Business-scoped action with no other input (lock, become-self-operator). */
+export const businessScopeSchema = z.object({ businessId: businessIdSchema });
+export type BusinessScopeInput = z.infer<typeof businessScopeSchema>;
+
 /**
  * Clock in or clock out. Self-service: the action derives the membership from
  * the authenticated tenant context, so the client only sends the businessId

@@ -14,23 +14,34 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { can, type Capability } from "@/lib/capabilities";
+import type { Role } from "@prisma/client";
 
 type BusinessMode = "STORE" | "RESTAURANT";
-type NavItem = { slug: string; label: string; Icon: LucideIcon };
+type NavItem = { slug: string; label: string; Icon: LucideIcon; cap: Capability };
+
+export interface NavOperator {
+  role: Role;
+  permissions: string[];
+}
 
 // The "Floor" screen is the restaurant home, so it sits right after Register and
-// only appears in RESTAURANT mode.
-function navFor(mode: BusinessMode): NavItem[] {
-  return [
-    { slug: "register", label: "Register", Icon: ShoppingCart },
-    ...(mode === "RESTAURANT" ? [{ slug: "floor", label: "Floor", Icon: LayoutGrid }] : []),
-    { slug: "orders", label: "Orders", Icon: Receipt },
-    { slug: "products", label: "Products", Icon: Boxes },
-    { slug: "reports", label: "Reports", Icon: BarChart3 },
-    { slug: "drawer", label: "Drawer", Icon: Wallet },
-    { slug: "employees", label: "Team", Icon: Users },
-    { slug: "settings", label: "Settings", Icon: Settings },
+// only appears in RESTAURANT mode. Each item is gated by the active operator's
+// capability, so a worker only sees the screens they're permitted to use.
+function navFor(mode: BusinessMode, operator: NavOperator): NavItem[] {
+  const all: NavItem[] = [
+    { slug: "register", label: "Register", Icon: ShoppingCart, cap: "take_orders" },
+    ...(mode === "RESTAURANT"
+      ? [{ slug: "floor", label: "Floor", Icon: LayoutGrid, cap: "take_orders" as Capability }]
+      : []),
+    { slug: "orders", label: "Orders", Icon: Receipt, cap: "take_orders" },
+    { slug: "products", label: "Products", Icon: Boxes, cap: "manage_products" },
+    { slug: "reports", label: "Reports", Icon: BarChart3, cap: "view_reports" },
+    { slug: "drawer", label: "Drawer", Icon: Wallet, cap: "cash_drawer" },
+    { slug: "employees", label: "Team", Icon: Users, cap: "manage_team" },
+    { slug: "settings", label: "Settings", Icon: Settings, cap: "manage_settings" },
   ];
+  return all.filter((item) => can(operator.role, operator.permissions, item.cap));
 }
 
 function useActive(businessId: string) {
@@ -39,11 +50,19 @@ function useActive(businessId: string) {
 }
 
 /** Desktop sidebar nav (vertical). */
-export function SideNav({ businessId, mode }: { businessId: string; mode: BusinessMode }) {
+export function SideNav({
+  businessId,
+  mode,
+  operator,
+}: {
+  businessId: string;
+  mode: BusinessMode;
+  operator: NavOperator;
+}) {
   const isActive = useActive(businessId);
   return (
     <nav className="space-y-1">
-      {navFor(mode).map(({ slug, label, Icon }) => (
+      {navFor(mode, operator).map(({ slug, label, Icon }) => (
         <Link
           key={slug}
           href={`/${businessId}/${slug}`}
@@ -64,9 +83,17 @@ export function SideNav({ businessId, mode }: { businessId: string; mode: Busine
 }
 
 /** Mobile bottom-tab nav (fixed, safe-area aware). */
-export function BottomNav({ businessId, mode }: { businessId: string; mode: BusinessMode }) {
+export function BottomNav({
+  businessId,
+  mode,
+  operator,
+}: {
+  businessId: string;
+  mode: BusinessMode;
+  operator: NavOperator;
+}) {
   const isActive = useActive(businessId);
-  const items = navFor(mode);
+  const items = navFor(mode, operator);
   return (
     <nav
       // Column count tracks the item count (7 in store, 8 in restaurant); set

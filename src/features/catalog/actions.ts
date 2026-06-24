@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { requireMembership, assertRole } from "@/lib/tenant";
+import { requireCapability } from "@/lib/operator-guard";
 import {
   createCategorySchema,
   createItemSchema,
@@ -38,8 +38,7 @@ function revalidateCatalog(businessId: string) {
 
 export async function createCategory(input: z.infer<typeof createCategorySchema>) {
   const data = createCategorySchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "manage_products");
 
   await db.category.create({ data: { businessId: ctx.businessId, name: data.name } });
   revalidateCatalog(ctx.businessId);
@@ -47,8 +46,7 @@ export async function createCategory(input: z.infer<typeof createCategorySchema>
 
 export async function deleteCategory(input: z.infer<typeof idSchema>) {
   const data = idSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "manage_products");
 
   // Scope the delete by businessId so one tenant can't delete another's row.
   await db.category.deleteMany({ where: { id: data.id, businessId: ctx.businessId } });
@@ -57,8 +55,7 @@ export async function deleteCategory(input: z.infer<typeof idSchema>) {
 
 export async function createItem(input: z.infer<typeof createItemSchema>) {
   const data = createItemSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "manage_products");
 
   // Validate the category belongs to this business (defense in depth).
   if (data.categoryId) {
@@ -86,8 +83,7 @@ export async function createItem(input: z.infer<typeof createItemSchema>) {
 
 export async function deleteItem(input: z.infer<typeof idSchema>) {
   const data = idSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "manage_products");
 
   await db.item.deleteMany({ where: { id: data.id, businessId: ctx.businessId } });
   revalidateCatalog(ctx.businessId);
@@ -101,8 +97,7 @@ export async function deleteItem(input: z.infer<typeof idSchema>) {
  */
 export async function updateItem(input: z.infer<typeof updateItemSchema>) {
   const data = updateItemSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "manage_products");
 
   // The item must belong to this business.
   const item = await db.item.findFirst({
@@ -150,8 +145,7 @@ export async function updateItem(input: z.infer<typeof updateItemSchema>) {
 /** Archive (active=false) or unarchive an item. Archived items leave the register. */
 export async function setItemActive(input: z.infer<typeof setItemActiveSchema>) {
   const data = setItemActiveSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "manage_products");
 
   // updateMany scopes by businessId so a forged id can't toggle another tenant's item.
   await db.item.updateMany({
@@ -165,8 +159,7 @@ export async function setItemActive(input: z.infer<typeof setItemActiveSchema>) 
 
 export async function createVariation(input: z.infer<typeof createVariationSchema>) {
   const data = createVariationSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "manage_products");
 
   // The parent item must belong to this business (defense in depth).
   const item = await db.item.findFirst({
@@ -195,8 +188,7 @@ export async function createVariation(input: z.infer<typeof createVariationSchem
 
 export async function updateVariation(input: z.infer<typeof updateVariationSchema>) {
   const data = updateVariationSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "manage_products");
 
   // The variation must belong to this business.
   const variation = await db.variation.findFirst({
@@ -224,8 +216,7 @@ export async function updateVariation(input: z.infer<typeof updateVariationSchem
 
 export async function deleteVariation(input: z.infer<typeof idSchema>) {
   const data = idSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "manage_products");
 
   // The variation must belong to this business; resolve its item to count siblings.
   const variation = await db.variation.findFirst({
@@ -250,8 +241,7 @@ export async function updateCategorySortOrder(
   input: z.infer<typeof updateCategorySortOrderSchema>,
 ) {
   const data = updateCategorySortOrderSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "manage_products");
 
   await db.category.updateMany({
     where: { id: data.id, businessId: ctx.businessId },
@@ -264,8 +254,7 @@ export async function updateCategorySortOrder(
 
 export async function createModifierGroup(input: z.infer<typeof createModifierGroupSchema>) {
   const data = createModifierGroupSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "manage_products");
 
   await db.modifierGroup.create({
     data: {
@@ -280,8 +269,7 @@ export async function createModifierGroup(input: z.infer<typeof createModifierGr
 
 export async function deleteModifierGroup(input: z.infer<typeof idSchema>) {
   const data = idSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "manage_products");
 
   // Scope by businessId; cascades remove modifiers + item links.
   await db.modifierGroup.deleteMany({ where: { id: data.id, businessId: ctx.businessId } });
@@ -290,8 +278,7 @@ export async function deleteModifierGroup(input: z.infer<typeof idSchema>) {
 
 export async function createModifier(input: z.infer<typeof createModifierSchema>) {
   const data = createModifierSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "manage_products");
 
   // The group must belong to this business (defense in depth against a forged id).
   const group = await db.modifierGroup.findFirst({
@@ -313,8 +300,7 @@ export async function createModifier(input: z.infer<typeof createModifierSchema>
 
 export async function deleteModifier(input: z.infer<typeof idSchema>) {
   const data = idSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "manage_products");
 
   await db.modifier.deleteMany({ where: { id: data.id, businessId: ctx.businessId } });
   revalidateCatalog(ctx.businessId);
@@ -322,8 +308,7 @@ export async function deleteModifier(input: z.infer<typeof idSchema>) {
 
 export async function linkModifierGroup(input: z.infer<typeof linkSchema>) {
   const data = linkSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "manage_products");
 
   // Both the item and the group must belong to this business before we link them.
   const [item, group] = await Promise.all([
@@ -346,8 +331,7 @@ export async function linkModifierGroup(input: z.infer<typeof linkSchema>) {
 
 export async function unlinkModifierGroup(input: z.infer<typeof linkSchema>) {
   const data = linkSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "MANAGER");
+  const ctx = await requireCapability(data.businessId, "manage_products");
 
   // Scope the unlink to rows whose item belongs to this business (the link row
   // itself carries no businessId, so we guard via the item).

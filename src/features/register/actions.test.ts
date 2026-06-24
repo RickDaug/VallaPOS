@@ -6,15 +6,17 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 // that the server recomputes totals from DB prices + the business tax rate
 // (ignoring any client-sent totals), enforces clientUuid idempotency, and
 // writes Order/OrderLine/Payment on the success path.
-const requireMembership = vi.fn();
+const requireCapability = vi.fn();
 const orderFindUnique = vi.fn();
 const businessFindUniqueOrThrow = vi.fn();
 const variationFindMany = vi.fn();
 const orderCounterUpsert = vi.fn();
 const orderCreate = vi.fn();
 
-vi.mock("@/lib/tenant", () => ({
-  requireMembership: (...args: unknown[]) => requireMembership(...args),
+// checkout now gates on the active operator's capability; the operator's
+// membershipId is the cashierId. Mock the gate to return a fixed operator.
+vi.mock("@/lib/operator-guard", () => ({
+  requireCapability: (...args: unknown[]) => requireCapability(...args),
 }));
 
 vi.mock("@/lib/db", () => {
@@ -92,11 +94,13 @@ function createdOrderData(): Record<string, any> {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  requireMembership.mockResolvedValue({
-    userId: "user_1",
+  requireCapability.mockResolvedValue({
     businessId: BUSINESS_ID,
     membershipId: "mem_1",
     role: "CASHIER",
+    permissions: ["take_orders"],
+    name: "Cashier",
+    deviceMembershipId: "mem_1",
   });
   orderFindUnique.mockResolvedValue(null); // no prior order by default
   businessFindUniqueOrThrow.mockResolvedValue({ taxRateBps: 825, taxInclusive: false });
@@ -115,9 +119,9 @@ beforeEach(() => {
 });
 
 describe("checkout — tenant isolation", () => {
-  it("goes through requireMembership with the input businessId", async () => {
+  it("gates on take_orders for the input businessId (operator attribution)", async () => {
     await checkout(input());
-    expect(requireMembership).toHaveBeenCalledWith(BUSINESS_ID);
+    expect(requireCapability).toHaveBeenCalledWith(BUSINESS_ID, "take_orders");
   });
 
   it("scopes the variation price lookup by businessId", async () => {
@@ -421,6 +425,6 @@ describe("checkout — modifiers + per-line tax", () => {
 describe("checkout — input validation", () => {
   it("rejects an invalid payload before any DB access", async () => {
     await expect(checkout(input({ lines: [] }) as never)).rejects.toThrow();
-    expect(requireMembership).not.toHaveBeenCalled();
+    expect(requireCapability).not.toHaveBeenCalled();
   });
 });

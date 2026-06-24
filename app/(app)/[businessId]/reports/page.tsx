@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireMembership } from "@/lib/tenant";
 import { getDailyReport, getItemSalesReport, getCashierSalesReport } from "@/features/orders/queries";
+import { pageHasCapability } from "@/lib/operator-guard";
+import { NoAccess } from "@/components/no-access";
 import { getDrawerDaySummary } from "@/features/cash-drawer/queries";
 import { formatMoney } from "@/lib/money";
 import { Card, CardContent } from "@/components/ui/card";
@@ -25,6 +27,7 @@ export default async function ReportsPage({
   const { businessId } = await params;
   const { date } = await searchParams;
   await requireMembership(businessId);
+  if (!(await pageHasCapability(businessId, "view_reports"))) return <NoAccess what="reports" />;
 
   const business = await db.business.findUnique({
     where: { id: businessId },

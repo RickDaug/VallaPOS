@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { requireMembership, assertRole } from "@/lib/tenant";
+import { requireCapability } from "@/lib/operator-guard";
 
 const CURRENCIES = ["USD", "CAD", "EUR", "GBP", "AUD"] as const;
 
@@ -21,8 +21,7 @@ const updateSettingsSchema = z.object({
 
 export async function updateBusinessSettings(input: z.infer<typeof updateSettingsSchema>) {
   const data = updateSettingsSchema.parse(input);
-  const ctx = await requireMembership(data.businessId);
-  assertRole(ctx, "OWNER"); // business-level settings are owner-only
+  const ctx = await requireCapability(data.businessId, "manage_settings");
 
   await db.business.update({
     where: { id: ctx.businessId },

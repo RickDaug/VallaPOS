@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { requireMembership, assertRole } from "@/lib/tenant";
 import { assertNotLocked, recordFailure, recordSuccess } from "@/lib/pin-throttle";
 import { defaultCapabilitiesFor, sanitizeCapabilities } from "@/lib/capabilities";
+import { setActiveOperator, clearActiveOperator } from "@/lib/operator";
 import { hashPin, verifyPin } from "./pin";
 import {
   addMemberSchema,
@@ -16,6 +17,7 @@ import {
   clearPinSchema,
   setActiveSchema,
   verifyPinSchema,
+  businessScopeSchema,
   clockSchema,
   type AddMemberInput,
   type AddStaffMemberInput,
@@ -26,6 +28,7 @@ import {
   type ClearPinInput,
   type SetActiveInput,
   type VerifyPinInput,
+  type BusinessScopeInput,
   type ClockInput,
 } from "./schema";
 
@@ -270,6 +273,64 @@ export async function verifyMemberPin(input: VerifyPinInput): Promise<{ valid: b
   if (valid) await recordSuccess(ctx.businessId, data.membershipId);
   else await recordFailure(ctx.businessId, data.membershipId);
   return { valid };
+}
+
+/**
+ * Become the active operator on this device by entering a member's PIN. Same
+ * throttled, constant-time verification as verifyMemberPin; on success it sets
+ * the signed operator cookie (src/lib/operator.ts). Returns only a boolean — a
+ * wrong PIN, a locked target, and an inactive/unknown member all look identical.
+ */
+export async function enterOperatorPin(input: VerifyPinInput): Promise<{ ok: boolean }> {
+  const data = verifyPinSchema.parse(input);
+  const ctx = await requireMembership(data.businessId); // device must belong to the business
+
+  try {
+    await assertNotLocked(ctx.businessId, data.membershipId);
+  } catch {
+    return { ok: false };
+  }
+
+  const target = await db.membership.findFirst({
+    where: { id: data.membershipId, businessId: ctx.businessId, active: true },
+    select: { pinHash: true },
+  });
+  if (!target) return { ok: false };
+
+  const valid = verifyPin(data.pin, target.pinHash);
+  if (!valid) {
+    await recordFailure(ctx.businessId, data.membershipId);
+    return { ok: false };
+  }
+  await recordSuccess(ctx.businessId, data.membershipId);
+  await setActiveOperator(ctx.businessId, data.membershipId);
+  return { ok: true };
+}
+
+/**
+ * Bootstrap path: the signed-in device user becomes the active operator WITHOUT
+ * a PIN — allowed ONLY when their own membership has no PIN set (e.g. a fresh
+ * owner). Once they set a PIN they must enter it like everyone else (closing the
+ * "anyone at the device acts as the owner" hole on a shared terminal).
+ */
+export async function becomeSelfOperator(input: BusinessScopeInput): Promise<{ ok: boolean; needsPin?: boolean }> {
+  const data = businessScopeSchema.parse(input);
+  const ctx = await requireMembership(data.businessId);
+  const me = await db.membership.findFirst({
+    where: { id: ctx.membershipId, businessId: ctx.businessId, active: true },
+    select: { pinHash: true },
+  });
+  if (!me) return { ok: false };
+  if (me.pinHash) return { ok: false, needsPin: true };
+  await setActiveOperator(ctx.businessId, ctx.membershipId);
+  return { ok: true };
+}
+
+/** Lock the device (clear the active operator). */
+export async function lockOperator(input: BusinessScopeInput): Promise<void> {
+  const data = businessScopeSchema.parse(input);
+  const ctx = await requireMembership(data.businessId);
+  await clearActiveOperator(ctx.businessId);
 }
 
 /**

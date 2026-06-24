@@ -63,6 +63,39 @@ export async function listMembers(businessId: string): Promise<MemberRow[]> {
   }));
 }
 
+export interface LockScreenMember {
+  membershipId: string;
+  name: string;
+  role: Role;
+  hasPin: boolean;
+}
+
+/**
+ * Minimal roster for the operator lock screen — active members + whether they
+ * have a PIN. Intentionally NOT role-gated (it's the device sign-in screen,
+ * shown to whoever is at the till); exposes only names + hasPin, never the hash.
+ * Tenant-scoped by businessId.
+ */
+export async function listActiveMembers(businessId: string): Promise<LockScreenMember[]> {
+  const members = await db.membership.findMany({
+    where: { businessId, active: true },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      name: true,
+      role: true,
+      pinHash: true,
+      user: { select: { name: true, email: true } },
+    },
+  });
+  return members.map((m) => ({
+    membershipId: m.id,
+    name: m.user?.name ?? m.name ?? m.user?.email ?? "Staff",
+    role: m.role,
+    hasPin: m.pinHash != null,
+  }));
+}
+
 export interface TimeEntryRow {
   id: string;
   membershipId: string;
