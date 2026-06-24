@@ -4,6 +4,7 @@ import { Receipt } from "lucide-react";
 import { db } from "@/lib/db";
 import { requireMembership } from "@/lib/tenant";
 import { listOrders } from "@/features/orders/queries";
+import { paymentMethodLabel } from "@/features/orders/payment-method";
 import { formatMoney } from "@/lib/money";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -73,7 +74,9 @@ export default async function OrdersPage({ params }: { params: Promise<{ busines
                         <td className="p-3">
                           <Badge variant={STATUS_VARIANT[o.status] ?? "muted"}>{o.status.replaceAll("_", " ")}</Badge>
                         </td>
-                        <td className="p-3 text-muted-foreground">{o.method ?? "—"}</td>
+                        <td className="p-3 text-muted-foreground">
+                          {o.method ? paymentMethodLabel(o.method) : "—"}
+                        </td>
                         <td className="p-3 text-muted-foreground">{fmtTime.format(new Date(o.createdAt))}</td>
                         <td className="p-3 text-right">
                           <Link

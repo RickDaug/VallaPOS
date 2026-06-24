@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { requireCapability } from "@/lib/operator-guard";
 import { computePricedOrder } from "./pricing";
 import { resolveOrderLines } from "./resolve-lines";
-import { checkoutSchema, type CheckoutInput } from "./schema";
+import { checkoutSchema, type CheckoutInput, type TenderMethod } from "./schema";
 
 // Prisma's unique-constraint code, raised here when two concurrent requests with
 // the same clientUuid race past the pre-check and both try to insert on
@@ -29,8 +29,36 @@ export interface Receipt {
   taxCents: number;
   tipCents: number;
   totalCents: number;
+  // How it was paid. For MANUAL ("Other") there is no cash/change — both are 0.
+  method: TenderMethod;
   cashTenderedCents: number;
   changeCents: number;
+  // Optional reference captured for a MANUAL tender (else null).
+  manualNote: string | null;
+}
+
+// The payment fields toReceipt needs, normalized from either a freshly-built
+// payment (success path) or a persisted Payment row (idempotent re-read).
+interface PaymentView {
+  method: TenderMethod;
+  tenderedCents: number | null;
+  changeCents: number | null;
+  manualNote: string | null;
+}
+
+// Normalize a persisted Payment row (idempotency re-read) into a PaymentView.
+// `processorRef` doubles as the manual reference note for MANUAL tenders.
+function paymentViewOf(
+  payment:
+    | { method?: string | null; tenderedCents?: number | null; changeCents?: number | null; processorRef?: string | null }
+    | undefined,
+): PaymentView {
+  return {
+    method: payment?.method === "MANUAL" ? "MANUAL" : "CASH",
+    tenderedCents: payment?.tenderedCents ?? null,
+    changeCents: payment?.changeCents ?? null,
+    manualNote: payment?.processorRef ?? null,
+  };
 }
 
 /**
@@ -51,8 +79,7 @@ export async function checkout(input: CheckoutInput): Promise<Receipt> {
     include: { payments: true },
   });
   if (existing) {
-    const payment = existing.payments[0];
-    return toReceipt(existing, payment?.tenderedCents ?? 0, payment?.changeCents ?? 0);
+    return toReceipt(existing, paymentViewOf(existing.payments[0]));
   }
 
   const business = await db.business.findUniqueOrThrow({
@@ -74,10 +101,16 @@ export async function checkout(input: CheckoutInput): Promise<Receipt> {
   });
   const totals = priced;
 
-  if (data.cashTenderedCents < totals.totalCents) {
+  // Tender resolution. CASH must cover the server total and yields change;
+  // MANUAL ("Other") records the payment as taken outside the app — no tender,
+  // no change, an optional reference note stored in Payment.processorRef.
+  const isManual = data.method === "MANUAL";
+  if (!isManual && data.cashTenderedCents < totals.totalCents) {
     throw new Error("Cash tendered is less than the total.");
   }
-  const changeCents = data.cashTenderedCents - totals.totalCents;
+  const tenderedCents = isManual ? null : data.cashTenderedCents;
+  const changeCents = isManual ? null : data.cashTenderedCents - totals.totalCents;
+  const manualNote = isManual ? data.manualNote?.trim() || null : null;
 
   let order;
   try {
@@ -135,11 +168,12 @@ export async function checkout(input: CheckoutInput): Promise<Receipt> {
           payments: {
             create: {
               businessId,
-              method: "CASH",
+              method: data.method,
               status: "CAPTURED",
               amountCents: totals.totalCents,
-              tenderedCents: data.cashTenderedCents,
+              tenderedCents,
               changeCents,
+              processorRef: manualNote, // manual reference note (null for cash)
             },
           },
         },
@@ -156,14 +190,18 @@ export async function checkout(input: CheckoutInput): Promise<Receipt> {
         include: { payments: true },
       });
       if (winner) {
-        const payment = winner.payments[0];
-        return toReceipt(winner, payment?.tenderedCents ?? 0, payment?.changeCents ?? 0);
+        return toReceipt(winner, paymentViewOf(winner.payments[0]));
       }
     }
     throw e;
   }
 
-  return toReceipt(order, data.cashTenderedCents, changeCents);
+  return toReceipt(order, {
+    method: data.method,
+    tenderedCents,
+    changeCents,
+    manualNote,
+  });
 }
 
 function toReceipt(
@@ -176,8 +214,7 @@ function toReceipt(
     tipCents: number;
     totalCents: number;
   },
-  cashTenderedCents: number,
-  changeCents: number,
+  payment: PaymentView,
 ): Receipt {
   return {
     orderId: order.id,
@@ -187,7 +224,10 @@ function toReceipt(
     taxCents: order.taxCents,
     tipCents: order.tipCents,
     totalCents: order.totalCents,
-    cashTenderedCents,
-    changeCents,
+    method: payment.method,
+    // MANUAL has no cash/change; surface 0 to keep the receipt shape numeric.
+    cashTenderedCents: payment.tenderedCents ?? 0,
+    changeCents: payment.changeCents ?? 0,
+    manualNote: payment.manualNote,
   };
 }

@@ -37,4 +37,30 @@ describe("checkoutSchema", () => {
     expect(() => checkoutSchema.parse({ ...base(), tipCents: -1 })).toThrow();
     expect(() => checkoutSchema.parse({ ...base(), cashTenderedCents: -5 })).toThrow();
   });
+
+  it("defaults the tender method to CASH and cashTenderedCents to 0", () => {
+    const { cashTenderedCents, ...noTender } = base();
+    void cashTenderedCents;
+    const parsed = checkoutSchema.parse(noTender);
+    expect(parsed.method).toBe("CASH");
+    expect(parsed.cashTenderedCents).toBe(0);
+  });
+
+  it("accepts a MANUAL tender with an optional reference note", () => {
+    const parsed = checkoutSchema.parse({
+      ...base(),
+      method: "MANUAL",
+      manualNote: "  Check #1234  ",
+    });
+    expect(parsed.method).toBe("MANUAL");
+    // zod trims the note.
+    expect(parsed.manualNote).toBe("Check #1234");
+  });
+
+  it("rejects an unknown tender method and an over-long note", () => {
+    expect(() => checkoutSchema.parse({ ...base(), method: "CRYPTO" })).toThrow();
+    expect(() =>
+      checkoutSchema.parse({ ...base(), method: "MANUAL", manualNote: "x".repeat(121) }),
+    ).toThrow();
+  });
 });

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { formatMoney } from "@/lib/money";
+import { paymentMethodLabel } from "./payment-method";
 import type { OrderReceipt } from "./queries";
 
 /**
@@ -8,18 +9,6 @@ import type { OrderReceipt } from "./queries";
  * or DB. The server action (actions.ts) calls these, then hands the rendered
  * bodies to the Resend SDK.
  */
-
-/** Human-readable labels for the stored PaymentMethod enum values. */
-const PAYMENT_METHOD_LABELS: Record<string, string> = {
-  CASH: "Cash",
-  CARD: "Card",
-  QR: "QR",
-  MANUAL: "Manual",
-};
-
-function methodLabel(method: string): string {
-  return PAYMENT_METHOD_LABELS[method] ?? method;
-}
 
 /**
  * Validate (and normalize) a recipient email address with zod. Returns the
@@ -51,7 +40,7 @@ export function renderReceiptEmail(receipt: OrderReceipt): RenderedReceiptEmail 
   const paidLines = receipt.payments.filter((p) => p.amountCents > 0);
   const paymentLabel =
     paidLines.length > 0
-      ? paidLines.map((p) => methodLabel(p.method)).join(", ")
+      ? paidLines.map((p) => paymentMethodLabel(p.method)).join(", ")
       : null;
 
   const subject = `Receipt — ${receipt.businessName} — Order #${receipt.number}`;
