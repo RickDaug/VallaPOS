@@ -8,6 +8,48 @@ import { z } from "zod";
 export const TENDER_METHODS = ["CASH", "QR", "MANUAL"] as const;
 export type TenderMethod = (typeof TENDER_METHODS)[number];
 
+// Upper bound on any single snapshot price (cents). Generous enough for real
+// merchandise ($1M) while keeping a forged offline snapshot bounded — the
+// relaxation below only trusts these UNIT prices, never an arbitrary total.
+const MAX_SNAPSHOT_PRICE_CENTS = 100_000_000;
+
+const snapshotPrice = z.number().int().min(0).max(MAX_SNAPSHOT_PRICE_CENTS);
+
+/**
+ * OFFLINE PRICE SNAPSHOT (deliberate, bounded trust relaxation — see actions.ts).
+ *
+ * Captured at sale time on the device when a sale is rung up OFFLINE. The cash
+ * was already collected at the price the customer was QUOTED on screen; if the
+ * catalog price changes before the queued sale replays, the recorded total must
+ * still match what was paid — NOT the current DB price. So a replayed offline
+ * sale carries this snapshot and the server trusts the snapshot UNIT prices
+ * (and only those) instead of re-reading the catalog.
+ *
+ * `quoted: true` is the explicit origin marker. Per line (index-aligned with
+ * `lines`): the quoted base `unitPriceCents` (EXCLUDING modifiers) plus the
+ * quoted per-modifier deltas keyed by modifier id. All non-negative + bounded.
+ * Tax is still recomputed from these prices server-side, and modifiers are still
+ * re-validated against the catalog — only the unit/delta amounts are trusted.
+ */
+export const priceSnapshotSchema = z.object({
+  // Explicit origin marker — must be literally true for the relaxation to apply.
+  quoted: z.literal(true),
+  // One entry per cart line, in the SAME order as `lines`.
+  lines: z
+    .array(
+      z.object({
+        // Quoted base unit price (modifiers excluded), captured at sale time.
+        unitPriceCents: snapshotPrice,
+        // Quoted modifier deltas, keyed by modifier id. The server still verifies
+        // each id is real + linked; the snapshot only overrides the delta amount.
+        modifierDeltas: z.record(z.string().min(1), snapshotPrice).optional(),
+      }),
+    )
+    .min(1),
+});
+
+export type PriceSnapshot = z.infer<typeof priceSnapshotSchema>;
+
 export const checkoutSchema = z.object({
   businessId: z.string().min(1),
   // Client-generated UUID — idempotency key for offline-safe checkout.
@@ -36,6 +78,11 @@ export const checkoutSchema = z.object({
   // "Zelle", "external card"). Ignored for CASH.
   manualNote: z.string().trim().max(120).optional(),
   customerName: z.string().trim().max(80).optional(),
+  // Present ONLY on a replayed OFFLINE sale (cash already collected at the quoted
+  // price). When present + valid, the server trusts these snapshot unit prices
+  // instead of the current catalog. Absent on every ONLINE checkout, which stays
+  // fully server-authoritative. See priceSnapshotSchema + actions.ts.
+  priceSnapshot: priceSnapshotSchema.optional(),
 });
 
 export type CheckoutInput = z.infer<typeof checkoutSchema>;

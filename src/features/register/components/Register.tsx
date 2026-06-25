@@ -289,6 +289,19 @@ export function Register({
         method: tenderMethod,
         cashTenderedCents,
         manualNote: nonCash ? manualNote.trim() || undefined : undefined,
+        // OFFLINE PRICE SNAPSHOT: capture the prices QUOTED on screen at sale time,
+        // index-aligned with `lines`. The server only honors this for a replayed
+        // OFFLINE sale (cash already collected) — online checkout ignores it and
+        // stays server-authoritative. See register/actions.ts.
+        priceSnapshot: {
+          quoted: true,
+          lines: cart.map((l) => ({
+            unitPriceCents: l.priceCents,
+            modifierDeltas: Object.fromEntries(
+              l.modifiers.map((m) => [m.id, m.priceDeltaCents]),
+            ),
+          })),
+        },
       });
       if (result.status === "completed") {
         setReceipt(result.receipt);

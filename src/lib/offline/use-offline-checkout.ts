@@ -25,6 +25,20 @@ export type SubmitResult =
   | { status: "queued" };
 
 /**
+ * Strip the offline price snapshot from a payload before an ONLINE send. The
+ * snapshot is a deliberate trust relaxation that the server honors ONLY for a
+ * replayed OFFLINE sale (cash already collected at a quoted price). An online
+ * checkout must stay byte-for-byte server-authoritative, so we never send it —
+ * the snapshot rides along ONLY on the offline-queued copy (see checkout-queue).
+ */
+function withoutSnapshot(payload: CheckoutInput): CheckoutInput {
+  if (!payload.priceSnapshot) return payload;
+  const { priceSnapshot: _omit, ...rest } = payload;
+  void _omit;
+  return rest;
+}
+
+/**
  * A thrown checkout error is a *network* failure (queue it) rather than a
  * server rejection (surface it) when we're offline or the error looks like a
  * failed fetch. Server-action validation/business errors arrive with a real
@@ -76,17 +90,21 @@ export function useOfflineCheckout() {
   const submit = useCallback(
     async (payload: CheckoutInput): Promise<SubmitResult> => {
       if (typeof navigator !== "undefined" && !navigator.onLine) {
+        // Offline: keep the price snapshot — it's what the customer was quoted.
         await enqueueCheckout(payload);
         await refreshPending();
         return { status: "queued" };
       }
       try {
-        const receipt = await checkout(payload);
+        // Online: send WITHOUT the snapshot so checkout stays server-authoritative.
+        const receipt = await checkout(withoutSnapshot(payload));
         // Opportunistically drain anything that was waiting.
         void replayQueue();
         return { status: "completed", receipt };
       } catch (err) {
         if (isNetworkError(err)) {
+          // The send failed mid-flight (we just went offline) — queue the sale
+          // WITH its snapshot so the quoted price survives the deferred replay.
           await enqueueCheckout(payload);
           await refreshPending();
           return { status: "queued" };

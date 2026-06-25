@@ -3,7 +3,7 @@
 import { db } from "@/lib/db";
 import { requireCapability } from "@/lib/operator-guard";
 import { computePricedOrder } from "./pricing";
-import { resolveOrderLines } from "./resolve-lines";
+import { resolveOrderLines, type LineInput } from "./resolve-lines";
 import { checkoutSchema, type CheckoutInput, type TenderMethod } from "./schema";
 
 // Prisma's unique-constraint code, raised here when two concurrent requests with
@@ -63,10 +63,29 @@ function paymentViewOf(
 }
 
 /**
- * Complete a cash sale. The server is the source of truth for money: it looks
+ * Complete a sale. The server is the source of truth for money: ONLINE it looks
  * up real variation prices and the business tax rate and recomputes every total
  * — client-sent amounts are never trusted. Idempotent on clientUuid so an
  * offline double-send (or a flaky reconnect) never creates a duplicate sale.
+ *
+ * ⚠ DELIBERATE, BOUNDED TRUST RELAXATION — OFFLINE PRICE SNAPSHOT (needs human
+ * sign-off). A sale rung up while OFFLINE has its cash collected in hand at the
+ * price the customer was QUOTED on screen. If the catalog price changes before
+ * the queued sale replays, recomputing from the CURRENT price would record a
+ * total that diverges from what the customer actually paid. So an offline sale
+ * carries a `priceSnapshot` (origin marker `quoted: true` + per-line quoted unit
+ * prices / modifier deltas, all zod-bounded & non-negative) and, ONLY then, the
+ * server trusts those snapshot UNIT prices as the line/unit source of truth.
+ *
+ * The relaxation is tightly scoped:
+ *  - It applies ONLY when a valid `priceSnapshot` is present (online checkout
+ *    sends none and stays byte-for-byte server-authoritative).
+ *  - Only per-line UNIT prices + modifier deltas are trusted. Tax is STILL
+ *    recomputed from those snapshot prices, and the order total is STILL derived
+ *    server-side — a client can't forge an arbitrary total, only quote a price.
+ *  - Modifiers are STILL re-validated as existing + linked to the item.
+ *  - The snapshot must be index-aligned with `lines` (count must match) or it is
+ *    ignored and the catalog price wins (fail safe = server-authoritative).
  */
 export async function checkout(input: CheckoutInput): Promise<Receipt> {
   const data = checkoutSchema.parse(input);
@@ -89,8 +108,27 @@ export async function checkout(input: CheckoutInput): Promise<Receipt> {
   });
 
   // Resolve REAL prices + modifiers from the DB, scoped to this business (shared
-  // with the restaurant tab flow) — client-sent names/prices are never trusted.
-  const { moneyLines, lineRecords } = await resolveOrderLines(businessId, data.lines);
+  // with the restaurant tab flow) — for an ONLINE sale client-sent prices are
+  // never trusted. For a replayed OFFLINE sale carrying a valid `priceSnapshot`,
+  // the quoted unit prices are threaded in as per-line overrides (see the action
+  // doc-comment). The snapshot must be index-aligned with `lines` or it's ignored
+  // (fail safe = catalog price wins). Modifiers are re-validated either way.
+  const snapshot =
+    data.priceSnapshot && data.priceSnapshot.lines.length === data.lines.length
+      ? data.priceSnapshot
+      : undefined;
+  const resolveInput: LineInput[] = data.lines.map((line, i) => {
+    if (!snapshot) return line;
+    const snap = snapshot.lines[i]!;
+    return {
+      ...line,
+      priceOverride: {
+        unitPriceCents: snap.unitPriceCents,
+        modifierDeltas: snap.modifierDeltas,
+      },
+    };
+  });
+  const { moneyLines, lineRecords } = await resolveOrderLines(businessId, resolveInput);
 
   // Per-line tax is computed once; the order tax is the SUM of line taxes, so
   // Order.taxCents == Σ OrderLine.taxCents by construction (no second compute).
