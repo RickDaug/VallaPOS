@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/components/ui/toast";
 
 /** Parse a dollars string ("12.34") into integer cents; null if invalid/negative. */
 function dollarsToCents(value: string): number | null {
@@ -35,6 +36,7 @@ export function OpenDrawerForm({
   money: (c: number) => string;
 }) {
   const router = useRouter();
+  const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [float, setFloat] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -50,9 +52,18 @@ export function OpenDrawerForm({
     startTransition(async () => {
       try {
         await openDrawer({ businessId, openingFloatCents });
+        toast({
+          title: "Drawer opened",
+          description: `Opening float ${money(openingFloatCents)}.`,
+          variant: "success",
+        });
         router.refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not open the drawer.");
+        toast({
+          title: "Couldn't open the drawer",
+          description: err instanceof Error ? err.message : "Please try again.",
+          variant: "error",
+        });
       }
     });
   }
@@ -112,6 +123,7 @@ export function CloseDrawerForm({
   money: (c: number) => string;
 }) {
   const router = useRouter();
+  const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [counted, setCounted] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -129,9 +141,24 @@ export function CloseDrawerForm({
       try {
         const res = await closeDrawer({ businessId, sessionId, countedCents });
         setResult(res);
+        const kind = varianceKind(res.varianceCents);
+        toast({
+          title: "Drawer closed",
+          description:
+            kind === "EXACT"
+              ? "Counted cash balanced exactly."
+              : kind === "OVER"
+                ? `Over by ${money(Math.abs(res.varianceCents))}.`
+                : `Short by ${money(Math.abs(res.varianceCents))}.`,
+          variant: kind === "EXACT" ? "success" : "default",
+        });
         router.refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not close the drawer.");
+        toast({
+          title: "Couldn't close the drawer",
+          description: err instanceof Error ? err.message : "Please try again.",
+          variant: "error",
+        });
       }
     });
   }
@@ -140,7 +167,11 @@ export function CloseDrawerForm({
     const kind = varianceKind(result.varianceCents);
     const magnitude = money(Math.abs(result.varianceCents));
     return (
-      <Card className="max-w-md">
+      <Card
+        className={`max-w-md transition-shadow ${
+          kind === "EXACT" ? "border-success/40 shadow-sm" : ""
+        }`}
+      >
         <CardContent className="p-5 md:p-6">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-bold">Drawer closed</h2>
