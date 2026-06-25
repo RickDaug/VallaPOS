@@ -69,4 +69,84 @@ describe("checkoutSchema", () => {
       checkoutSchema.parse({ ...base(), method: "MANUAL", manualNote: "x".repeat(121) }),
     ).toThrow();
   });
+
+  describe("priceSnapshot (offline price snapshot)", () => {
+    it("accepts a valid snapshot with quoted unit prices + modifier deltas", () => {
+      const parsed = checkoutSchema.parse({
+        ...base(),
+        priceSnapshot: {
+          quoted: true,
+          lines: [{ unitPriceCents: 1000, modifierDeltas: { mod_oat: 75 } }],
+        },
+      });
+      expect(parsed.priceSnapshot?.quoted).toBe(true);
+      expect(parsed.priceSnapshot?.lines[0]?.unitPriceCents).toBe(1000);
+      expect(parsed.priceSnapshot?.lines[0]?.modifierDeltas?.mod_oat).toBe(75);
+    });
+
+    it("is optional (online payloads omit it entirely)", () => {
+      const parsed = checkoutSchema.parse(base());
+      expect(parsed.priceSnapshot).toBeUndefined();
+    });
+
+    it("requires the explicit quoted:true origin marker", () => {
+      expect(() =>
+        checkoutSchema.parse({
+          ...base(),
+          priceSnapshot: { quoted: false, lines: [{ unitPriceCents: 1000 }] },
+        }),
+      ).toThrow();
+      expect(() =>
+        checkoutSchema.parse({
+          ...base(),
+          priceSnapshot: { lines: [{ unitPriceCents: 1000 }] },
+        }),
+      ).toThrow();
+    });
+
+    it("rejects a negative snapshot unit price", () => {
+      expect(() =>
+        checkoutSchema.parse({
+          ...base(),
+          priceSnapshot: { quoted: true, lines: [{ unitPriceCents: -1 }] },
+        }),
+      ).toThrow();
+    });
+
+    it("rejects a negative snapshot modifier delta", () => {
+      expect(() =>
+        checkoutSchema.parse({
+          ...base(),
+          priceSnapshot: {
+            quoted: true,
+            lines: [{ unitPriceCents: 1000, modifierDeltas: { mod_oat: -5 } }],
+          },
+        }),
+      ).toThrow();
+    });
+
+    it("rejects an out-of-bounds (absurdly large) snapshot price", () => {
+      expect(() =>
+        checkoutSchema.parse({
+          ...base(),
+          priceSnapshot: { quoted: true, lines: [{ unitPriceCents: 100_000_001 }] },
+        }),
+      ).toThrow();
+    });
+
+    it("rejects a non-integer snapshot price", () => {
+      expect(() =>
+        checkoutSchema.parse({
+          ...base(),
+          priceSnapshot: { quoted: true, lines: [{ unitPriceCents: 10.5 }] },
+        }),
+      ).toThrow();
+    });
+
+    it("rejects an empty snapshot line array", () => {
+      expect(() =>
+        checkoutSchema.parse({ ...base(), priceSnapshot: { quoted: true, lines: [] } }),
+      ).toThrow();
+    });
+  });
 });

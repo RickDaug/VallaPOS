@@ -477,6 +477,131 @@ describe("checkout — MANUAL / Other tender", () => {
   });
 });
 
+describe("checkout — offline price snapshot (bounded trust relaxation)", () => {
+  const QUOTED = 800; // what the customer was quoted offline
+  const CURRENT = 1500; // what the catalog says NOW (price went up post-sale)
+
+  it("records the QUOTED total from the snapshot even when the current DB price differs", async () => {
+    // Catalog price moved to $15 after the offline sale; the snapshot quoted $8.
+    variationFindMany.mockResolvedValue([variation({ priceCents: CURRENT })]);
+    const receipt = await checkout(
+      input({
+        priceSnapshot: { quoted: true, lines: [{ unitPriceCents: QUOTED }] },
+        cashTenderedCents: 1000,
+      }),
+    );
+    // Must reflect the QUOTED $8.00 @ 8.25% (tax 66, total 866), NOT $15.
+    expect(receipt.subtotalCents).toBe(QUOTED);
+    expect(receipt.taxCents).toBe(66);
+    expect(receipt.totalCents).toBe(866);
+    // The persisted line stores the quoted unit price, not the current catalog.
+    expect(createdOrderData().lines.create[0].unitPriceCents).toBe(QUOTED);
+  });
+
+  it("recomputes tax FROM the snapshot prices (not from the snapshot's own total)", async () => {
+    businessFindUniqueOrThrow.mockResolvedValue({ taxRateBps: 1000, taxInclusive: false });
+    variationFindMany.mockResolvedValue([variation({ priceCents: CURRENT })]);
+    const receipt = await checkout(
+      input({
+        priceSnapshot: { quoted: true, lines: [{ unitPriceCents: QUOTED }] },
+        cashTenderedCents: 1000,
+      }),
+    );
+    // $8.00 @ 10% => tax 80, total 880 — tax derived from the snapshot price.
+    expect(receipt.subtotalCents).toBe(800);
+    expect(receipt.taxCents).toBe(80);
+    expect(receipt.totalCents).toBe(880);
+  });
+
+  it("trusts the quoted modifier delta but still validates the modifier is linked", async () => {
+    const group: TestGroup = {
+      id: "grp_milk",
+      minSelect: 0,
+      maxSelect: 2,
+      modifiers: [{ id: "mod_oat", name: "Oat milk", priceDeltaCents: 75 }],
+    };
+    // Catalog: base $15, oat +$2 now; snapshot quoted base $8, oat +$0.50.
+    variationFindMany.mockResolvedValue([variation({ priceCents: CURRENT, groups: [group] })]);
+    const receipt = await checkout(
+      input({
+        lines: [{ variationId: "var_1", quantity: 1, modifierIds: ["mod_oat"] }],
+        priceSnapshot: {
+          quoted: true,
+          lines: [{ unitPriceCents: 800, modifierDeltas: { mod_oat: 50 } }],
+        },
+        cashTenderedCents: 1000,
+      }),
+    );
+    // (800 + 50) = 850 @ 8.25% => tax 70, total 920 — quoted prices, not catalog.
+    expect(receipt.subtotalCents).toBe(850);
+    expect(receipt.taxCents).toBe(70);
+    expect(receipt.totalCents).toBe(920);
+    // The snapshotted modifier delta is persisted (faithful to what was quoted).
+    expect(createdOrderData().lines.create[0].modifiers.create).toEqual([
+      { nameSnapshot: "Oat milk", priceDeltaCents: 50 },
+    ]);
+  });
+
+  it("still rejects a snapshotted modifier that is not linked to the item", async () => {
+    variationFindMany.mockResolvedValue([variation({ priceCents: CURRENT })]); // no groups
+    await expect(
+      checkout(
+        input({
+          lines: [{ variationId: "var_1", quantity: 1, modifierIds: ["mod_evil"] }],
+          priceSnapshot: {
+            quoted: true,
+            lines: [{ unitPriceCents: 800, modifierDeltas: { mod_evil: 50 } }],
+          },
+          cashTenderedCents: 1000,
+        }),
+      ),
+    ).rejects.toThrow("Unknown modifier");
+    expect(orderCreate).not.toHaveBeenCalled();
+  });
+
+  it("ignores the snapshot when its line count does not match (fail safe = catalog price)", async () => {
+    // Two cart lines but a one-line snapshot => not index-aligned, so it's dropped
+    // and BOTH lines fall back to the authoritative catalog price.
+    variationFindMany.mockResolvedValue([
+      variation({ id: "var_a", priceCents: 1000, itemName: "A" }),
+      variation({ id: "var_b", priceCents: 1000, itemName: "B" }),
+    ]);
+    const receipt = await checkout(
+      input({
+        lines: [
+          { variationId: "var_a", quantity: 1 },
+          { variationId: "var_b", quantity: 1 },
+        ],
+        priceSnapshot: { quoted: true, lines: [{ unitPriceCents: 1 }] },
+        cashTenderedCents: 5000,
+      }),
+    );
+    // Catalog $10 + $10 = 2000 (snapshot's bogus $0.01 ignored).
+    expect(receipt.subtotalCents).toBe(2000);
+  });
+
+  it("ONLINE path is unchanged: with no snapshot it recomputes from the current DB price", async () => {
+    variationFindMany.mockResolvedValue([variation({ priceCents: CURRENT })]);
+    const receipt = await checkout(input({ cashTenderedCents: 2000 }));
+    // No snapshot => authoritative catalog $15.00 @ 8.25% => tax 124, total 1624.
+    expect(receipt.subtotalCents).toBe(CURRENT);
+    expect(receipt.taxCents).toBe(124);
+    expect(receipt.totalCents).toBe(1624);
+    expect(createdOrderData().lines.create[0].unitPriceCents).toBe(CURRENT);
+  });
+
+  it("rejects a negative snapshot price via zod before any DB access", async () => {
+    await expect(
+      checkout(
+        input({
+          priceSnapshot: { quoted: true, lines: [{ unitPriceCents: -100 }] },
+        } as never),
+      ),
+    ).rejects.toThrow();
+    expect(requireCapability).not.toHaveBeenCalled();
+  });
+});
+
 describe("checkout — input validation", () => {
   it("rejects an invalid payload before any DB access", async () => {
     await expect(checkout(input({ lines: [] }) as never)).rejects.toThrow();
