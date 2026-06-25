@@ -42,6 +42,11 @@ yarn-error.log*
 # testing
 /coverage
 
+# playwright (e2e) — reports, run artifacts, downloaded browsers
+/playwright-report/
+/test-results/
+/.playwright/
+
 # vercel
 .vercel
 
