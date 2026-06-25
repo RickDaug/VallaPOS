@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Minus, Plus, Trash2, Users, Split, Merge } from "lucide-react";
+import { ArrowLeft, Minus, Plus, Trash2, Users, Split, Merge, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,6 +15,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { NumberPad } from "@/components/ui/number-pad";
+import { useToast } from "@/components/ui/toast";
 import { dollarsToCents, quickTenderOptions } from "@/features/register/tender";
 import { formatMoney } from "@/lib/money";
 import { groupBySeat, planSettlement, tabTotals, type TabLine } from "@/features/tabs/tab-math";
@@ -53,8 +54,8 @@ export function TableDetail({
   availableTables: { id: string; label: string; room: string }[];
 }) {
   const router = useRouter();
+  const { toast } = useToast();
   const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
 
   const fmt = (c: number) => formatMoney(c, currency);
   const mathLines: TabLine[] = tab.lines.map((l) => ({
@@ -91,11 +92,11 @@ export function TableDetail({
     return seatKeys.map((seat) => ({ seat, lines: map.get(seat) ?? [] }));
   }, [tab.lines, seatCount]);
 
-  function run(fn: () => Promise<unknown>, opts?: { closeOnDone?: boolean }) {
-    setError(null);
+  function run(fn: () => Promise<unknown>, opts?: { closeOnDone?: boolean; success?: string }) {
     startTransition(async () => {
       try {
         await fn();
+        if (opts?.success) toast({ title: opts.success, variant: "success" });
         if (opts?.closeOnDone) {
           // A closed tab is a completed sale → re-lock so the next order needs a PIN.
           await lockOperator({ businessId }).catch(() => {});
@@ -104,7 +105,11 @@ export function TableDetail({
           router.refresh();
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Something went wrong.");
+        toast({
+          title: "Something went wrong",
+          description: err instanceof Error ? err.message : undefined,
+          variant: "error",
+        });
       }
     });
   }
@@ -148,22 +153,20 @@ export function TableDetail({
             disabled={pending}
             availableTables={availableTables}
             currentTables={currentTables}
-            onMerge={(tableId) => run(() => mergeTables({ businessId, orderId: tab.orderId, tableId }))}
+            onMerge={(tableId) =>
+              run(() => mergeTables({ businessId, orderId: tab.orderId, tableId }), { success: "Tables merged" })
+            }
             onTransfer={(fromTableId, toTableId) =>
-              run(() => transferTab({ businessId, orderId: tab.orderId, fromTableId, toTableId }))
+              run(() => transferTab({ businessId, orderId: tab.orderId, fromTableId, toTableId }), {
+                success: "Tab moved",
+              })
             }
           />
           <Button onClick={() => setSettleOpen(true)} disabled={pending || totals.remainingCents <= 0}>
-            <Split size={16} /> Settle
+            {pending ? <Loader2 size={16} className="animate-spin" /> : <Split size={16} />} Settle
           </Button>
         </div>
       </div>
-
-      {error && (
-        <p className="text-sm font-medium text-destructive" role="status">
-          {error}
-        </p>
-      )}
 
       <div className="grid gap-4 xl:grid-cols-[1fr_minmax(340px,420px)]">
         {/* Order by seat */}
@@ -265,7 +268,7 @@ export function TableDetail({
                   tipCents,
                   cashTenderedCents,
                 }),
-              { closeOnDone: willClose },
+              { closeOnDone: willClose, success: willClose ? "Tab settled and closed" : "Payment taken" },
             )
           }
         />
@@ -279,7 +282,8 @@ function SeatChip({ active, onClick, children }: { active: boolean; onClick: () 
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex h-9 min-w-9 items-center justify-center rounded-full px-3 text-sm font-medium ${
+      aria-pressed={active}
+      className={`inline-flex h-9 min-w-9 items-center justify-center rounded-full px-3 text-sm font-medium transition-colors active:scale-[0.97] ${
         active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/70"
       }`}
     >
@@ -396,7 +400,7 @@ function MenuGrid({
             type="button"
             disabled={disabled}
             onClick={() => onPick(entry)}
-            className="flex min-h-16 flex-col justify-between rounded-lg border border-border bg-background p-2 text-left hover:border-primary/50 disabled:opacity-60"
+            className="flex min-h-16 flex-col justify-between rounded-lg border border-border bg-background p-2 text-left transition-[transform,border-color,box-shadow] hover:border-primary/50 hover:shadow-sm active:scale-[0.98] disabled:pointer-events-none disabled:opacity-60"
           >
             <span className="line-clamp-2 text-sm font-medium">{entry.label}</span>
             <span className="numeric mt-1 text-xs text-muted-foreground">{formatMoney(entry.priceCents, currency)}</span>
@@ -640,14 +644,16 @@ function SettleDialog({
             <button
               type="button"
               onClick={() => setMode("whole")}
-              className={`h-10 rounded-md border text-sm font-medium ${mode === "whole" ? "border-primary bg-primary/10" : "border-input"}`}
+              aria-pressed={mode === "whole"}
+              className={`h-10 rounded-md border text-sm font-medium transition-colors active:scale-[0.98] ${mode === "whole" ? "border-primary bg-primary/10" : "border-input hover:bg-muted"}`}
             >
               Whole table
             </button>
             <button
               type="button"
               onClick={() => setMode("seats")}
-              className={`h-10 rounded-md border text-sm font-medium ${mode === "seats" ? "border-primary bg-primary/10" : "border-input"}`}
+              aria-pressed={mode === "seats"}
+              className={`h-10 rounded-md border text-sm font-medium transition-colors active:scale-[0.98] ${mode === "seats" ? "border-primary bg-primary/10" : "border-input hover:bg-muted"}`}
             >
               Split by seat
             </button>
@@ -660,8 +666,9 @@ function SettleDialog({
                   key={g.seat === null ? SHARED : g.seat}
                   type="button"
                   onClick={() => toggleSeat(g.seat)}
-                  className={`inline-flex h-9 items-center gap-1 rounded-full px-3 text-sm ${
-                    selectedSeats.has(g.seat) ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                  aria-pressed={selectedSeats.has(g.seat)}
+                  className={`inline-flex h-9 items-center gap-1 rounded-full px-3 text-sm transition-colors active:scale-[0.97] ${
+                    selectedSeats.has(g.seat) ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/70"
                   }`}
                 >
                   {g.seat === null ? <Users size={13} /> : null}
@@ -731,6 +738,7 @@ function SettleDialog({
             disabled={disabled || !canPay}
             onClick={() => onSettle({ seats, tipCents, cashTenderedCents: tenderCents, willClose })}
           >
+            {disabled && <Loader2 size={15} className="animate-spin" />}
             Take {formatMoney(dueCents, currency)}
           </Button>
         </DialogFooter>
