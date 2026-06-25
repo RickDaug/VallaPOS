@@ -3,12 +3,13 @@
 import { useState } from "react";
 import { Printer, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
 import { emailReceipt } from "@/features/orders/actions";
 
 /**
  * Client island for the (print) receipt controls. Print is fully wired;
  * email is a SAFE scaffold — calling the server action returns
- * `email_not_configured`, so we surface a clear "coming soon" notice instead
+ * `email_not_configured`, so we surface a clear "coming soon" toast instead
  * of a broken send. These controls are hidden from print via `print:hidden`.
  */
 export function ReceiptActions({
@@ -18,33 +19,48 @@ export function ReceiptActions({
   businessId: string;
   orderId: string;
 }) {
+  const { toast } = useToast();
   const [emailing, setEmailing] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [email, setEmail] = useState("");
 
   async function send() {
     setPending(true);
-    setNotice(null);
     try {
       const res = await emailReceipt({ businessId, orderId, email });
       if (res.ok) {
-        setNotice(`Receipt sent to ${email.trim()}.`);
+        toast({
+          title: "Receipt sent",
+          description: `Sent to ${email.trim()}.`,
+          variant: "success",
+        });
         setEmailing(false);
         setEmail("");
       } else if (res.reason === "email_not_configured") {
-        setNotice(
-          "Emailed receipts aren't enabled yet — set RESEND_API_KEY to turn them on.",
-        );
+        toast({
+          title: "Emailed receipts aren't enabled yet",
+          description: "Set RESEND_API_KEY to turn them on.",
+          variant: "default",
+        });
       } else if (res.reason === "invalid_email") {
-        setNotice("That doesn't look like a valid email address.");
+        toast({
+          title: "That doesn't look like a valid email address.",
+          variant: "error",
+        });
       } else if (res.reason === "send_failed") {
-        setNotice("Couldn't send the receipt — please try again.");
+        toast({
+          title: "Couldn't send the receipt",
+          description: "Please try again.",
+          variant: "error",
+        });
       } else {
-        setNotice("Order not found.");
+        toast({ title: "Order not found.", variant: "error" });
       }
     } catch {
-      setNotice("Could not send the receipt.");
+      toast({
+        title: "Could not send the receipt.",
+        variant: "error",
+      });
     } finally {
       setPending(false);
     }
@@ -56,13 +72,21 @@ export function ReceiptActions({
         <Button variant="primary" onClick={() => window.print()}>
           <Printer size={18} /> Print
         </Button>
-        <Button variant="outline" onClick={() => setEmailing((v) => !v)}>
+        <Button
+          variant="outline"
+          onClick={() => setEmailing((v) => !v)}
+          aria-expanded={emailing}
+          aria-controls="receipt-email-panel"
+        >
           <Mail size={18} /> Email receipt
         </Button>
       </div>
 
       {emailing && (
-        <div className="mt-3 space-y-2 rounded-lg border border-border bg-muted p-3">
+        <div
+          id="receipt-email-panel"
+          className="mt-3 space-y-2 rounded-lg border border-border bg-muted p-3"
+        >
           <label htmlFor="receipt-email" className="block text-sm font-medium">
             Customer email
           </label>
@@ -73,18 +97,13 @@ export function ReceiptActions({
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="customer@example.com"
-            className="h-11 w-full rounded-md border border-input bg-card px-3 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            autoFocus
+            className="h-11 w-full rounded-md border border-input bg-card px-3 text-base transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
           <Button onClick={send} disabled={pending || email.trim() === ""} className="w-full">
             {pending ? "Sending…" : "Send"}
           </Button>
         </div>
-      )}
-
-      {notice && (
-        <p className="mt-2 text-sm text-muted-foreground" role="status" aria-live="polite">
-          {notice}
-        </p>
       )}
     </div>
   );
