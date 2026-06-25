@@ -40,6 +40,77 @@ export interface CashierSalesRow {
 }
 
 /**
+ * Whether a tender's "collected" amount is backed by independent evidence.
+ *
+ * CASH is reconciled against the physical drawer count, so it is `verified`.
+ * QR and MANUAL ("Other") are operator-confirmed — the cashier marks them paid
+ * with no cash drawer and no PSP/webhook to prove the money actually arrived —
+ * so they are `unverified` (a shrinkage / audit blind spot to surface).
+ */
+export type TenderVerification = "verified" | "unverified";
+
+export function tenderVerification(method: string): TenderVerification {
+  return method === "CASH" ? "verified" : "unverified";
+}
+
+export interface TenderRow {
+  method: string; // stored PaymentMethod enum value
+  count: number;
+  amountCents: number; // NET movement: includes negative refund reversals
+  verification: TenderVerification;
+}
+
+export interface TenderBreakdown {
+  rows: TenderRow[];
+  /** Σ amountCents over CASH (drawer-reconciled) tenders. */
+  verifiedCollectedCents: number;
+  /**
+   * Σ amountCents over operator-confirmed tenders (QR + MANUAL). This is the
+   * audit figure: money counted as collected with no drawer/PSP evidence.
+   */
+  unverifiedCollectedCents: number;
+}
+
+/**
+ * Roll payment movements up into a per-tender breakdown, classifying each
+ * method as drawer-verified (CASH) or operator-confirmed/unverified (QR,
+ * MANUAL, and any future non-cash method). Amounts are NET — the negative
+ * reversing payments from refunds/voids are included, so a refund reduces the
+ * collected figure for that tender. Rows are sorted by amount descending, then
+ * method ascending for a stable tie-break.
+ */
+export function aggregateTenders(
+  payments: { method: string; amountCents: number }[],
+): TenderBreakdown {
+  const map = new Map<string, TenderRow>();
+  for (const p of payments) {
+    const verification = tenderVerification(p.method);
+    const row = map.get(p.method) ?? {
+      method: p.method,
+      count: 0,
+      amountCents: 0,
+      verification,
+    };
+    row.count += 1;
+    row.amountCents += p.amountCents;
+    map.set(p.method, row);
+  }
+
+  const rows = [...map.values()].sort(
+    (a, b) => b.amountCents - a.amountCents || a.method.localeCompare(b.method),
+  );
+
+  let verifiedCollectedCents = 0;
+  let unverifiedCollectedCents = 0;
+  for (const row of rows) {
+    if (row.verification === "verified") verifiedCollectedCents += row.amountCents;
+    else unverifiedCollectedCents += row.amountCents;
+  }
+
+  return { rows, verifiedCollectedCents, unverifiedCollectedCents };
+}
+
+/**
  * Roll orders up per cashier (one input row per order). Sorted by net sales
  * descending, then name ascending for a stable tie-break.
  */
@@ -145,8 +216,15 @@ export interface ReportCsvInput {
   refundsCents: number; // total reversed money in the window (positive)
   totalCollectedCents: number;
   byMethod: { method: string; count: number; amountCents: number }[];
+  /** Per-tender verified/unverified breakdown for the audit section. */
+  tenders: TenderBreakdown;
+  /** Human-readable label for a stored PaymentMethod (e.g. MANUAL -> "Other"). */
+  methodLabel: (method: string) => string;
   items: ItemSalesReport;
 }
+
+const UNVERIFIED_NOTE = "Unverified — operator-confirmed, no drawer/PSP evidence";
+const VERIFIED_NOTE = "Verified (in-drawer)";
 
 /**
  * Serialize the day's report to a multi-section CSV (CRLF line endings, RFC
@@ -170,6 +248,19 @@ export function buildReportCsv(input: ReportCsvInput): string {
     [],
     ["Payments", "Count", "Amount"],
     ...input.byMethod.map((m) => [m.method, m.count, amt(m.amountCents)]),
+    [],
+    // Tender audit: per-method collected amount + whether it is drawer-verified
+    // or merely operator-confirmed. The note cell is a fixed string (not
+    // user-controlled) but sanitized for defense-in-depth consistency.
+    ["Payments by tender", "Count", "Amount", "Verification"],
+    ...input.tenders.rows.map((t) => [
+      sanitizeTextCell(input.methodLabel(t.method)),
+      t.count,
+      amt(t.amountCents),
+      sanitizeTextCell(t.verification === "verified" ? VERIFIED_NOTE : UNVERIFIED_NOTE),
+    ]),
+    ["Verified collected (in-drawer)", "", amt(input.tenders.verifiedCollectedCents)],
+    ["Unverified collected (operator-confirmed)", "", amt(input.tenders.unverifiedCollectedCents)],
     [],
     ["Sales by item", "Quantity", "Net sales", "Tax"],
     // `i.name` is user-controlled (the item's name snapshot) — sanitize against
