@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Check,
@@ -40,6 +40,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { NumberPad } from "@/components/ui/number-pad";
+import { useToast } from "@/components/ui/toast";
 import {
   Dialog,
   DialogContent,
@@ -108,6 +109,17 @@ export function Register({
   // Mobile cart Sheet (desktop renders the cart inline and ignores this).
   const [cartOpen, setCartOpen] = useState(false);
   const { online, pending: queuedCount, syncing, submit } = useOfflineCheckout();
+  const { toast } = useToast();
+
+  // Closure feedback when the offline backlog finishes replaying: the sync
+  // banner just disappears otherwise. Fires only on the >0 → 0 transition.
+  const prevPendingRef = useRef(queuedCount);
+  useEffect(() => {
+    if (online && prevPendingRef.current > 0 && queuedCount === 0) {
+      toast({ title: "Offline sales synced", variant: "success" });
+    }
+    prevPendingRef.current = queuedCount;
+  }, [online, queuedCount, toast]);
 
   const money = (c: number) => formatMoney(c, currency);
 
