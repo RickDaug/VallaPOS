@@ -58,13 +58,14 @@ export function OperatorBar({
       type="button"
       disabled={pending}
       onClick={() => lock.current()}
-      aria-label="Lock / switch user"
+      aria-label={`Lock / switch user (${operatorName})`}
+      aria-busy={pending}
       className={cn(
-        "inline-flex h-11 items-center gap-2 rounded-md px-3 text-sm font-medium text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground",
+        "inline-flex h-11 items-center gap-2 rounded-md px-3 text-sm font-medium text-sidebar-muted transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground active:scale-[0.98] disabled:opacity-60",
         className,
       )}
     >
-      <LockKeyhole size={16} />
+      <LockKeyhole size={16} aria-hidden />
       <span className="max-w-24 truncate">{operatorName}</span>
     </button>
   );
