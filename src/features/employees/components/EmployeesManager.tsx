@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Users, Clock } from "lucide-react";
 import type { Role } from "@prisma/client";
 import {
   addMember,
@@ -23,6 +24,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/components/ui/toast";
 
 const ROLES: Role[] = ["OWNER", "MANAGER", "CASHIER"];
 
@@ -40,17 +42,21 @@ export function ClockWidget({
   open: { id: string; clockInAt: string } | null;
 }) {
   const router = useRouter();
+  const { toast } = useToast();
   const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
 
-  function run(fn: () => Promise<unknown>) {
-    setError(null);
+  function run(fn: () => Promise<unknown>, successTitle: string) {
     startTransition(async () => {
       try {
         await fn();
+        toast({ title: successTitle, variant: "success" });
         router.refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Something went wrong.");
+        toast({
+          title: "Something went wrong",
+          description: err instanceof Error ? err.message : undefined,
+          variant: "error",
+        });
       }
     });
   }
@@ -72,27 +78,22 @@ export function ClockWidget({
         <p className="mt-1 text-sm text-muted-foreground">
           {open ? `On the clock since ${since}.` : "You are not clocked in."}
         </p>
-        {error && (
-          <p className="mt-3 text-sm font-medium text-destructive" role="alert">
-            {error}
-          </p>
-        )}
         <div className="mt-4">
           {open ? (
             <Button
               variant="destructive"
               disabled={pending}
-              onClick={() => run(() => clockOut({ businessId }))}
+              onClick={() => run(() => clockOut({ businessId }), "Clocked out")}
             >
-              {pending ? "…" : "Clock out"}
+              {pending ? "Clocking out…" : "Clock out"}
             </Button>
           ) : (
             <Button
               variant="success"
               disabled={pending}
-              onClick={() => run(() => clockIn({ businessId }))}
+              onClick={() => run(() => clockIn({ businessId }), "Clocked in")}
             >
-              {pending ? "…" : "Clock in"}
+              {pending ? "Clocking in…" : "Clock in"}
             </Button>
           )}
         </div>
@@ -104,30 +105,33 @@ export function ClockWidget({
 /** Add an existing user (by email) to the business. */
 function AddMemberForm({ businessId }: { businessId: string }) {
   const router = useRouter();
+  const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("CASHIER");
-  const [message, setMessage] = useState<{ kind: "error" | "ok"; text: string } | null>(null);
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setMessage(null);
     startTransition(async () => {
       try {
         const res = await addMember({ businessId, email, role });
         if ("error" in res) {
-          const text =
+          const description =
             res.error === "no_such_user"
               ? "No account with that email. They must sign up first, then you can add them."
               : "That person is already a member.";
-          setMessage({ kind: "error", text });
+          toast({ title: "Could not add member", description, variant: "error" });
           return;
         }
         setEmail("");
-        setMessage({ kind: "ok", text: "Member added." });
+        toast({ title: "Member added", description: email, variant: "success" });
         router.refresh();
       } catch (err) {
-        setMessage({ kind: "error", text: err instanceof Error ? err.message : "Could not add member." });
+        toast({
+          title: "Could not add member",
+          description: err instanceof Error ? err.message : undefined,
+          variant: "error",
+        });
       }
     });
   }
@@ -166,20 +170,10 @@ function AddMemberForm({ businessId }: { businessId: string }) {
               ))}
             </select>
           </div>
-          <Button type="submit" disabled={pending}>
+          <Button type="submit" disabled={pending || !email.trim()}>
             {pending ? "Adding…" : "Add"}
           </Button>
         </form>
-        {message && (
-          <p
-            className={`mt-3 text-sm font-medium ${
-              message.kind === "error" ? "text-destructive" : "text-success"
-            }`}
-            role={message.kind === "error" ? "alert" : "status"}
-          >
-            {message.text}
-          </p>
-        )}
       </CardContent>
     </Card>
   );
@@ -188,27 +182,33 @@ function AddMemberForm({ businessId }: { businessId: string }) {
 /** Add a PIN-only staff member (no email/account) — name + role + PIN. */
 function AddStaffForm({ businessId }: { businessId: string }) {
   const router = useRouter();
+  const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [name, setName] = useState("");
   const [role, setRole] = useState<Role>("CASHIER");
   const [pin, setPin] = useState("");
-  const [message, setMessage] = useState<{ kind: "error" | "ok"; text: string } | null>(null);
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setMessage(null);
+    const trimmedName = name.trim();
     startTransition(async () => {
       try {
-        await addStaffMember({ businessId, name: name.trim(), role, pin });
+        await addStaffMember({ businessId, name: trimmedName, role, pin });
         setName("");
         setPin("");
-        setMessage({ kind: "ok", text: "Staff member added." });
+        toast({ title: "Staff member added", description: trimmedName, variant: "success" });
         router.refresh();
       } catch (err) {
-        setMessage({ kind: "error", text: err instanceof Error ? err.message : "Could not add staff." });
+        toast({
+          title: "Could not add staff",
+          description: err instanceof Error ? err.message : undefined,
+          variant: "error",
+        });
       }
     });
   }
+
+  const canSubmit = name.trim().length > 0 && pin.length >= PIN_MIN_LENGTH;
 
   return (
     <Card>
@@ -256,18 +256,10 @@ function AddStaffForm({ businessId }: { businessId: string }) {
               className="numeric w-28"
             />
           </div>
-          <Button type="submit" disabled={pending}>
+          <Button type="submit" disabled={pending || !canSubmit}>
             {pending ? "Adding…" : "Add staff"}
           </Button>
         </form>
-        {message && (
-          <p
-            className={`mt-3 text-sm font-medium ${message.kind === "error" ? "text-destructive" : "text-success"}`}
-            role={message.kind === "error" ? "alert" : "status"}
-          >
-            {message.text}
-          </p>
-        )}
       </CardContent>
     </Card>
   );
@@ -276,8 +268,8 @@ function AddStaffForm({ businessId }: { businessId: string }) {
 /** OWNER-only granular capability checkboxes for one member. */
 function PermissionsEditor({ businessId, member }: { businessId: string; member: MemberRow }) {
   const router = useRouter();
+  const { toast } = useToast();
   const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
   const granted = new Set(member.permissions);
 
   if (member.role === "OWNER") {
@@ -285,16 +277,20 @@ function PermissionsEditor({ businessId, member }: { businessId: string; member:
   }
 
   function toggle(cap: Capability) {
-    setError(null);
     const next = new Set(granted);
     if (next.has(cap)) next.delete(cap);
     else next.add(cap);
     startTransition(async () => {
       try {
         await setMemberPermissions({ businessId, membershipId: member.membershipId, permissions: [...next] });
+        toast({ title: "Permissions updated", variant: "success" });
         router.refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not update permissions.");
+        toast({
+          title: "Could not update permissions",
+          description: err instanceof Error ? err.message : undefined,
+          variant: "error",
+        });
       }
     });
   }
@@ -312,7 +308,7 @@ function PermissionsEditor({ businessId, member }: { businessId: string; member:
               disabled={pending}
               aria-pressed={on}
               onClick={() => toggle(cap)}
-              className={`rounded-full border px-3 py-1 text-xs font-medium ${
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors active:scale-[0.98] disabled:opacity-60 ${
                 on ? "border-primary bg-primary/10 text-foreground" : "border-input text-muted-foreground hover:bg-muted"
               }`}
             >
@@ -321,11 +317,6 @@ function PermissionsEditor({ businessId, member }: { businessId: string; member:
           );
         })}
       </div>
-      {error && (
-        <p className="mt-1 text-xs font-medium text-destructive" role="alert">
-          {error}
-        </p>
-      )}
     </div>
   );
 }
@@ -339,34 +330,44 @@ function PinControl({
   member: MemberRow;
 }) {
   const router = useRouter();
+  const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [pin, setPin] = useState("");
   const [editing, setEditing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+
+  const who = member.name ?? member.email ?? "member";
 
   function save(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
     startTransition(async () => {
       try {
         await setMemberPin({ businessId, membershipId: member.membershipId, pin });
         setPin("");
         setEditing(false);
+        toast({ title: "PIN set", description: who, variant: "success" });
         router.refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not set PIN.");
+        toast({
+          title: "Could not set PIN",
+          description: err instanceof Error ? err.message : undefined,
+          variant: "error",
+        });
       }
     });
   }
 
   function clear() {
-    setError(null);
     startTransition(async () => {
       try {
         await clearMemberPin({ businessId, membershipId: member.membershipId });
+        toast({ title: "PIN cleared", description: who, variant: "success" });
         router.refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not clear PIN.");
+        toast({
+          title: "Could not clear PIN",
+          description: err instanceof Error ? err.message : undefined,
+          variant: "error",
+        });
       }
     });
   }
@@ -385,11 +386,6 @@ function PinControl({
             Clear
           </Button>
         )}
-        {error && (
-          <span className="text-sm text-destructive" role="alert">
-            {error}
-          </span>
-        )}
       </div>
     );
   }
@@ -404,28 +400,23 @@ function PinControl({
         placeholder={`${PIN_MIN_LENGTH}–${PIN_MAX_LENGTH} digits`}
         className="numeric h-10 w-40"
         autoFocus
-        aria-label={`PIN for ${member.name ?? member.email}`}
+        aria-label={`PIN for ${who}`}
       />
-      <Button type="submit" size="sm" disabled={pending}>
-        Save
+      <Button type="submit" size="sm" disabled={pending || pin.length < PIN_MIN_LENGTH}>
+        {pending ? "Saving…" : "Save"}
       </Button>
       <Button
         type="button"
         size="sm"
         variant="ghost"
+        disabled={pending}
         onClick={() => {
           setEditing(false);
           setPin("");
-          setError(null);
         }}
       >
         Cancel
       </Button>
-      {error && (
-        <span className="text-sm text-destructive" role="alert">
-          {error}
-        </span>
-      )}
     </form>
   );
 }
@@ -441,39 +432,53 @@ function MemberCard({
   canEditPermissions: boolean;
 }) {
   const router = useRouter();
+  const { toast } = useToast();
   const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
+  const who = member.name ?? member.email ?? "member";
 
   function onRoleChange(role: Role) {
-    setError(null);
     startTransition(async () => {
       try {
         await changeMemberRole({ businessId, membershipId: member.membershipId, role });
+        toast({ title: "Role updated", description: `${who} is now ${role}`, variant: "success" });
         router.refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not change role.");
+        toast({
+          title: "Could not change role",
+          description: err instanceof Error ? err.message : undefined,
+          variant: "error",
+        });
       }
     });
   }
 
   function onActiveToggle() {
-    setError(null);
+    const nextActive = !member.active;
     startTransition(async () => {
       try {
         await setMemberActive({
           businessId,
           membershipId: member.membershipId,
-          active: !member.active,
+          active: nextActive,
+        });
+        toast({
+          title: nextActive ? "Member reactivated" : "Member deactivated",
+          description: who,
+          variant: "success",
         });
         router.refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not update member.");
+        toast({
+          title: "Could not update member",
+          description: err instanceof Error ? err.message : undefined,
+          variant: "error",
+        });
       }
     });
   }
 
   return (
-    <Card className={member.active ? undefined : "opacity-70"}>
+    <Card className={member.active ? "transition-opacity" : "opacity-70 transition-opacity"}>
       <CardContent className="flex flex-col gap-3 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
@@ -533,11 +538,6 @@ function MemberCard({
             <PermissionsEditor businessId={businessId} member={member} />
           </div>
         )}
-        {error && (
-          <p className="text-sm font-medium text-destructive" role="alert">
-            {error}
-          </p>
-        )}
       </CardContent>
     </Card>
   );
@@ -559,16 +559,28 @@ export function MemberAdmin({
         <AddStaffForm businessId={businessId} />
         <AddMemberForm businessId={businessId} />
       </div>
-      <div className="space-y-2">
-        {members.map((m) => (
-          <MemberCard
-            key={m.membershipId}
-            businessId={businessId}
-            member={m}
-            canEditPermissions={canEditPermissions}
-          />
-        ))}
-      </div>
+      {members.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center gap-1 p-8 text-center">
+            <Users className="mb-1 text-muted-foreground" size={28} aria-hidden />
+            <p className="font-semibold">No team members yet</p>
+            <p className="max-w-sm text-sm text-muted-foreground">
+              Add staff with a PIN to ring up on this device, or invite an existing VallaPOS account by email.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {members.map((m) => (
+            <MemberCard
+              key={m.membershipId}
+              businessId={businessId}
+              member={m}
+              canEditPermissions={canEditPermissions}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -582,7 +594,15 @@ export function Timesheet({
   totalLabel: string;
 }) {
   if (rows.length === 0) {
-    return <p className="text-sm text-muted-foreground">No time entries today.</p>;
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center gap-1 p-8 text-center">
+          <Clock className="mb-1 text-muted-foreground" size={26} aria-hidden />
+          <p className="font-semibold">No time entries today</p>
+          <p className="text-sm text-muted-foreground">Shifts clocked in today will show up here.</p>
+        </CardContent>
+      </Card>
+    );
   }
   return (
     <div className="space-y-2">
