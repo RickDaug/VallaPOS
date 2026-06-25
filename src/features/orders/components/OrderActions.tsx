@@ -6,20 +6,10 @@ import { Undo2, Ban } from "lucide-react";
 import type { OrderStatus } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
 import { formatMoney } from "@/lib/money";
 import { refundOrder, voidOrder, type RefundVoidResult } from "@/features/orders/actions";
-
-// Narrow the failure branch's `reason` union so the lookup table is exhaustive.
-type FailReason = Extract<RefundVoidResult, { ok: false }>["reason"];
-
-const REASON_TEXT: Record<FailReason, string> = {
-  order_not_found: "Order not found.",
-  not_paid: "Only a paid order can be voided.",
-  already_settled: "This order is already refunded or voided.",
-  nothing_collected: "There is nothing left to refund on this order.",
-  amount_not_positive: "Enter a refund amount greater than zero.",
-  exceeds_net_collected: "Refund exceeds the amount collected on this order.",
-};
+import { describeRefundVoidResult } from "@/features/orders/components/order-action-result";
 
 /**
  * MANAGER-gated refund / void controls for a single order. Hidden entirely for
@@ -41,9 +31,9 @@ export function OrderActions({
   currency: string;
 }) {
   const router = useRouter();
+  const { toast } = useToast();
   const [confirm, confirmEl] = useConfirm();
   const [pending, setPending] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
   const [partialOpen, setPartialOpen] = useState(false);
   const [partialAmount, setPartialAmount] = useState("");
 
@@ -56,25 +46,20 @@ export function OrderActions({
 
   async function run(action: () => Promise<RefundVoidResult>) {
     setPending(true);
-    setNotice(null);
     try {
       const res = await action();
+      toast(describeRefundVoidResult(res, money));
       if (res.ok) {
-        setNotice(
-          res.status === "VOIDED"
-            ? `Voided — ${money(res.reversedCents)} reversed.`
-            : res.status === "REFUNDED"
-              ? `Refunded ${money(res.reversedCents)}.`
-              : `Partially refunded ${money(res.reversedCents)}.`,
-        );
         setPartialOpen(false);
         setPartialAmount("");
         router.refresh();
-      } else {
-        setNotice(REASON_TEXT[res.reason]);
       }
     } catch {
-      setNotice("Something went wrong. Please try again.");
+      toast({
+        title: "Something went wrong",
+        description: "Please try again.",
+        variant: "error",
+      });
     } finally {
       setPending(false);
     }
@@ -101,7 +86,10 @@ export function OrderActions({
   async function onPartialRefund() {
     const dollars = Number(partialAmount);
     if (!Number.isFinite(dollars) || dollars <= 0) {
-      setNotice("Enter a refund amount greater than zero.");
+      toast({
+        title: "Enter a refund amount greater than zero.",
+        variant: "error",
+      });
       return;
     }
     const cents = Math.round(dollars * 100);
@@ -126,6 +114,8 @@ export function OrderActions({
           variant="outline"
           onClick={() => setPartialOpen((v) => !v)}
           disabled={pending}
+          aria-expanded={partialOpen}
+          aria-controls="partial-refund-panel"
         >
           Partial refund
         </Button>
@@ -137,7 +127,10 @@ export function OrderActions({
       </div>
 
       {partialOpen && (
-        <div className="mt-3 space-y-2 rounded-lg border border-border bg-muted p-3">
+        <div
+          id="partial-refund-panel"
+          className="mt-3 space-y-2 rounded-lg border border-border bg-muted p-3"
+        >
           <label htmlFor="refund-amount" className="block text-sm font-medium">
             Refund amount ({currency})
           </label>
@@ -150,7 +143,8 @@ export function OrderActions({
             value={partialAmount}
             onChange={(e) => setPartialAmount(e.target.value)}
             placeholder="0.00"
-            className="numeric h-11 w-full rounded-md border border-input bg-card px-3 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            autoFocus
+            className="numeric h-11 w-full rounded-md border border-input bg-card px-3 text-base transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
           <Button
             onClick={onPartialRefund}
@@ -160,12 +154,6 @@ export function OrderActions({
             {pending ? "Refunding…" : "Refund this amount"}
           </Button>
         </div>
-      )}
-
-      {notice && (
-        <p className="mt-2 text-sm text-muted-foreground" role="status" aria-live="polite">
-          {notice}
-        </p>
       )}
 
       {confirmEl}
