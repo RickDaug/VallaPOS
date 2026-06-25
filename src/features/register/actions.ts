@@ -53,8 +53,9 @@ function paymentViewOf(
     | { method?: string | null; tenderedCents?: number | null; changeCents?: number | null; processorRef?: string | null }
     | undefined,
 ): PaymentView {
+  const m = payment?.method;
   return {
-    method: payment?.method === "MANUAL" ? "MANUAL" : "CASH",
+    method: m === "MANUAL" || m === "QR" ? m : "CASH",
     tenderedCents: payment?.tenderedCents ?? null,
     changeCents: payment?.changeCents ?? null,
     manualNote: payment?.processorRef ?? null,
@@ -101,16 +102,16 @@ export async function checkout(input: CheckoutInput): Promise<Receipt> {
   });
   const totals = priced;
 
-  // Tender resolution. CASH must cover the server total and yields change;
-  // MANUAL ("Other") records the payment as taken outside the app — no tender,
-  // no change, an optional reference note stored in Payment.processorRef.
-  const isManual = data.method === "MANUAL";
-  if (!isManual && data.cashTenderedCents < totals.totalCents) {
+  // Tender resolution. CASH must cover the server total and yields change; every
+  // other method (QR, MANUAL/"Other") records the payment as taken out-of-band —
+  // no tender, no change, an optional reference note in Payment.processorRef.
+  const isCash = data.method === "CASH";
+  if (isCash && data.cashTenderedCents < totals.totalCents) {
     throw new Error("Cash tendered is less than the total.");
   }
-  const tenderedCents = isManual ? null : data.cashTenderedCents;
-  const changeCents = isManual ? null : data.cashTenderedCents - totals.totalCents;
-  const manualNote = isManual ? data.manualNote?.trim() || null : null;
+  const tenderedCents = isCash ? data.cashTenderedCents : null;
+  const changeCents = isCash ? data.cashTenderedCents - totals.totalCents : null;
+  const reference = isCash ? null : data.manualNote?.trim() || null;
 
   let order;
   try {
@@ -173,7 +174,7 @@ export async function checkout(input: CheckoutInput): Promise<Receipt> {
               amountCents: totals.totalCents,
               tenderedCents,
               changeCents,
-              processorRef: manualNote, // manual reference note (null for cash)
+              processorRef: reference, // QR/Other reference note (null for cash)
             },
           },
         },
@@ -200,7 +201,7 @@ export async function checkout(input: CheckoutInput): Promise<Receipt> {
     method: data.method,
     tenderedCents,
     changeCents,
-    manualNote,
+    manualNote: reference,
   });
 }
 

@@ -458,6 +458,23 @@ describe("checkout — MANUAL / Other tender", () => {
     await checkout(input({ method: "MANUAL", manualNote: "   ", cashTenderedCents: 0 }));
     expect(createdOrderData().payments.create.processorRef).toBeNull();
   });
+
+  it("records a QR payment like a confirmed external tender (no cash/change)", async () => {
+    const receipt = await checkout(
+      input({ method: "QR", manualNote: "txn-9", cashTenderedCents: 0 }),
+    );
+    expect(receipt.method).toBe("QR");
+    expect(receipt.cashTenderedCents).toBe(0);
+    expect(receipt.changeCents).toBe(0);
+    expect(createdOrderData().payments.create).toMatchObject({
+      method: "QR",
+      status: "CAPTURED",
+      amountCents: 1083,
+      tenderedCents: null,
+      changeCents: null,
+      processorRef: "txn-9",
+    });
+  });
 });
 
 describe("checkout — input validation", () => {

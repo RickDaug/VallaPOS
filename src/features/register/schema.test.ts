@@ -57,6 +57,12 @@ describe("checkoutSchema", () => {
     expect(parsed.manualNote).toBe("Check #1234");
   });
 
+  it("accepts a QR tender (with an optional reference note)", () => {
+    const parsed = checkoutSchema.parse({ ...base(), method: "QR", manualNote: "txn-9" });
+    expect(parsed.method).toBe("QR");
+    expect(parsed.manualNote).toBe("txn-9");
+  });
+
   it("rejects an unknown tender method and an over-long note", () => {
     expect(() => checkoutSchema.parse({ ...base(), method: "CRYPTO" })).toThrow();
     expect(() =>
