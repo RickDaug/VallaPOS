@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2, Pencil, ChevronUp, ChevronDown, Plus } from "lucide-react";
+import { Trash2, Pencil, ChevronUp, ChevronDown, Plus, PackageOpen } from "lucide-react";
 import { formatMoney } from "@/lib/money";
 import type { ManagedCatalog, ManagedItem, ManagedVariation } from "@/features/catalog/queries";
 import {
@@ -28,7 +28,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+
+/** Options for the shared {@link run} action runner. */
+type RunOpts = { success?: string };
+
+/** Signature of the shared action runner threaded down to child editors. */
+type RunFn = (fn: () => Promise<void>, after?: () => void, opts?: RunOpts) => void;
 
 /** Parse a "9.99" string to integer cents; returns NaN when invalid. */
 function dollarsToCents(value: string): number {
@@ -45,8 +52,8 @@ export function ProductsManager({
   currency: string;
 }) {
   const router = useRouter();
+  const { toast } = useToast();
   const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
   const [confirm, confirmDialog] = useConfirm();
 
   const [name, setName] = useState("");
@@ -67,70 +74,84 @@ export function ProductsManager({
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
 
-  function run(fn: () => Promise<void>, after?: () => void) {
-    setError(null);
+  const run: RunFn = (fn, after, opts) => {
     startTransition(async () => {
       try {
         await fn();
         after?.();
+        if (opts?.success) toast({ title: opts.success, variant: "success" });
         router.refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Something went wrong.");
+        toast({
+          title: "Something went wrong",
+          description: err instanceof Error ? err.message : undefined,
+          variant: "error",
+        });
       }
     });
-  }
+  };
 
   function onAddItem(e: React.FormEvent) {
     e.preventDefault();
     const priceCents = dollarsToCents(price);
-    if (!name.trim()) return setError("Item name is required.");
-    if (!Number.isFinite(priceCents) || priceCents < 0) return setError("Enter a valid price.");
+    if (!name.trim()) return toast({ title: "Item name is required.", variant: "error" });
+    if (!Number.isFinite(priceCents) || priceCents < 0)
+      return toast({ title: "Enter a valid price.", variant: "error" });
+    const itemName = name.trim();
     run(
-      () => createItem({ businessId, name: name.trim(), type, categoryId: categoryId || null, priceCents }),
+      () => createItem({ businessId, name: itemName, type, categoryId: categoryId || null, priceCents }),
       () => {
         setName("");
         setPrice("");
       },
+      { success: `“${itemName}” added` },
     );
   }
 
   function onAddCategory(e: React.FormEvent) {
     e.preventDefault();
     if (!categoryName.trim()) return;
-    run(() => createCategory({ businessId, name: categoryName.trim() }), () => setCategoryName(""));
+    const trimmed = categoryName.trim();
+    run(() => createCategory({ businessId, name: trimmed }), () => setCategoryName(""), {
+      success: `Category “${trimmed}” added`,
+    });
   }
 
   function onAddGroup(e: React.FormEvent) {
     e.preventDefault();
     const minSelect = parseInt(groupMin || "0", 10);
     const maxSelect = parseInt(groupMax || "1", 10);
-    if (!groupName.trim()) return setError("Group name is required.");
+    if (!groupName.trim()) return toast({ title: "Group name is required.", variant: "error" });
     if (!Number.isInteger(minSelect) || !Number.isInteger(maxSelect) || maxSelect < 1)
-      return setError("Enter valid min/max selections.");
-    if (maxSelect < minSelect) return setError("Max must be at least min.");
+      return toast({ title: "Enter valid min/max selections.", variant: "error" });
+    if (maxSelect < minSelect) return toast({ title: "Max must be at least min.", variant: "error" });
+    const trimmed = groupName.trim();
     run(
-      () => createModifierGroup({ businessId, name: groupName.trim(), minSelect, maxSelect }),
+      () => createModifierGroup({ businessId, name: trimmed, minSelect, maxSelect }),
       () => {
         setGroupName("");
         setGroupMin("0");
         setGroupMax("1");
       },
+      { success: `Group “${trimmed}” added` },
     );
   }
 
   function onAddModifier(e: React.FormEvent) {
     e.preventDefault();
     const priceDeltaCents = dollarsToCents(modPrice);
-    if (!modGroupId) return setError("Pick a modifier group.");
-    if (!modName.trim()) return setError("Modifier name is required.");
+    if (!modGroupId) return toast({ title: "Pick a modifier group.", variant: "error" });
+    if (!modName.trim()) return toast({ title: "Modifier name is required.", variant: "error" });
     if (!Number.isFinite(priceDeltaCents) || priceDeltaCents < 0)
-      return setError("Enter a valid price delta.");
+      return toast({ title: "Enter a valid price delta.", variant: "error" });
+    const trimmed = modName.trim();
     run(
-      () => createModifier({ businessId, groupId: modGroupId, name: modName.trim(), priceDeltaCents }),
+      () => createModifier({ businessId, groupId: modGroupId, name: trimmed, priceDeltaCents }),
       () => {
         setModName("");
         setModPrice("");
       },
+      { success: `Modifier “${trimmed}” added` },
     );
   }
 
@@ -174,11 +195,15 @@ export function ProductsManager({
               </Button>
             )}
           </div>
-          {error && <p className="mb-3 text-sm font-medium text-destructive" role="alert">{error}</p>}
           {activeItems.length === 0 ? (
-            <p className="rounded-lg bg-muted p-6 text-center text-sm text-muted-foreground">
-              No active items. Add your first one on the right.
-            </p>
+            <div className="flex flex-col items-center gap-2 rounded-lg bg-muted/60 p-8 text-center">
+              <PackageOpen className="text-muted-foreground" size={32} aria-hidden />
+              <p className="font-semibold">No active items yet</p>
+              <p className="max-w-xs text-sm text-muted-foreground">
+                Add your first product or service with the{" "}
+                <span className="font-medium text-foreground">Add item</span> form on the right.
+              </p>
+            </div>
           ) : (
             <ul className="divide-y divide-border">
               {activeItems.map((item) => (
@@ -242,7 +267,7 @@ export function ProductsManager({
                     type="button"
                     onClick={() => setType(t)}
                     className={cn(
-                      "h-11 flex-1 rounded-md text-sm font-semibold transition-colors",
+                      "h-11 flex-1 rounded-md text-sm font-semibold transition-[color,background-color,transform] active:scale-[0.98]",
                       type === t ? "bg-primary text-primary-foreground" : "bg-muted text-foreground hover:bg-secondary",
                     )}
                   >
@@ -327,7 +352,9 @@ export function ProductsManager({
                               confirmLabel: "Delete",
                             })
                           )
-                            run(() => deleteCategory({ businessId, id: c.id }));
+                            run(() => deleteCategory({ businessId, id: c.id }), undefined, {
+                              success: `Category “${c.name}” deleted`,
+                            });
                         }}
                         disabled={pending}
                         aria-label={`Delete category ${c.name}`}
@@ -402,7 +429,9 @@ export function ProductsManager({
                               confirmLabel: "Delete",
                             })
                           )
-                            run(() => deleteModifierGroup({ businessId, id: g.id }));
+                            run(() => deleteModifierGroup({ businessId, id: g.id }), undefined, {
+                              success: `Group “${g.name}” deleted`,
+                            });
                         }}
                         disabled={pending}
                         aria-label={`Delete group ${g.name}`}
@@ -419,9 +448,13 @@ export function ProductsManager({
                             </span>
                             <button
                               type="button"
-                              onClick={() => run(() => deleteModifier({ businessId, id: m.id }))}
+                              onClick={() =>
+                                run(() => deleteModifier({ businessId, id: m.id }), undefined, {
+                                  success: `Modifier “${m.name}” deleted`,
+                                })
+                              }
                               disabled={pending}
-                              className="text-muted-foreground hover:text-destructive"
+                              className="rounded p-1 text-muted-foreground transition-colors hover:text-destructive disabled:opacity-50"
                               aria-label={`Delete modifier ${m.name}`}
                             >
                               <Trash2 size={14} />
@@ -493,11 +526,16 @@ function ItemRow({
   isEditing: boolean;
   onToggleEdit: () => void;
   onToggleLink: (itemId: string, groupId: string, linked: boolean) => void;
-  run: (fn: () => Promise<void>, after?: () => void) => void;
+  run: RunFn;
   confirm: (opts: { title: string; description?: string; confirmLabel?: string }) => Promise<boolean>;
 }) {
   return (
-    <li className={cn("py-3", !item.active && "opacity-60")}>
+    <li
+      className={cn(
+        "-mx-2 rounded-lg px-2 py-3 transition-colors hover:bg-muted/40",
+        !item.active && "opacity-60",
+      )}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="truncate font-semibold">
@@ -529,7 +567,7 @@ function ItemRow({
                     disabled={pending}
                     aria-pressed={linked}
                     className={cn(
-                      "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                      "rounded-full border px-2.5 py-1 text-xs font-medium transition-[color,background-color,transform] active:scale-[0.97] disabled:opacity-50",
                       linked
                         ? "border-primary bg-primary/10 text-foreground"
                         : "border-border text-muted-foreground hover:bg-muted",
@@ -559,7 +597,11 @@ function ItemRow({
             variant="ghost"
             size="sm"
             className="text-muted-foreground"
-            onClick={() => run(() => setItemActive({ businessId, id: item.id, active: !item.active }))}
+            onClick={() =>
+              run(() => setItemActive({ businessId, id: item.id, active: !item.active }), undefined, {
+                success: item.active ? `“${item.name}” archived` : `“${item.name}” restored`,
+              })
+            }
             disabled={pending}
           >
             {item.active ? "Archive" : "Restore"}
@@ -570,7 +612,9 @@ function ItemRow({
             className="h-10 w-10 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
             onClick={async () => {
               if (await confirm({ title: `Delete "${item.name}"?`, confirmLabel: "Delete" }))
-                run(() => deleteItem({ businessId, id: item.id }));
+                run(() => deleteItem({ businessId, id: item.id }), undefined, {
+                  success: `“${item.name}” deleted`,
+                });
             }}
             disabled={pending}
             aria-label={`Delete ${item.name}`}
@@ -618,23 +662,23 @@ function ItemEditor({
   catalog: ManagedCatalog;
   businessId: string;
   pending: boolean;
-  run: (fn: () => Promise<void>, after?: () => void) => void;
+  run: RunFn;
   onDone: () => void;
 }) {
+  const { toast } = useToast();
   const [name, setName] = useState(item.name);
   const [type, setType] = useState<"PRODUCT" | "SERVICE">(item.type);
   const [categoryId, setCategoryId] = useState(item.categoryId ?? "");
   const [price, setPrice] = useState(
     item.variations[0] ? (item.variations[0].priceCents / 100).toFixed(2) : "",
   );
-  const [localError, setLocalError] = useState<string | null>(null);
 
   function onSave(e: React.FormEvent) {
     e.preventDefault();
     const priceCents = dollarsToCents(price);
-    if (!name.trim()) return setLocalError("Item name is required.");
-    if (!Number.isFinite(priceCents) || priceCents < 0) return setLocalError("Enter a valid price.");
-    setLocalError(null);
+    if (!name.trim()) return toast({ title: "Item name is required.", variant: "error" });
+    if (!Number.isFinite(priceCents) || priceCents < 0)
+      return toast({ title: "Enter a valid price.", variant: "error" });
     run(
       () =>
         updateItem({
@@ -646,13 +690,13 @@ function ItemEditor({
           priceCents,
         }),
       onDone,
+      { success: "Item saved" },
     );
   }
 
   return (
     <form onSubmit={onSave} className="space-y-2">
       <p className="text-sm font-semibold">Edit item</p>
-      {localError && <p className="text-sm font-medium text-destructive" role="alert">{localError}</p>}
       <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Item name" />
       <div className="flex gap-2">
         {(["PRODUCT", "SERVICE"] as const).map((t) => (
@@ -661,7 +705,7 @@ function ItemEditor({
             type="button"
             onClick={() => setType(t)}
             className={cn(
-              "h-10 flex-1 rounded-md text-sm font-semibold transition-colors",
+              "h-10 flex-1 rounded-md text-sm font-semibold transition-[color,background-color,transform] active:scale-[0.98]",
               type === t ? "bg-primary text-primary-foreground" : "bg-muted text-foreground hover:bg-secondary",
             )}
           >
@@ -717,26 +761,27 @@ function VariationsEditor({
   currency: string;
   businessId: string;
   pending: boolean;
-  run: (fn: () => Promise<void>, after?: () => void) => void;
+  run: RunFn;
   confirm: (opts: { title: string; description?: string; confirmLabel?: string }) => Promise<boolean>;
 }) {
+  const { toast } = useToast();
   const [newName, setNewName] = useState("");
   const [newPrice, setNewPrice] = useState("");
   const [newSku, setNewSku] = useState("");
-  const [localError, setLocalError] = useState<string | null>(null);
 
   function onAdd(e: React.FormEvent) {
     e.preventDefault();
     const priceCents = dollarsToCents(newPrice);
-    if (!newName.trim()) return setLocalError("Variation name is required.");
-    if (!Number.isFinite(priceCents) || priceCents < 0) return setLocalError("Enter a valid price.");
-    setLocalError(null);
+    if (!newName.trim()) return toast({ title: "Variation name is required.", variant: "error" });
+    if (!Number.isFinite(priceCents) || priceCents < 0)
+      return toast({ title: "Enter a valid price.", variant: "error" });
+    const variationName = newName.trim();
     run(
       () =>
         createVariation({
           businessId,
           itemId: item.id,
-          name: newName.trim(),
+          name: variationName,
           priceCents,
           sku: newSku.trim() || null,
           sortOrder: item.variations.length,
@@ -746,13 +791,13 @@ function VariationsEditor({
         setNewPrice("");
         setNewSku("");
       },
+      { success: `Variation “${variationName}” added` },
     );
   }
 
   return (
     <div className="mt-3 border-t border-border pt-3">
       <p className="mb-2 text-sm font-semibold">Variations (sizes)</p>
-      {localError && <p className="mb-2 text-sm font-medium text-destructive" role="alert">{localError}</p>}
       <ul className="space-y-2">
         {item.variations.map((v, index) => (
           <VariationRow
@@ -821,21 +866,21 @@ function VariationRow({
   isLast: boolean;
   siblings: ManagedVariation[];
   index: number;
-  run: (fn: () => Promise<void>, after?: () => void) => void;
+  run: RunFn;
   confirm: (opts: { title: string; description?: string; confirmLabel?: string }) => Promise<boolean>;
 }) {
+  const { toast } = useToast();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(variation.name);
   const [price, setPrice] = useState((variation.priceCents / 100).toFixed(2));
   const [sku, setSku] = useState(variation.sku ?? "");
-  const [localError, setLocalError] = useState<string | null>(null);
 
   function onSave(e: React.FormEvent) {
     e.preventDefault();
     const priceCents = dollarsToCents(price);
-    if (!name.trim()) return setLocalError("Name is required.");
-    if (!Number.isFinite(priceCents) || priceCents < 0) return setLocalError("Enter a valid price.");
-    setLocalError(null);
+    if (!name.trim()) return toast({ title: "Name is required.", variant: "error" });
+    if (!Number.isFinite(priceCents) || priceCents < 0)
+      return toast({ title: "Enter a valid price.", variant: "error" });
     run(
       () =>
         updateVariation({
@@ -847,6 +892,7 @@ function VariationRow({
           sortOrder: variation.sortOrder,
         }),
       () => setEditing(false),
+      { success: "Variation saved" },
     );
   }
 
@@ -878,7 +924,6 @@ function VariationRow({
     return (
       <li className="rounded-md border border-border bg-card p-2">
         <form onSubmit={onSave} className="space-y-2">
-          {localError && <p className="text-sm font-medium text-destructive" role="alert">{localError}</p>}
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" />
           <div className="flex gap-2">
             <Input
@@ -959,7 +1004,9 @@ function VariationRow({
                 confirmLabel: "Delete",
               })
             )
-              run(() => deleteVariation({ businessId, id: variation.id }));
+              run(() => deleteVariation({ businessId, id: variation.id }), undefined, {
+                success: `Variation “${variation.name}” deleted`,
+              });
           }}
           disabled={pending || !canDelete}
           aria-label={`Delete ${variation.name}`}
