@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
 import {
   createRoom,
   renameRoom,
@@ -42,11 +43,11 @@ export function FloorPlanEditor({
   initialRooms: FloorRoomLayout[];
 }) {
   const router = useRouter();
+  const { toast } = useToast();
   const [confirm, confirmEl] = useConfirm();
   const [rooms, setRooms] = useState<FloorRoomLayout[]>(initialRooms);
   const [activeRoomId, setActiveRoomId] = useState<string | null>(initialRooms[0]?.id ?? null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [quickCount, setQuickCount] = useState("8");
 
   const totalTables = rooms.reduce((n, r) => n + r.tables.length, 0);
@@ -56,7 +57,11 @@ export function FloorPlanEditor({
   const canvasRef = useRef<HTMLDivElement>(null);
 
   function fail(err: unknown) {
-    setError(err instanceof Error ? err.message : "Something went wrong.");
+    toast({
+      title: "Something went wrong",
+      description: err instanceof Error ? err.message : undefined,
+      variant: "error",
+    });
     router.refresh(); // resync from the server on any failed write
   }
 
@@ -76,25 +81,25 @@ export function FloorPlanEditor({
 
   // ── Rooms ──────────────────────────────────────────────────────────────────
   async function onAddRoom() {
-    setError(null);
     const name = window.prompt("Room name (e.g. Main, Patio, Bar)")?.trim();
     if (!name) return;
     try {
       const id = await createRoom({ businessId, name });
       setRooms((rs) => [...rs, { id, name, sortOrder: rs.length, tables: [] }]);
       setActiveRoomId(id);
+      toast({ title: `Room "${name}" added`, variant: "success" });
     } catch (err) {
       fail(err);
     }
   }
 
   async function onRenameRoom(room: FloorRoomLayout) {
-    setError(null);
     const name = window.prompt("Rename room", room.name)?.trim();
     if (!name || name === room.name) return;
     try {
       await renameRoom({ businessId, id: room.id, name });
       setRooms((rs) => rs.map((r) => (r.id === room.id ? { ...r, name } : r)));
+      toast({ title: "Room renamed", variant: "success" });
     } catch (err) {
       fail(err);
     }
@@ -114,6 +119,7 @@ export function FloorPlanEditor({
         if (activeRoomId === room.id) setActiveRoomId(next[0]?.id ?? null);
         return next;
       });
+      toast({ title: `Room "${room.name}" deleted`, variant: "success" });
     } catch (err) {
       fail(err);
     }
@@ -122,9 +128,8 @@ export function FloorPlanEditor({
   // ── Tables ───────────────────────────────────────────────────────────────────
   async function onAddTable() {
     if (!activeRoom) return;
-    setError(null);
     if (totalTables >= MAX_TABLES_PER_BUSINESS) {
-      setError(`Table limit reached (${MAX_TABLES_PER_BUSINESS}).`);
+      toast({ title: `Table limit reached (${MAX_TABLES_PER_BUSINESS}).`, variant: "error" });
       return;
     }
     const label = `T${totalTables + 1}`;
@@ -143,6 +148,7 @@ export function FloorPlanEditor({
       const table: FloorTableLayout = { id, label, shape: "SQUARE", x: 60, y: 60, width: 80, height: 80, seats: 4 };
       setRooms((rs) => rs.map((r) => (r.id === activeRoom.id ? { ...r, tables: [...r.tables, table] } : r)));
       setSelectedId(id);
+      toast({ title: `Table "${label}" added`, variant: "success" });
     } catch (err) {
       fail(err);
     }
@@ -150,10 +156,12 @@ export function FloorPlanEditor({
 
   async function onQuickAdd() {
     if (!activeRoom) return;
-    setError(null);
     const count = Math.max(1, Math.min(MAX_TABLES_PER_BUSINESS, parseInt(quickCount || "0", 10) || 0));
     if (totalTables + count > MAX_TABLES_PER_BUSINESS) {
-      setError(`That exceeds the ${MAX_TABLES_PER_BUSINESS}-table limit (you have ${totalTables}).`);
+      toast({
+        title: `That exceeds the ${MAX_TABLES_PER_BUSINESS}-table limit (you have ${totalTables}).`,
+        variant: "error",
+      });
       return;
     }
     try {
@@ -163,6 +171,7 @@ export function FloorPlanEditor({
           r.id === activeRoom.id ? { ...r, tables: [...r.tables, ...(created as FloorTableLayout[])] } : r,
         ),
       );
+      toast({ title: `Added ${count} table${count === 1 ? "" : "s"}`, variant: "success" });
     } catch (err) {
       fail(err);
     }
@@ -177,6 +186,7 @@ export function FloorPlanEditor({
         rs.map((r) => (r.id === activeRoomId ? { ...r, tables: r.tables.filter((t) => t.id !== table.id) } : r)),
       );
       if (selectedId === table.id) setSelectedId(null);
+      toast({ title: `Table "${table.label}" deleted`, variant: "success" });
     } catch (err) {
       fail(err);
     }
@@ -267,9 +277,10 @@ export function FloorPlanEditor({
               setActiveRoomId(room.id);
               setSelectedId(null);
             }}
-            className={`inline-flex h-10 items-center rounded-full px-4 text-sm font-medium ${
+            aria-pressed={room.id === activeRoomId}
+            className={`inline-flex h-10 items-center rounded-full px-4 text-sm font-medium transition-colors active:scale-[0.98] ${
               room.id === activeRoomId
-                ? "bg-primary text-primary-foreground"
+                ? "bg-primary text-primary-foreground shadow-sm"
                 : "bg-muted text-muted-foreground hover:bg-muted/70"
             }`}
           >
@@ -334,10 +345,10 @@ export function FloorPlanEditor({
                     e.stopPropagation();
                     startDrag(e, t);
                   }}
-                  className={`absolute flex cursor-grab touch-none select-none items-center justify-center border-2 text-center text-xs font-semibold shadow-sm active:cursor-grabbing ${
+                  className={`absolute flex cursor-grab touch-none select-none items-center justify-center border-2 text-center text-xs font-semibold shadow-sm transition-[background-color,border-color,box-shadow] active:cursor-grabbing ${
                     selectedId === t.id
-                      ? "border-primary bg-primary/15 text-foreground ring-2 ring-primary"
-                      : "border-border bg-card text-foreground"
+                      ? "border-primary bg-primary/15 text-foreground shadow-md ring-2 ring-primary"
+                      : "border-border bg-card text-foreground hover:border-primary/40 hover:shadow-md"
                   }`}
                   style={{
                     left: pct(t.x, FLOOR_WIDTH),
@@ -403,7 +414,8 @@ export function FloorPlanEditor({
                         key={s}
                         type="button"
                         onClick={() => commitTable(selected.id, { shape: s })}
-                        className={`h-10 rounded-md border text-xs font-medium capitalize ${
+                        aria-pressed={selected.shape === s}
+                        className={`h-10 rounded-md border text-xs font-medium capitalize transition-colors active:scale-[0.98] ${
                           selected.shape === s ? "border-primary bg-primary/10" : "border-input hover:bg-muted"
                         }`}
                       >
@@ -421,12 +433,6 @@ export function FloorPlanEditor({
             )}
           </div>
         </div>
-      )}
-
-      {error && (
-        <p className="text-sm font-medium text-destructive" role="status">
-          {error}
-        </p>
       )}
     </div>
   );

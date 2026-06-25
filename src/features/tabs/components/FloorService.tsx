@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Users } from "lucide-react";
+import { useToast } from "@/components/ui/toast";
 import { formatMoney } from "@/lib/money";
 import { FLOOR_WIDTH, FLOOR_HEIGHT } from "@/features/floor/schema";
 import { openTab } from "@/features/tabs/actions";
@@ -38,9 +39,10 @@ export function FloorService({
   rooms: FloorServiceRoom[];
 }) {
   const router = useRouter();
+  const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [activeRoomId, setActiveRoomId] = useState<string | null>(rooms[0]?.id ?? null);
-  const [error, setError] = useState<string | null>(null);
+  const [openingTableId, setOpeningTableId] = useState<string | null>(null);
   const elapsed = useElapsed();
 
   // Keep the floor live across devices: re-fetch the server data every 15s while
@@ -67,17 +69,22 @@ export function FloorService({
 
   function onTableClick(table: FloorServiceRoom["tables"][number]) {
     if (pending) return;
-    setError(null);
     if (table.tab) {
       goToTab(table.tab.orderId);
       return;
     }
+    setOpeningTableId(table.id);
     startTransition(async () => {
       try {
         const orderId = await openTab({ businessId, tableId: table.id });
         goToTab(orderId);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not open the tab.");
+        setOpeningTableId(null);
+        toast({
+          title: "Could not open the tab",
+          description: err instanceof Error ? err.message : undefined,
+          variant: "error",
+        });
       }
     });
   }
@@ -105,9 +112,10 @@ export function FloorService({
               key={room.id}
               type="button"
               onClick={() => setActiveRoomId(room.id)}
-              className={`inline-flex h-10 items-center rounded-full px-4 text-sm font-medium ${
+              aria-pressed={room.id === activeRoom?.id}
+              className={`inline-flex h-10 items-center rounded-full px-4 text-sm font-medium transition-colors active:scale-[0.98] ${
                 room.id === activeRoom?.id
-                  ? "bg-primary text-primary-foreground"
+                  ? "bg-primary text-primary-foreground shadow-sm"
                   : "bg-muted text-muted-foreground hover:bg-muted/70"
               }`}
             >
@@ -120,39 +128,38 @@ export function FloorService({
         })}
       </div>
 
-      {error && (
-        <p className="text-sm font-medium text-destructive" role="status">
-          {error}
-        </p>
-      )}
-
       {activeRoom && (
         <div
           className="relative w-full overflow-hidden rounded-xl border border-border bg-muted/40"
           style={{ aspectRatio: `${FLOOR_WIDTH} / ${FLOOR_HEIGHT}` }}
         >
           {activeRoom.tables.length === 0 && (
-            <p className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
-              No tables in this room yet.
-            </p>
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-center text-sm text-muted-foreground">
+              <Users size={20} className="opacity-60" />
+              <p>No tables in this room yet.</p>
+            </div>
           )}
           {activeRoom.tables.map((t) => {
             const occupied = !!t.tab;
+            const opening = openingTableId === t.id;
             return (
               <button
                 key={t.id}
                 type="button"
                 disabled={pending}
+                aria-busy={opening}
                 onClick={() => onTableClick(t)}
                 aria-label={
                   occupied
                     ? `Table ${t.label}, occupied, ${formatMoney(t.tab!.totalCents, currency)}`
                     : `Table ${t.label}, available`
                 }
-                className={`absolute flex flex-col items-center justify-center border-2 p-1 text-center text-xs font-semibold shadow-sm transition-colors disabled:opacity-60 ${
+                className={`absolute flex flex-col items-center justify-center border-2 p-1 text-center text-xs font-semibold shadow-sm transition-[transform,background-color,border-color,box-shadow] duration-150 hover:z-10 hover:shadow-md active:scale-[0.97] disabled:pointer-events-none disabled:opacity-60 ${
+                  opening ? "animate-pulse ring-2 ring-primary/60" : ""
+                } ${
                   occupied
                     ? "border-primary bg-primary/20 text-foreground hover:bg-primary/30"
-                    : "border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                    : "border-border bg-card text-muted-foreground hover:scale-[1.02] hover:border-primary/50 hover:text-foreground"
                 }`}
                 style={{
                   left: pct(t.x, FLOOR_WIDTH),
