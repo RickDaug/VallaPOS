@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { requireMembership, AuthError, ForbiddenError } from "@/lib/tenant";
 import { getDailyReport, getItemSalesReport } from "@/features/orders/queries";
 import { buildReportCsv } from "@/features/orders/report-aggregate";
+import { paymentMethodLabel } from "@/features/orders/payment-method";
 
 /**
  * GET /[businessId]/reports/export?date=YYYY-MM-DD
@@ -54,6 +55,8 @@ export async function GET(
     refundsCents: report.refundsCents,
     totalCollectedCents: report.totalCollectedCents,
     byMethod: report.byMethod,
+    tenders: report.tenders,
+    methodLabel: paymentMethodLabel,
     items,
   });
 

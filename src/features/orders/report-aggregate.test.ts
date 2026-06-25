@@ -2,12 +2,17 @@ import { describe, it, expect } from "vitest";
 import {
   aggregateItemSales,
   aggregateCashierSales,
+  aggregateTenders,
+  tenderVerification,
   buildReportCsv,
   centsToAmount,
   csvField,
   sanitizeTextCell,
   type AggregateLineInput,
 } from "@/features/orders/report-aggregate";
+import { paymentMethodLabel } from "@/features/orders/payment-method";
+
+const noTenders = aggregateTenders([]);
 
 describe("aggregateCashierSales", () => {
   it("rolls orders up per cashier, sorted by net sales desc then name", () => {
@@ -72,6 +77,57 @@ describe("aggregateItemSales", () => {
   });
 });
 
+describe("tenderVerification", () => {
+  it("classifies CASH as verified and everything else as unverified", () => {
+    expect(tenderVerification("CASH")).toBe("verified");
+    expect(tenderVerification("QR")).toBe("unverified");
+    expect(tenderVerification("MANUAL")).toBe("unverified");
+    expect(tenderVerification("CARD")).toBe("unverified");
+  });
+});
+
+describe("aggregateTenders", () => {
+  it("rolls payments up per method with verified/unverified subtotals", () => {
+    const b = aggregateTenders([
+      { method: "CASH", amountCents: 1000 },
+      { method: "CASH", amountCents: 500 },
+      { method: "QR", amountCents: 2000 },
+      { method: "MANUAL", amountCents: 300 },
+    ]);
+    expect(b.rows).toEqual([
+      { method: "QR", count: 1, amountCents: 2000, verification: "unverified" },
+      { method: "CASH", count: 2, amountCents: 1500, verification: "verified" },
+      { method: "MANUAL", count: 1, amountCents: 300, verification: "unverified" },
+    ]);
+    expect(b.verifiedCollectedCents).toBe(1500); // CASH only
+    expect(b.unverifiedCollectedCents).toBe(2300); // QR + MANUAL
+  });
+
+  it("nets negative refund reversals into the per-tender amounts and subtotals", () => {
+    const b = aggregateTenders([
+      { method: "QR", amountCents: 2000 },
+      { method: "QR", amountCents: -500 }, // refund reversal on a QR sale
+      { method: "CASH", amountCents: 1000 },
+      { method: "CASH", amountCents: -1000 }, // cash refund
+    ]);
+    const qr = b.rows.find((r) => r.method === "QR")!;
+    const cash = b.rows.find((r) => r.method === "CASH")!;
+    expect(qr.amountCents).toBe(1500);
+    expect(qr.count).toBe(2); // both movements counted
+    expect(cash.amountCents).toBe(0);
+    expect(b.verifiedCollectedCents).toBe(0); // net cash washed out by the refund
+    expect(b.unverifiedCollectedCents).toBe(1500);
+  });
+
+  it("returns empty rows and zero subtotals for no payments", () => {
+    expect(aggregateTenders([])).toEqual({
+      rows: [],
+      verifiedCollectedCents: 0,
+      unverifiedCollectedCents: 0,
+    });
+  });
+});
+
 describe("centsToAmount", () => {
   it("formats cents as a two-decimal string", () => {
     expect(centsToAmount(0)).toBe("0.00");
@@ -120,6 +176,12 @@ describe("buildReportCsv", () => {
     refundsCents: 500,
     totalCollectedCents: 3348,
     byMethod: [{ method: "CASH", count: 2, amountCents: 3348 }],
+    tenders: aggregateTenders([
+      { method: "CASH", amountCents: 1848 },
+      { method: "QR", amountCents: 1000 },
+      { method: "MANUAL", amountCents: 500 },
+    ]),
+    methodLabel: paymentMethodLabel,
     items: aggregateItemSales([
       line({ nameSnapshot: "Burger, Deluxe", quantity: 3, totalCents: 3000, taxCents: 248 }),
     ]),
@@ -132,6 +194,18 @@ describe("buildReportCsv", () => {
     expect(csv).toContain("CASH,2,33.48");
     expect(csv).toContain("Sales by item,Quantity,Net sales,Tax");
     expect(csv).toContain("Sales by category,Quantity,Net sales");
+  });
+
+  it("includes a Payments-by-tender audit section with verification labels and subtotals", () => {
+    expect(csv).toContain("Payments by tender,Count,Amount,Verification");
+    // The note cell contains a comma, so RFC-4180 quotes it. QR is the highest
+    // amount; MANUAL surfaces as "Other".
+    const note = '"Unverified — operator-confirmed, no drawer/PSP evidence"';
+    expect(csv).toContain(`QR,1,10.00,${note}`);
+    expect(csv).toContain("Cash,1,18.48,Verified (in-drawer)");
+    expect(csv).toContain(`Other,1,5.00,${note}`);
+    expect(csv).toContain("Verified collected (in-drawer),,18.48");
+    expect(csv).toContain("Unverified collected (operator-confirmed),,15.00");
   });
 
   it("escapes item names containing commas and uses CRLF rows", () => {
@@ -152,6 +226,8 @@ describe("buildReportCsv", () => {
       refundsCents: 0,
       totalCollectedCents: 1000,
       byMethod: [],
+      tenders: noTenders,
+      methodLabel: paymentMethodLabel,
       items: aggregateItemSales([
         line({ nameSnapshot: "=SUM(A1)", categoryName: "@evil", totalCents: 1000, taxCents: 0 }),
       ]),
@@ -174,6 +250,8 @@ describe("buildReportCsv", () => {
       refundsCents: 0,
       totalCollectedCents: -250,
       byMethod: [],
+      tenders: noTenders,
+      methodLabel: paymentMethodLabel,
       items: aggregateItemSales([
         line({ nameSnapshot: "Refund", categoryName: "Food", totalCents: -250, taxCents: 0 }),
       ]),

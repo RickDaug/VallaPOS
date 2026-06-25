@@ -4,8 +4,10 @@ import type { OrderStatus, PaymentMethod } from "@prisma/client";
 import {
   aggregateItemSales,
   aggregateCashierSales,
+  aggregateTenders,
   type ItemSalesReport,
   type CashierSalesRow,
+  type TenderBreakdown,
 } from "@/features/orders/report-aggregate";
 
 export interface OrderRow {
@@ -56,6 +58,10 @@ export interface DailyReport {
   refundsCents: number; // total refunded/voided money in the window, shown POSITIVE
   byMethod: { method: PaymentMethod; count: number; amountCents: number }[];
   cashCollectedCents: number; // NET cash movement: Σ CASH Payment.amountCents (refunds reduce it)
+  // Per-tender audit breakdown: CASH is drawer-verified; QR/MANUAL are
+  // operator-confirmed (no drawer/PSP evidence) and rolled into
+  // `unverifiedCollectedCents` so an owner can audit the trust-based tenders.
+  tenders: TenderBreakdown;
 }
 
 // Statuses that count as realized revenue for the sales lines of the Z-report.
@@ -113,6 +119,7 @@ export async function getDailyReport(
     refundsCents: 0,
     byMethod: [],
     cashCollectedCents: 0,
+    tenders: { rows: [], verifiedCollectedCents: 0, unverifiedCollectedCents: 0 },
   };
 
   for (const o of revenueOrders) {
@@ -136,6 +143,9 @@ export async function getDailyReport(
   }
 
   report.byMethod = [...methodTotals.entries()].map(([method, v]) => ({ method, ...v }));
+  // Audit breakdown: classify each tender as drawer-verified vs operator-
+  // confirmed. Derived from the same payment movements (refunds netted in).
+  report.tenders = aggregateTenders(payments);
   return report;
 }
 

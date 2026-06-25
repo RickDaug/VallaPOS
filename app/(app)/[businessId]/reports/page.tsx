@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireMembership } from "@/lib/tenant";
 import { getDailyReport, getItemSalesReport, getCashierSalesReport } from "@/features/orders/queries";
+import { paymentMethodLabel } from "@/features/orders/payment-method";
 import { pageHasCapability } from "@/lib/operator-guard";
 import { NoAccess } from "@/components/no-access";
 import { getDrawerDaySummary } from "@/features/cash-drawer/queries";
@@ -129,6 +130,72 @@ export default async function ReportsPage({
                 </p>
               )}
             </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="mt-6">
+        <Card>
+          <CardContent className="p-5">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-lg font-bold">Payments by tender</h2>
+              <p className="text-xs text-muted-foreground">
+                Audit view — which collected money is backed by evidence.
+              </p>
+            </div>
+            {report.tenders.rows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No payments for this day.</p>
+            ) : (
+              <>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                      <th className="pb-2 font-medium">Tender</th>
+                      <th className="pb-2 text-right font-medium">Count</th>
+                      <th className="pb-2 text-right font-medium">Collected</th>
+                      <th className="pb-2 text-right font-medium">Verification</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.tenders.rows.map((t) => (
+                      <tr key={t.method} className="border-b border-border/60 last:border-0">
+                        <td className="py-2 pr-2">{paymentMethodLabel(t.method)}</td>
+                        <td className="numeric py-2 text-right tabular-nums">{t.count}</td>
+                        <td className="numeric py-2 text-right font-semibold">{money(t.amountCents)}</td>
+                        <td className="py-2 text-right">
+                          {t.verification === "verified" ? (
+                            <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                              Verified · in-drawer
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+                              Unverified · operator-confirmed
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <dl className="mt-3 space-y-2 border-t border-border pt-3 text-sm">
+                  <RowDl
+                    label="Verified collected (in-drawer)"
+                    value={money(report.tenders.verifiedCollectedCents)}
+                  />
+                  <RowDl
+                    label="Unverified collected"
+                    value={money(report.tenders.unverifiedCollectedCents)}
+                    strong
+                  />
+                </dl>
+                {report.tenders.unverifiedCollectedCents > 0 && (
+                  <p className="mt-3 rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                    Unverified tenders (QR, Other) are marked paid by the operator with no cash
+                    drawer or payment-processor evidence. Review these against your own records.
+                  </p>
+                )}
+              </>
+            )}
           </CardContent>
         </Card>
       </div>
