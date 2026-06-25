@@ -1,10 +1,15 @@
-import { defineConfig } from "vitest/config";
+import { defineConfig, configDefaults } from "vitest/config";
 import { fileURLToPath } from "node:url";
 
 export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts", "app/**/*.test.ts"],
+    // Playwright E2E specs live in `e2e/` and are driven by `npm run test:e2e`,
+    // NOT Vitest. They import `@playwright/test` (a different runner) and would
+    // crash under Vitest. The `include` globs above already scope Vitest to
+    // src/app, so e2e is excluded by construction; this is explicit defense.
+    exclude: [...configDefaults.exclude, "e2e/**"],
   },
   resolve: {
     alias: {

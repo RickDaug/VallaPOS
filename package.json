@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
@@ -41,6 +42,7 @@
     "zustand": "5.0.5"
   },
   "devDependencies": {
+    "@playwright/test": "1.61.1",
     "@serwist/next": "9.5.11",
     "@tailwindcss/postcss": "4.1.8",
     "@types/node": "22.15.30",
