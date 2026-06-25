@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useToast } from "@/components/ui/toast";
 
 const CURRENCIES = ["USD", "CAD", "EUR", "GBP", "AUD"] as const;
 type Currency = (typeof CURRENCIES)[number];
@@ -29,6 +30,7 @@ export function SettingsForm({
   };
 }) {
   const router = useRouter();
+  const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [name, setName] = useState(initial.name);
   const [taxPercent, setTaxPercent] = useState((initial.taxRateBps / 100).toString());
@@ -40,18 +42,16 @@ export function SettingsForm({
   const [qrPayEnabled, setQrPayEnabled] = useState(initial.qrPayEnabled);
   const [qrPayLabel, setQrPayLabel] = useState(initial.qrPayLabel ?? "");
   const [qrPayValue, setQrPayValue] = useState(initial.qrPayValue ?? "");
-  const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setMessage(null);
     const taxRateBps = Math.round(parseFloat(taxPercent || "0") * 100);
     if (!Number.isFinite(taxRateBps) || taxRateBps < 0 || taxRateBps > 10_000) {
-      setMessage({ kind: "err", text: "Enter a tax rate between 0 and 100%." });
+      toast({ title: "Enter a tax rate between 0 and 100%.", variant: "error" });
       return;
     }
     if (qrPayEnabled && !qrPayValue.trim()) {
-      setMessage({ kind: "err", text: "Add a QR payment value before enabling QR payments." });
+      toast({ title: "Add a QR payment value before enabling QR payments.", variant: "error" });
       return;
     }
     startTransition(async () => {
@@ -67,10 +67,14 @@ export function SettingsForm({
           qrPayLabel: qrPayLabel.trim(),
           qrPayValue: qrPayValue.trim(),
         });
-        setMessage({ kind: "ok", text: "Settings saved." });
+        toast({ title: "Settings saved", variant: "success" });
         router.refresh();
       } catch (err) {
-        setMessage({ kind: "err", text: err instanceof Error ? err.message : "Could not save." });
+        toast({
+          title: "Could not save settings",
+          description: err instanceof Error ? err.message : undefined,
+          variant: "error",
+        });
       }
     });
   }
@@ -206,15 +210,6 @@ export function SettingsForm({
               </div>
             )}
           </div>
-
-          {message && (
-            <p
-              className={`text-sm font-medium ${message.kind === "ok" ? "text-success" : "text-destructive"}`}
-              role="status"
-            >
-              {message.text}
-            </p>
-          )}
 
           <Button type="submit" disabled={pending}>
             {pending ? "Saving…" : "Save settings"}
