@@ -1,5 +1,6 @@
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import { Inter } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ToastProvider } from "@/components/ui/toast";
@@ -50,11 +51,18 @@ export const viewport: Viewport = {
   // register screen locks zoom locally via a body class where appropriate.
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Per-request CSP nonce minted in middleware.ts and forwarded on `x-nonce`.
+  // We hand it to next-themes so its inline no-flash theme `<script>` carries a
+  // matching `nonce-` and isn't blocked by the enforced Content-Security-Policy.
+  // (Next.js stamps its own inline bootstrap scripts with the same nonce
+  // automatically, reading it from the CSP it sees on the request.)
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
   return (
     <html lang="en" className={inter.variable} suppressHydrationWarning>
       <body>
-        <ThemeProvider>
+        <ThemeProvider nonce={nonce}>
           <ToastProvider>{children}</ToastProvider>
         </ThemeProvider>
       </body>
