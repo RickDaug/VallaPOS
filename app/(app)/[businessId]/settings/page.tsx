@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireMembership } from "@/lib/tenant";
 import { SettingsForm } from "@/features/settings/components/SettingsForm";
+import { DevicesManager } from "@/features/peripherals/components/DevicesManager";
 import { FloorPlanEditor } from "@/features/floor/components/FloorPlanEditor";
 import { getFloorLayout } from "@/features/floor/queries";
 import { pageHasCapability } from "@/lib/operator-guard";
@@ -54,6 +55,19 @@ export default async function SettingsPage({
           </div>
         )}
       </div>
+
+      {canSettings && (
+        <div>
+          <header className="mb-4">
+            <h2 className="text-xl font-black">Devices</h2>
+            <p className="text-sm text-muted-foreground">
+              Connect a receipt printer + cash drawer (Epson/Star, USB). Test it with an on-screen
+              preview — no printer required.
+            </p>
+          </header>
+          <DevicesManager businessName={business.name} />
+        </div>
+      )}
 
       {showFloorEditor && (
         <div>
