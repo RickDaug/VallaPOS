@@ -5,8 +5,10 @@ import { useRouter } from "next/navigation";
 import {
   Check,
   CloudOff,
+  Delete,
   LayoutGrid,
   List,
+  Lock,
   Plus,
   RefreshCw,
   Search,
@@ -14,13 +16,13 @@ import {
   Star,
   WifiOff,
 } from "lucide-react";
+import { PIN_MIN_LENGTH, PIN_MAX_LENGTH } from "@/features/employees/schema";
 import { formatMoney } from "@/lib/money";
 import { lockOperator } from "@/features/employees/actions";
 import { computePricedOrder, type PricedLineInput } from "@/features/register/pricing";
 import type { SellableEntry, SellableModifierGroup } from "@/features/catalog/queries";
 import { QRCodeSVG } from "qrcode.react";
-import { type Receipt } from "@/features/register/actions";
-import type { TenderMethod } from "@/features/register/schema";
+import type { Receipt, TenderMethod } from "@/features/register/schema";
 
 /** Merchant-configured QR payment (confirm-based). null when not enabled. */
 type QrPayConfig = { label: string | null; value: string };
@@ -101,6 +103,15 @@ export function Register({
   const [queued, setQueued] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  // Manager-PIN override for an UNVERIFIED tender (QR/Other) rung by a cashier.
+  // null = prompt closed. Opened when the server returns manager_approval_required.
+  const [managerPinPrompt, setManagerPinPrompt] = useState<{ pin: string; error: string | null } | null>(
+    null,
+  );
+  // The idempotency key for the in-flight checkout. Generated per attempt and
+  // REUSED across a manager-PIN retry so a sale that committed on the first send
+  // (then got re-sent with a PIN) is reconciled by clientUuid, not duplicated.
+  const clientUuidRef = useRef<string | null>(null);
   // Item awaiting modifier selection (null = picker closed).
   const [picking, setPicking] = useState<SellableEntry | null>(null);
   // Per-device, per-business favorites (variation ids) + grid/list density.
@@ -251,6 +262,8 @@ export function Register({
     setQueued(false);
     setError(null);
     setCartOpen(false);
+    setManagerPinPrompt(null);
+    clientUuidRef.current = null;
   }
 
   // After a completed sale, re-lock the terminal so the next order requires a PIN
@@ -266,6 +279,42 @@ export function Register({
     router.refresh();
   }
 
+  // Run the checkout server action. `managerPin` is threaded through ONLY for the
+  // manager-approval retry of an unverified tender; it's verified server-side.
+  async function runCheckout(managerPin?: string) {
+    const nonCash = tenderMethod !== "CASH";
+    const cashTenderedCents = nonCash ? 0 : Math.round(parseFloat(tenderDollars || "0") * 100);
+    if (!clientUuidRef.current) clientUuidRef.current = crypto.randomUUID();
+    return submit({
+      businessId,
+      clientUuid: clientUuidRef.current,
+      lines: cart.map((l) => ({
+        variationId: l.variationId,
+        quantity: l.qty,
+        modifierIds: l.modifiers.map((m) => m.id),
+      })),
+      tipCents: totals.tipCents,
+      cartDiscountCents,
+      method: tenderMethod,
+      cashTenderedCents,
+      manualNote: nonCash ? manualNote.trim() || undefined : undefined,
+      managerPin,
+      // OFFLINE PRICE SNAPSHOT: capture the prices QUOTED on screen at sale time,
+      // index-aligned with `lines`. The server only honors this for a replayed
+      // OFFLINE sale (cash already collected) — online checkout ignores it and
+      // stays server-authoritative. See register/actions.ts.
+      priceSnapshot: {
+        quoted: true,
+        lines: cart.map((l) => ({
+          unitPriceCents: l.priceCents,
+          modifierDeltas: Object.fromEntries(
+            l.modifiers.map((m) => [m.id, m.priceDeltaCents]),
+          ),
+        })),
+      },
+    });
+  }
+
   async function completeSale() {
     setError(null);
     const nonCash = tenderMethod !== "CASH";
@@ -274,42 +323,51 @@ export function Register({
       setError("Cash tendered is less than the total.");
       return;
     }
+    // New attempt → fresh idempotency key.
+    clientUuidRef.current = crypto.randomUUID();
     setPending(true);
     try {
-      const result = await submit({
-        businessId,
-        clientUuid: crypto.randomUUID(),
-        lines: cart.map((l) => ({
-          variationId: l.variationId,
-          quantity: l.qty,
-          modifierIds: l.modifiers.map((m) => m.id),
-        })),
-        tipCents: totals.tipCents,
-        cartDiscountCents,
-        method: tenderMethod,
-        cashTenderedCents,
-        manualNote: nonCash ? manualNote.trim() || undefined : undefined,
-        // OFFLINE PRICE SNAPSHOT: capture the prices QUOTED on screen at sale time,
-        // index-aligned with `lines`. The server only honors this for a replayed
-        // OFFLINE sale (cash already collected) — online checkout ignores it and
-        // stays server-authoritative. See register/actions.ts.
-        priceSnapshot: {
-          quoted: true,
-          lines: cart.map((l) => ({
-            unitPriceCents: l.priceCents,
-            modifierDeltas: Object.fromEntries(
-              l.modifiers.map((m) => [m.id, m.priceDeltaCents]),
-            ),
-          })),
-        },
-      });
+      const result = await runCheckout();
       if (result.status === "completed") {
         setReceipt(result.receipt);
-      } else {
+      } else if (result.status === "queued") {
         setQueued(true);
+      } else {
+        // Unverified tender needs a manager's PIN — open the prompt.
+        setManagerPinPrompt({
+          pin: "",
+          error: result.rejection.error === "invalid_manager_pin" ? "Incorrect manager PIN." : null,
+        });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Checkout failed.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  // Submit the manager-PIN override and retry the SAME sale (same clientUuid).
+  async function submitManagerPin() {
+    if (!managerPinPrompt) return;
+    const pin = managerPinPrompt.pin;
+    setPending(true);
+    try {
+      const result = await runCheckout(pin);
+      if (result.status === "completed") {
+        setManagerPinPrompt(null);
+        setReceipt(result.receipt);
+      } else if (result.status === "queued") {
+        setManagerPinPrompt(null);
+        setQueued(true);
+      } else {
+        // Still rejected — wrong/locked PIN. Keep the prompt open with an error.
+        setManagerPinPrompt({ pin: "", error: "Incorrect manager PIN. Ask a manager to approve." });
+      }
+    } catch (err) {
+      setManagerPinPrompt({
+        pin: "",
+        error: err instanceof Error ? err.message : "Approval failed.",
+      });
     } finally {
       setPending(false);
     }
@@ -426,6 +484,18 @@ export function Register({
             addLine(picking, modifiers);
             setPicking(null);
           }}
+        />
+      )}
+      {managerPinPrompt && (
+        <ManagerApprovalPrompt
+          methodLabel={tenderLabel(tenderMethod)}
+          amount={money(totals.totalCents)}
+          pin={managerPinPrompt.pin}
+          error={managerPinPrompt.error}
+          pending={pending}
+          onChangePin={(pin) => setManagerPinPrompt((cur) => (cur ? { ...cur, pin } : cur))}
+          onCancel={() => setManagerPinPrompt(null)}
+          onSubmit={submitManagerPin}
         />
       )}
       <OfflineBanner online={online} queuedCount={queuedCount} syncing={syncing} />
@@ -1062,6 +1132,112 @@ function ModifierPicker({
           </Button>
           <Button onClick={confirm} disabled={!satisfied} className="flex-1">
             Add to cart
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const PIN_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "back"] as const;
+
+/**
+ * Manager-PIN prompt shown when a cashier (an operator WITHOUT
+ * `approve_unverified_tender`) rings an UNVERIFIED tender (QR / Other). The PIN
+ * is verified SERVER-SIDE against a capability-holding member; this is only the
+ * entry surface. Attribution stays the cashier — the manager merely authorizes.
+ * An operator who already holds the capability never sees this (the server
+ * approves silently).
+ */
+function ManagerApprovalPrompt({
+  methodLabel,
+  amount,
+  pin,
+  error,
+  pending,
+  onChangePin,
+  onCancel,
+  onSubmit,
+}: {
+  methodLabel: string;
+  amount: string;
+  pin: string;
+  error: string | null;
+  pending: boolean;
+  onChangePin: (pin: string) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  function press(key: string) {
+    if (key === "back") onChangePin(pin.slice(0, -1));
+    else if (/^\d$/.test(key) && pin.length < PIN_MAX_LENGTH) onChangePin(pin + key);
+  }
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(isOpen) => {
+        if (!isOpen && !pending) onCancel();
+      }}
+    >
+      <DialogContent aria-label="Manager approval required" className="max-w-sm">
+        <DialogHeader>
+          <div className="mx-auto mb-1 flex h-12 w-12 items-center justify-center rounded-full bg-primary/15 text-primary">
+            <Lock size={22} />
+          </div>
+          <DialogTitle className="text-center">Manager approval</DialogTitle>
+          <p className="text-center text-sm text-muted-foreground">
+            {methodLabel} is an unverified tender. A manager must enter their PIN to approve{" "}
+            <span className="numeric font-semibold">{amount}</span>.
+          </p>
+        </DialogHeader>
+
+        <div
+          className={cn(
+            "mb-3 flex h-14 items-center justify-center rounded-lg border bg-card text-2xl font-black tracking-[0.3em]",
+            error ? "border-destructive/60" : "border-border",
+          )}
+          aria-live="polite"
+        >
+          {pin.replace(/./g, "•") || (
+            <span className="text-base font-normal text-muted-foreground">····</span>
+          )}
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {PIN_KEYS.map((key, i) =>
+            key === "" ? (
+              <div key={i} />
+            ) : (
+              <button
+                key={i}
+                type="button"
+                onClick={() => press(key)}
+                disabled={pending}
+                aria-label={key === "back" ? "Delete" : key}
+                className="flex h-14 items-center justify-center rounded-md border border-border bg-card text-xl font-bold transition-colors hover:bg-muted active:scale-[0.98] disabled:opacity-50"
+              >
+                {key === "back" ? <Delete size={20} /> : key}
+              </button>
+            ),
+          )}
+        </div>
+
+        {error && (
+          <p className="mt-3 text-center text-sm font-medium text-destructive" role="alert">
+            {error}
+          </p>
+        )}
+
+        <DialogFooter className="mt-4">
+          <Button variant="outline" onClick={onCancel} disabled={pending} className="flex-1">
+            Cancel
+          </Button>
+          <Button
+            onClick={onSubmit}
+            disabled={pending || pin.length < PIN_MIN_LENGTH}
+            className="flex-1"
+          >
+            {pending ? "Checking…" : "Approve"}
           </Button>
         </DialogFooter>
       </DialogContent>
