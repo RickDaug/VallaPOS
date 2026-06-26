@@ -70,6 +70,27 @@ describe("checkoutSchema", () => {
     ).toThrow();
   });
 
+  describe("managerPin (unverified-tender approval override)", () => {
+    it("is optional (most checkouts omit it)", () => {
+      expect(checkoutSchema.parse(base()).managerPin).toBeUndefined();
+    });
+
+    it("accepts a 4–8 digit PIN", () => {
+      expect(checkoutSchema.parse({ ...base(), method: "QR", managerPin: "1234" }).managerPin).toBe(
+        "1234",
+      );
+      expect(
+        checkoutSchema.parse({ ...base(), method: "QR", managerPin: "12345678" }).managerPin,
+      ).toBe("12345678");
+    });
+
+    it("rejects a non-numeric, too-short, or too-long PIN", () => {
+      expect(() => checkoutSchema.parse({ ...base(), managerPin: "12a4" })).toThrow();
+      expect(() => checkoutSchema.parse({ ...base(), managerPin: "123" })).toThrow();
+      expect(() => checkoutSchema.parse({ ...base(), managerPin: "123456789" })).toThrow();
+    });
+  });
+
   describe("priceSnapshot (offline price snapshot)", () => {
     it("accepts a valid snapshot with quoted unit prices + modifier deltas", () => {
       const parsed = checkoutSchema.parse({

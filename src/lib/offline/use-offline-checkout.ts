@@ -16,13 +16,21 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CheckoutInput } from "@/features/register/schema";
-import { checkout, type Receipt } from "@/features/register/actions";
+import {
+  isReceipt,
+  type CheckoutInput,
+  type Receipt,
+  type CheckoutRejection,
+} from "@/features/register/schema";
+import { checkout } from "@/features/register/actions";
 import { enqueueCheckout, pendingCount, replayQueuedCheckouts } from "./checkout-queue";
 
 export type SubmitResult =
   | { status: "completed"; receipt: Receipt }
-  | { status: "queued" };
+  | { status: "queued" }
+  // The server declined the sale pending manager approval of an unverified
+  // (QR/MANUAL) tender. The register prompts for / re-prompts for a manager PIN.
+  | { status: "rejected"; rejection: CheckoutRejection };
 
 /**
  * Strip the offline price snapshot from a payload before an ONLINE send. The
@@ -97,10 +105,15 @@ export function useOfflineCheckout() {
       }
       try {
         // Online: send WITHOUT the snapshot so checkout stays server-authoritative.
-        const receipt = await checkout(withoutSnapshot(payload));
+        const result = await checkout(withoutSnapshot(payload));
+        // The server may decline pending manager approval of an unverified tender;
+        // surface that to the register WITHOUT queuing (it's a live decision).
+        if (!isReceipt(result)) {
+          return { status: "rejected", rejection: result };
+        }
         // Opportunistically drain anything that was waiting.
         void replayQueue();
-        return { status: "completed", receipt };
+        return { status: "completed", receipt: result };
       } catch (err) {
         if (isNetworkError(err)) {
           // The send failed mid-flight (we just went offline) — queue the sale

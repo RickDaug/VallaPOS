@@ -19,6 +19,17 @@ vi.mock("@/lib/operator-guard", () => ({
   requireCapability: (...args: unknown[]) => requireCapability(...args),
 }));
 
+// The manager-approval PIN verification is exercised in its own unit test
+// (manager-approval.test.ts) against a stubbed membership/throttle. Here we stub
+// the verifier so the gate logic in `checkout` is tested in isolation: it decides
+// WHEN to require approval (unverified tender + operator can't approve) and how it
+// reacts to a valid/invalid PIN.
+const verifyManagerApproval = vi.fn();
+vi.mock("./manager-approval", () => ({
+  APPROVE_UNVERIFIED_TENDER: "approve_unverified_tender",
+  verifyManagerApproval: (...args: unknown[]) => verifyManagerApproval(...args),
+}));
+
 vi.mock("@/lib/db", () => {
   const tx = {
     orderCounter: { upsert: (...a: unknown[]) => orderCounterUpsert(...a) },
@@ -35,7 +46,19 @@ vi.mock("@/lib/db", () => {
 });
 
 import { checkout } from "./actions";
-import type { CheckoutInput } from "./schema";
+import { isReceipt, type CheckoutInput, type Receipt } from "./schema";
+
+// Most tests expect the sale to COMPLETE (a Receipt). This runs checkout and
+// asserts it wasn't a manager-approval rejection, narrowing the union so the
+// existing receipt-property assertions type-check. The manager-gate tests below
+// call `checkout` directly to inspect the rejection branch.
+async function checkoutReceipt(input: CheckoutInput): Promise<Receipt> {
+  const result = await checkout(input);
+  if (!isReceipt(result)) {
+    throw new Error(`expected a Receipt, got rejection: ${result.error}`);
+  }
+  return result;
+}
 
 const BUSINESS_ID = "biz_1";
 const UUID = "00000000-0000-4000-8000-000000000001";
@@ -104,6 +127,7 @@ beforeEach(() => {
     deviceMembershipId: "mem_1",
   });
   orderFindUnique.mockResolvedValue(null); // no prior order by default
+  verifyManagerApproval.mockResolvedValue(false); // default: no PIN authorizes
   businessFindUniqueOrThrow.mockResolvedValue({ taxRateBps: 825, taxInclusive: false });
   variationFindMany.mockResolvedValue([variation()]);
   orderCounterUpsert.mockResolvedValue({ lastNumber: 7 });
@@ -139,7 +163,7 @@ describe("checkout — server recomputes totals", () => {
   it("uses DB prices + business tax rate, ignoring any client-sent totals", async () => {
     // Client lies about the price/total via extra fields; the server must
     // ignore them (zod strips unknown keys; totals are recomputed from the DB).
-    const receipt = await checkout({
+    const receipt = await checkoutReceipt({
       ...input(),
       totalCents: 1,
       subtotalCents: 1,
@@ -157,7 +181,7 @@ describe("checkout — server recomputes totals", () => {
       variation({ id: "var_a", priceCents: 999, itemName: "A" }),
       variation({ id: "var_b", priceCents: 199, itemName: "B" }),
     ]);
-    const receipt = await checkout(
+    const receipt = await checkoutReceipt(
       input({
         lines: [
           { variationId: "var_a", quantity: 2 },
@@ -173,13 +197,13 @@ describe("checkout — server recomputes totals", () => {
 
   it("honors the business tax-inclusive flag (embedded tax)", async () => {
     businessFindUniqueOrThrow.mockResolvedValue({ taxRateBps: 825, taxInclusive: true });
-    const receipt = await checkout(input());
+    const receipt = await checkoutReceipt(input());
     expect(receipt.taxCents).toBe(76); // embedded
     expect(receipt.totalCents).toBe(1000); // sticker price, not 1083
   });
 
   it("computes correct change from the server total", async () => {
-    const receipt = await checkout(input({ cashTenderedCents: 2000 }));
+    const receipt = await checkoutReceipt(input({ cashTenderedCents: 2000 }));
     expect(receipt.totalCents).toBe(1083);
     expect(receipt.cashTenderedCents).toBe(2000);
     expect(receipt.changeCents).toBe(917);
@@ -206,7 +230,7 @@ describe("checkout — idempotency", () => {
       payments: [{ tenderedCents: 1200, changeCents: 117 }],
     });
 
-    const receipt = await checkout(input());
+    const receipt = await checkoutReceipt(input());
 
     expect(receipt.orderId).toBe("order_existing");
     expect(receipt.number).toBe(3);
@@ -244,7 +268,7 @@ describe("checkout — idempotency", () => {
       Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
     );
 
-    const receipt = await checkout(input());
+    const receipt = await checkoutReceipt(input());
 
     // No throw; the loser gets the winner's receipt (idempotent).
     expect(receipt.orderId).toBe("order_winner");
@@ -272,7 +296,7 @@ describe("checkout — idempotency", () => {
 
 describe("checkout — success path writes Order/OrderLine/Payment", () => {
   it("allocates a number and persists the order graph in one transaction", async () => {
-    const receipt = await checkout(
+    const receipt = await checkoutReceipt(
       input({ customerName: "Ada", tipCents: 100, lines: [{ variationId: "var_1", quantity: 2 }] }),
     );
 
@@ -349,7 +373,7 @@ describe("checkout — modifiers + per-line tax", () => {
   it("re-looks-up modifier prices from the DB and folds them into the taxable base", async () => {
     variationFindMany.mockResolvedValue([variation({ groups: [group] })]);
     // Client lies about the modifier price; the server ignores client prices.
-    const receipt = await checkout(
+    const receipt = await checkoutReceipt(
       input({ lines: [{ variationId: "var_1", quantity: 1, modifierIds: ["mod_oat"] }] }),
     );
     // (1000 + 75) = 1075; tax @ 8.25% = round(88.6875) = 89; total 1164
@@ -424,8 +448,22 @@ describe("checkout — modifiers + per-line tax", () => {
 });
 
 describe("checkout — MANUAL / Other tender", () => {
+  // These verify the RECORDING mechanics of an unverified tender, not the gate,
+  // so the operator here HOLDS approve_unverified_tender (an owner/manager rings
+  // their own sale → no friction). The gate itself is covered in its own block.
+  beforeEach(() => {
+    requireCapability.mockResolvedValue({
+      businessId: BUSINESS_ID,
+      membershipId: "mem_mgr",
+      role: "MANAGER",
+      permissions: ["take_orders", "approve_unverified_tender"],
+      name: "Manager",
+      deviceMembershipId: "mem_mgr",
+    });
+  });
+
   it("records a MANUAL payment with no tender/change and a reference note", async () => {
-    const receipt = await checkout(
+    const receipt = await checkoutReceipt(
       input({ method: "MANUAL", manualNote: "Check #12", cashTenderedCents: 0 }),
     );
 
@@ -449,7 +487,7 @@ describe("checkout — MANUAL / Other tender", () => {
 
   it("does NOT require cash to cover the total for a MANUAL tender", async () => {
     // cashTenderedCents below the total would reject a CASH sale; MANUAL ignores it.
-    const receipt = await checkout(input({ method: "MANUAL", cashTenderedCents: 0 }));
+    const receipt = await checkoutReceipt(input({ method: "MANUAL", cashTenderedCents: 0 }));
     expect(receipt.method).toBe("MANUAL");
     expect(orderCreate).toHaveBeenCalledTimes(1);
   });
@@ -460,7 +498,7 @@ describe("checkout — MANUAL / Other tender", () => {
   });
 
   it("records a QR payment like a confirmed external tender (no cash/change)", async () => {
-    const receipt = await checkout(
+    const receipt = await checkoutReceipt(
       input({ method: "QR", manualNote: "txn-9", cashTenderedCents: 0 }),
     );
     expect(receipt.method).toBe("QR");
@@ -484,7 +522,7 @@ describe("checkout — offline price snapshot (bounded trust relaxation)", () =>
   it("records the QUOTED total from the snapshot even when the current DB price differs", async () => {
     // Catalog price moved to $15 after the offline sale; the snapshot quoted $8.
     variationFindMany.mockResolvedValue([variation({ priceCents: CURRENT })]);
-    const receipt = await checkout(
+    const receipt = await checkoutReceipt(
       input({
         priceSnapshot: { quoted: true, lines: [{ unitPriceCents: QUOTED }] },
         cashTenderedCents: 1000,
@@ -501,7 +539,7 @@ describe("checkout — offline price snapshot (bounded trust relaxation)", () =>
   it("recomputes tax FROM the snapshot prices (not from the snapshot's own total)", async () => {
     businessFindUniqueOrThrow.mockResolvedValue({ taxRateBps: 1000, taxInclusive: false });
     variationFindMany.mockResolvedValue([variation({ priceCents: CURRENT })]);
-    const receipt = await checkout(
+    const receipt = await checkoutReceipt(
       input({
         priceSnapshot: { quoted: true, lines: [{ unitPriceCents: QUOTED }] },
         cashTenderedCents: 1000,
@@ -522,7 +560,7 @@ describe("checkout — offline price snapshot (bounded trust relaxation)", () =>
     };
     // Catalog: base $15, oat +$2 now; snapshot quoted base $8, oat +$0.50.
     variationFindMany.mockResolvedValue([variation({ priceCents: CURRENT, groups: [group] })]);
-    const receipt = await checkout(
+    const receipt = await checkoutReceipt(
       input({
         lines: [{ variationId: "var_1", quantity: 1, modifierIds: ["mod_oat"] }],
         priceSnapshot: {
@@ -566,7 +604,7 @@ describe("checkout — offline price snapshot (bounded trust relaxation)", () =>
       variation({ id: "var_a", priceCents: 1000, itemName: "A" }),
       variation({ id: "var_b", priceCents: 1000, itemName: "B" }),
     ]);
-    const receipt = await checkout(
+    const receipt = await checkoutReceipt(
       input({
         lines: [
           { variationId: "var_a", quantity: 1 },
@@ -582,7 +620,7 @@ describe("checkout — offline price snapshot (bounded trust relaxation)", () =>
 
   it("ONLINE path is unchanged: with no snapshot it recomputes from the current DB price", async () => {
     variationFindMany.mockResolvedValue([variation({ priceCents: CURRENT })]);
-    const receipt = await checkout(input({ cashTenderedCents: 2000 }));
+    const receipt = await checkoutReceipt(input({ cashTenderedCents: 2000 }));
     // No snapshot => authoritative catalog $15.00 @ 8.25% => tax 124, total 1624.
     expect(receipt.subtotalCents).toBe(CURRENT);
     expect(receipt.taxCents).toBe(124);
@@ -599,6 +637,152 @@ describe("checkout — offline price snapshot (bounded trust relaxation)", () =>
       ),
     ).rejects.toThrow();
     expect(requireCapability).not.toHaveBeenCalled();
+  });
+});
+
+describe("checkout — manager-approval gate for unverified tenders", () => {
+  // Operator fixtures.
+  function asCashier() {
+    requireCapability.mockResolvedValue({
+      businessId: BUSINESS_ID,
+      membershipId: "mem_cashier",
+      role: "CASHIER",
+      permissions: ["take_orders"], // NO approve_unverified_tender
+      name: "Cashier",
+      deviceMembershipId: "mem_cashier",
+    });
+  }
+  function asManager() {
+    requireCapability.mockResolvedValue({
+      businessId: BUSINESS_ID,
+      membershipId: "mem_mgr",
+      role: "MANAGER",
+      permissions: ["take_orders", "approve_unverified_tender"],
+      name: "Manager",
+      deviceMembershipId: "mem_mgr",
+    });
+  }
+  function asOwner() {
+    requireCapability.mockResolvedValue({
+      businessId: BUSINESS_ID,
+      membershipId: "mem_owner",
+      role: "OWNER",
+      permissions: [], // OWNER is all-access in code regardless of stored perms
+      name: "Owner",
+      deviceMembershipId: "mem_owner",
+    });
+  }
+
+  describe("operator HOLDS the capability → no friction", () => {
+    it("manager rings a QR sale with no PIN and it completes", async () => {
+      asManager();
+      const result = await checkout(input({ method: "QR", cashTenderedCents: 0 }));
+      expect(isReceipt(result)).toBe(true);
+      expect(orderCreate).toHaveBeenCalledTimes(1);
+      expect(verifyManagerApproval).not.toHaveBeenCalled();
+    });
+
+    it("owner rings an Other/MANUAL sale with no PIN and it completes", async () => {
+      asOwner();
+      const result = await checkout(input({ method: "MANUAL", cashTenderedCents: 0 }));
+      expect(isReceipt(result)).toBe(true);
+      expect(orderCreate).toHaveBeenCalledTimes(1);
+      expect(verifyManagerApproval).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("operator LACKS the capability (a cashier)", () => {
+    it("blocks a QR sale with no manager PIN (manager_approval_required, nothing written)", async () => {
+      asCashier();
+      const result = await checkout(input({ method: "QR", cashTenderedCents: 0 }));
+      expect(result).toEqual({ error: "manager_approval_required" });
+      expect(orderCreate).not.toHaveBeenCalled();
+      // We never even tried to verify a (missing) PIN.
+      expect(verifyManagerApproval).not.toHaveBeenCalled();
+    });
+
+    it("blocks an Other/MANUAL sale with no manager PIN", async () => {
+      asCashier();
+      const result = await checkout(input({ method: "MANUAL", cashTenderedCents: 0 }));
+      expect(result).toEqual({ error: "manager_approval_required" });
+      expect(orderCreate).not.toHaveBeenCalled();
+    });
+
+    it("rejects an INVALID/foreign manager PIN (invalid_manager_pin, nothing written)", async () => {
+      asCashier();
+      verifyManagerApproval.mockResolvedValue(false); // PIN matches no capability-holder
+      const result = await checkout(
+        input({ method: "QR", cashTenderedCents: 0, managerPin: "0000" }),
+      );
+      expect(result).toEqual({ error: "invalid_manager_pin" });
+      expect(verifyManagerApproval).toHaveBeenCalledWith(BUSINESS_ID, "0000");
+      expect(orderCreate).not.toHaveBeenCalled();
+    });
+
+    it("authorizes with a VALID manager PIN and completes the sale", async () => {
+      asCashier();
+      verifyManagerApproval.mockResolvedValue(true); // PIN held by a capability-holder
+      const result = await checkout(
+        input({ method: "MANUAL", manualNote: "Zelle", cashTenderedCents: 0, managerPin: "4321" }),
+      );
+      expect(isReceipt(result)).toBe(true);
+      expect(verifyManagerApproval).toHaveBeenCalledWith(BUSINESS_ID, "4321");
+      expect(orderCreate).toHaveBeenCalledTimes(1);
+    });
+
+    it("attributes the authorized sale to the CASHIER, not the approving manager", async () => {
+      asCashier();
+      verifyManagerApproval.mockResolvedValue(true);
+      await checkout(input({ method: "QR", cashTenderedCents: 0, managerPin: "4321" }));
+      // cashierId is the operator who rang it (the cashier), unchanged by approval.
+      expect(createdOrderData().cashierId).toBe("mem_cashier");
+    });
+  });
+
+  describe("CASH is never gated", () => {
+    it("a cashier completes a CASH sale with no PIN and no approval check", async () => {
+      asCashier();
+      const result = await checkout(input({ method: "CASH", cashTenderedCents: 5000 }));
+      expect(isReceipt(result)).toBe(true);
+      expect(verifyManagerApproval).not.toHaveBeenCalled();
+      expect(orderCreate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("offline replay is exempt (already rung + collected)", () => {
+    it("a cashier's QR sale carrying a quoted snapshot replays without approval", async () => {
+      asCashier();
+      const result = await checkout(
+        input({
+          method: "QR",
+          cashTenderedCents: 0,
+          priceSnapshot: { quoted: true, lines: [{ unitPriceCents: 1000 }] },
+        }),
+      );
+      expect(isReceipt(result)).toBe(true);
+      expect(verifyManagerApproval).not.toHaveBeenCalled();
+      expect(orderCreate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("idempotency wins before the gate", () => {
+    it("returns the existing order for a duplicate clientUuid without requiring approval", async () => {
+      asCashier();
+      orderFindUnique.mockResolvedValue({
+        id: "order_existing",
+        number: 3,
+        subtotalCents: 1000,
+        discountCents: 0,
+        taxCents: 83,
+        tipCents: 0,
+        totalCents: 1083,
+        payments: [{ method: "QR", tenderedCents: null, changeCents: null, processorRef: "ref" }],
+      });
+      const result = await checkout(input({ method: "QR", cashTenderedCents: 0 }));
+      expect(isReceipt(result)).toBe(true);
+      expect(verifyManagerApproval).not.toHaveBeenCalled();
+      expect(orderCreate).not.toHaveBeenCalled();
+    });
   });
 });
 
