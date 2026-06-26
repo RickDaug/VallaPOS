@@ -31,7 +31,11 @@ async function signInAndUnlock(page: Page): Promise<void> {
   // After auth we get redirected into /{businessId}/... — the operator lock or
   // the register. Bootstrap past the lock if it shows ("Continue as Demo Owner").
   const continueAs = page.getByRole("button", { name: /^Continue as / });
-  await expect(continueAs.or(page.getByRole("heading", { name: "Register" }))).toBeVisible();
+  // Generous timeout: a cold `next dev` server compiles /sign-in, /api/auth, and
+  // the post-login routes on first hit, which can exceed the default 10s.
+  await expect(continueAs.or(page.getByRole("heading", { name: "Register" }))).toBeVisible({
+    timeout: 45_000,
+  });
   if (await continueAs.isVisible().catch(() => false)) {
     await continueAs.click();
   }
@@ -48,7 +52,9 @@ test.describe("VallaPOS smoke", () => {
     // group, so tapping it opens the modifier picker dialog.
     await page.getByText("Classic Burger", { exact: true }).click();
 
-    const picker = page.getByRole("dialog", { name: /Choose options for Classic Burger/ });
+    // The dialog's accessible name comes from its DialogTitle (the item name),
+    // which takes precedence over the aria-label.
+    const picker = page.getByRole("dialog", { name: /Classic Burger/ });
     await expect(picker).toBeVisible();
     // "Cook" is required single-select; pick one option, then add. The button's
     // accessible name also carries the price delta ("Medium $0.00"), so match loosely.
