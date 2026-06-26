@@ -24,9 +24,20 @@ export const auth = betterAuth({
   database: prismaAdapter(db, { provider: "postgresql" }),
   secret: env.BETTER_AUTH_SECRET,
   baseURL: env.BETTER_AUTH_URL,
-  // Pin the allowed origin set explicitly instead of relying on the implicit
-  // baseURL-derived default.
-  trustedOrigins: [env.BETTER_AUTH_URL],
+  // Allow every origin the app is actually served from. It's reachable on the
+  // custom domain AND the *.vercel.app domain, so a single pinned origin made
+  // sign-in fail CSRF/CORS on whichever domain didn't match (the auth client
+  // now fetches same-origin — see auth-client.ts). Deduped, falsy dropped.
+  trustedOrigins: Array.from(
+    new Set(
+      [
+        env.BETTER_AUTH_URL,
+        env.NEXT_PUBLIC_APP_URL,
+        "https://vallapos.com",
+        "https://www.vallapos.com",
+      ].filter(Boolean),
+    ),
+  ),
   emailAndPassword: {
     enabled: true,
   },
