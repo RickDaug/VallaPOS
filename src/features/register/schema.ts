@@ -77,6 +77,18 @@ export const checkoutSchema = z.object({
   // Optional free-text reference for a MANUAL tender (e.g. "Check #1234",
   // "Zelle", "external card"). Ignored for CASH.
   manualNote: z.string().trim().max(120).optional(),
+  // Manager-approval override for an UNVERIFIED tender (QR / MANUAL). When the
+  // active operator lacks `approve_unverified_tender` (a cashier), a manager
+  // enters their PIN to authorize the unverified tender. Verified SERVER-SIDE
+  // against a capability-holding member of THIS business — the client value is
+  // never trusted. Ignored for CASH and when the operator already holds the
+  // capability. Digits-only, same 4–8 length as a member PIN.
+  managerPin: z
+    .string()
+    .regex(/^\d+$/, "PIN must be digits only.")
+    .min(4)
+    .max(8)
+    .optional(),
   customerName: z.string().trim().max(80).optional(),
   // Present ONLY on a replayed OFFLINE sale (cash already collected at the quoted
   // price). When present + valid, the server trusts these snapshot unit prices
@@ -86,3 +98,45 @@ export const checkoutSchema = z.object({
 });
 
 export type CheckoutInput = z.infer<typeof checkoutSchema>;
+
+/**
+ * The receipt returned by a completed checkout. Lives here (not in the
+ * `"use server"` actions file) so it — and the result-union helpers below — can
+ * be imported by client components and other non-server modules. A `"use server"`
+ * file may only export async functions, so the type-guard can't live there.
+ */
+export interface Receipt {
+  orderId: string;
+  number: number;
+  subtotalCents: number;
+  discountCents: number;
+  taxCents: number;
+  tipCents: number;
+  totalCents: number;
+  // How it was paid. For MANUAL ("Other") there is no cash/change — both are 0.
+  method: TenderMethod;
+  cashTenderedCents: number;
+  changeCents: number;
+  // Optional reference captured for a MANUAL tender (else null).
+  manualNote: string | null;
+}
+
+/**
+ * A checkout that could not complete because an UNVERIFIED tender (QR/MANUAL) was
+ * rung by an operator who lacks `approve_unverified_tender` and the manager-PIN
+ * override was missing or wrong. No order/payment is written. The UI prompts for
+ * (or re-prompts for) a manager PIN.
+ *  - manager_approval_required: no PIN supplied — show the prompt.
+ *  - invalid_manager_pin: a PIN was supplied but didn't match a capability-holder
+ *    (or that holder is locked out / none is configured) — show "try again".
+ */
+export interface CheckoutRejection {
+  error: "manager_approval_required" | "invalid_manager_pin";
+}
+
+export type CheckoutResult = Receipt | CheckoutRejection;
+
+/** Narrow a checkout result: true when the sale completed (a Receipt). */
+export function isReceipt(result: CheckoutResult): result is Receipt {
+  return !("error" in result);
+}

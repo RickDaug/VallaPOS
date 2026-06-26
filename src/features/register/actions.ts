@@ -2,9 +2,17 @@
 
 import { db } from "@/lib/db";
 import { requireCapability } from "@/lib/operator-guard";
+import { can } from "@/lib/capabilities";
 import { computePricedOrder } from "./pricing";
 import { resolveOrderLines, type LineInput } from "./resolve-lines";
-import { checkoutSchema, type CheckoutInput, type TenderMethod } from "./schema";
+import { APPROVE_UNVERIFIED_TENDER, verifyManagerApproval } from "./manager-approval";
+import {
+  checkoutSchema,
+  type CheckoutInput,
+  type CheckoutResult,
+  type Receipt,
+  type TenderMethod,
+} from "./schema";
 
 // Prisma's unique-constraint code, raised here when two concurrent requests with
 // the same clientUuid race past the pre-check and both try to insert on
@@ -19,22 +27,6 @@ function isUniqueViolation(err: unknown): boolean {
     "code" in err &&
     (err as { code?: unknown }).code === PRISMA_UNIQUE_VIOLATION
   );
-}
-
-export interface Receipt {
-  orderId: string;
-  number: number;
-  subtotalCents: number;
-  discountCents: number;
-  taxCents: number;
-  tipCents: number;
-  totalCents: number;
-  // How it was paid. For MANUAL ("Other") there is no cash/change — both are 0.
-  method: TenderMethod;
-  cashTenderedCents: number;
-  changeCents: number;
-  // Optional reference captured for a MANUAL tender (else null).
-  manualNote: string | null;
 }
 
 // The payment fields toReceipt needs, normalized from either a freshly-built
@@ -87,11 +79,12 @@ function paymentViewOf(
  *  - The snapshot must be index-aligned with `lines` (count must match) or it is
  *    ignored and the catalog price wins (fail safe = server-authoritative).
  */
-export async function checkout(input: CheckoutInput): Promise<Receipt> {
+export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   const data = checkoutSchema.parse(input);
   // The active operator (PIN-identified) must be allowed to take orders; the sale
   // is attributed to them.
-  const { businessId, membershipId } = await requireCapability(data.businessId, "take_orders");
+  const operator = await requireCapability(data.businessId, "take_orders");
+  const { businessId, membershipId } = operator;
 
   // Idempotency: if this clientUuid already produced an order, return it.
   const existing = await db.order.findUnique({
@@ -100,6 +93,35 @@ export async function checkout(input: CheckoutInput): Promise<Receipt> {
   });
   if (existing) {
     return toReceipt(existing, paymentViewOf(existing.payments[0]));
+  }
+
+  // MANAGER-APPROVAL GATE for UNVERIFIED tenders (QR / MANUAL "Other"). Cash is
+  // verified (in-drawer) and never gated. For an unverified tender:
+  //  - If the active operator already HOLDS `approve_unverified_tender` (an
+  //    owner/manager ringing their own sale) → no friction, proceed.
+  //  - Otherwise (a cashier) → require a manager-PIN override, verified
+  //    server-side against a capability-holding member of THIS business.
+  //
+  // EXEMPTION — replayed OFFLINE sale: a sale carrying a valid `priceSnapshot`
+  // (quoted: true) was already rung + collected on-device and is now replaying;
+  // there is no operator at the keyboard to prompt and the money is in hand, so
+  // the gate is skipped (mirrors the offline price-trust relaxation). Online
+  // checkout sends no snapshot and is fully gated.
+  const isUnverifiedTender = data.method === "QR" || data.method === "MANUAL";
+  const isOfflineReplay = Boolean(data.priceSnapshot?.quoted);
+  if (isUnverifiedTender && !isOfflineReplay) {
+    const operatorCanApprove = can(operator.role, operator.permissions, APPROVE_UNVERIFIED_TENDER);
+    if (!operatorCanApprove) {
+      if (!data.managerPin) {
+        return { error: "manager_approval_required" };
+      }
+      const approved = await verifyManagerApproval(businessId, data.managerPin);
+      if (!approved) {
+        return { error: "invalid_manager_pin" };
+      }
+      // Approved — proceed. Attribution stays the cashier (membershipId), NOT
+      // the approving manager.
+    }
   }
 
   const business = await db.business.findUniqueOrThrow({

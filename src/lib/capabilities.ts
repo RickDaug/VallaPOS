@@ -13,6 +13,7 @@ import type { Role } from "@prisma/client";
 
 export const CAPABILITIES = [
   "take_orders",
+  "approve_unverified_tender",
   "refund_void",
   "manage_products",
   "view_reports",
@@ -25,6 +26,7 @@ export type Capability = (typeof CAPABILITIES)[number];
 
 export const CAPABILITY_LABELS: Record<Capability, string> = {
   take_orders: "Take orders",
+  approve_unverified_tender: "Approve unverified tenders (QR/Other)",
   refund_void: "Refunds & voids",
   manage_products: "Manage products & floor",
   view_reports: "View reports",
