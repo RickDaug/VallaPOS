@@ -269,6 +269,11 @@ model PaymentProviderConfig {
 
 ## 6. Open decisions (need a human before a real integration)
 
+> **⚠ RESOLVED 2026-07-07 — see [§9 Decision-locked direction](#9-decision-locked-direction-2026-07-07).** The
+> load-bearing decisions (#1 market, #2 single-vs-multi-merchant, #3 fee model, #5
+> manual tender) are decided; §9 records the resolutions + the sequenced build plan.
+> This section is kept for the original framing/rationale.
+
 These gate the first real-integration PR. Listed for explicit sign-off:
 
 1. **QR rail.** Stripe **Payment Links** (US-first, SAQ A, one vendor) vs a
@@ -340,3 +345,101 @@ register is deliberately migrated onto the provider abstraction.
 **Inert:** nothing here is imported by the live checkout, register UI, or any
 route. `npm run build` includes it as dead-but-valid code; the money path in
 `src/features/register/actions.ts` is byte-for-byte unchanged.
+
+---
+
+## 9. Decision-locked direction (2026-07-07)
+
+The §6 open decisions are resolved. Scoped against the current Stripe API
+(`2026-06-24.dahlia`), Connect **Accounts v2**, and the Stripe SaaS-platform pattern.
+
+| §6 # | Decision | Resolution |
+|---|---|---|
+| 2 | Single vs multi-merchant | **Multi-merchant — Stripe Connect.** One connected account per `Business`. |
+| 3 | Fee model | **Flat SaaS subscription. NO per-transaction application fee** (we take no cut of sales). |
+| 1 | QR rail / market | **Country-agnostic hosted Checkout** across **US + MX + BR**; local methods surface per connected account. |
+| 5 | Manual tender v1 | ✅ Shipped (#62). |
+| 4 | Native shell | **Deferred** — Terminal / Tap-to-Pay wait on the future native shell (Phase 3). |
+| 7 | Offline cards | **Never queued offline** — only cash/manual stay offline-capable. |
+
+### Charge pattern: **SaaS / DIRECT charges**
+
+Each business runs its own business, owns its customers, and keeps its own money →
+Stripe's SaaS mapping. The **connected account is the merchant of record**; VallaPOS
+is just software. Because we take **no cut**, we simply **omit `application_fee_amount`** —
+a pure pass-through. This is the lowest-liability / lowest-PCI posture for the platform
+(disputes, refunds, payouts, and negative-balance risk all sit with the merchant's Stripe
+account).
+
+### Connect account configuration (Accounts v2)
+
+Create with `POST /v2/core/accounts` — **never** the legacy `type: 'standard'|'express'|'custom'`.
+
+- `dashboard: "full"` — businesses get the real Stripe Dashboard (they run independent businesses)
+- `defaults.responsibilities.fees_collector: "stripe"` — the connected account pays Stripe's processing fees
+- `defaults.responsibilities.losses_collector: "stripe"` — Stripe owns negative-balance liability
+- `configuration.merchant` requesting `card_payments` (add `oxxo`/`customer_balance` SPEI for MX, `pix` for BR later)
+- **Country set per business at creation** (US | MX | BR) → **needs a `country` field on `Business`** (today only `currency`)
+- Onboarding: the embedded **`account_onboarding`** component + the **required `notification_banner`**
+- **Go-live gate:** offer the rail only when
+  `configuration.merchant.capabilities.card_payments.status === 'active'` — NOT the deprecated `charges_enabled`.
+
+### QR sale rail: Checkout Session on the connected account (direct charge)
+
+- `stripe.checkout.sessions.create({ mode: 'payment', ... }, { stripeAccount: business.stripeAccountId })`
+- **Omit `payment_method_types` entirely** → dynamic payment methods. This is what makes it
+  country-agnostic: each connected account shows its own eligible methods (cards everywhere;
+  OXXO/SPEI in MX, PIX in BR as enabled).
+- Amount = the **server-recomputed** order total (cents, per §4); `client_reference_id = clientUuid`
+  (reuse the offline idempotency key end-to-end).
+- Render the returned `session.url` as a **QR** (the ESC/POS formatter already has a `GS ( k` QR
+  primitive) — the customer scans on their phone and pays on Stripe's hosted page.
+- Order is created `OPEN` with a `PENDING` Payment; it settles on the **webhook**, never on the
+  synchronous response.
+
+### Webhooks (two independent, signature-verified streams)
+
+1. **Connected-account events (sales)** — `checkout.session.completed` /
+   `checkout.session.async_payment_succeeded` → flip Order `OPEN→PAID`, Payment `PENDING→CAPTURED`
+   (idempotent on session id / `client_reference_id`); `checkout.session.expired` /
+   `async_payment_failed` → mark failed. Route: `app/api/payments/webhook/route.ts`.
+2. **Platform events (our subscription)** — `invoice.paid`, `customer.subscription.updated|deleted`
+   → set the business's subscription status. Distinguished by the presence of `event.account`.
+
+### Flat subscription (our revenue) — decoupled from the sale rail
+
+- Stripe **Billing** on **our platform account**. The business owner is a normal **Customer of
+  VallaPOS**, unrelated to their own Connect account — two separate Stripe relationships (they pay
+  *us* for the software; their customers pay *them* for goods).
+- Onboard via Checkout Session `mode: 'subscription'` (one flat-plan `Price`; omit
+  `payment_method_types`); self-service via the **Customer Portal**.
+- Gate app access on `subscriptionStatus` (`active`/`trialing` = allowed).
+
+### Schema deltas (refines §5 — one migration, own branch, apply to Neon **before** merge)
+
+- `Business.country String @default("US")` — (US|MX|BR) required for Accounts v2 + local methods
+- `Business.stripeAccountId String?` + `stripeChargesEnabled Boolean @default(false)` (mirror capability status)
+- `Business.stripeCustomerId String?`, `subscriptionStatus String?`, `subscriptionPriceId String?` — the SaaS subscription
+- `Payment`: `providerId`, `processorRef` (reuse — Checkout Session/PI id), `capturedAt`, `failureCode` (§5.1)
+- `PaymentIntent` audit record (§5.2) for the async QR lifecycle
+- **Drop §5.4 `PaymentProviderConfig`** — one account per business now lives on `Business`; re-add only if a business ever needs multiple providers.
+
+### Sequenced PRs (all behind `PAYMENTS_V2_ENABLED`; cash/manual path untouched)
+
+- **PR-A — Connect onboarding (no sale rail yet).** Accounts v2 create + embedded onboarding +
+  capability webhook + `Business.country/stripeAccountId`. A business can connect its Stripe account;
+  nothing charges yet. Pin the `stripe` SDK exactly + commit the lockfile. Restricted API key (`rk_`).
+- **PR-B — schema migration** (own branch, Neon before merge) for the Payment/PaymentIntent deltas.
+- **PR-C — QR sale rail.** `qr` provider (Checkout Session on the connected account) +
+  `app/api/payments/webhook` + a register "Pay by QR" tender → `OPEN`/`PENDING` → webhook `CAPTURED`.
+  US-first test, then enable MX/BR methods.
+- **PR-D — SaaS subscription.** Platform Billing + Checkout subscription + Customer Portal +
+  subscription webhook + gate app access on status.
+- **(Later) Native shell → Stripe Terminal / Tap to Pay** (`requiresNativeShell`).
+
+### New env / secrets (platform account; restricted keys)
+
+`STRIPE_SECRET_KEY` (restricted `rk_`), `STRIPE_WEBHOOK_SECRET` (sales/Connect endpoint),
+`STRIPE_SUBSCRIPTION_WEBHOOK_SECRET` (platform endpoint, if split), `STRIPE_SUBSCRIPTION_PRICE_ID`,
+`NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`. Add to `env.ts` as **optional** (degrade to flag-OFF when
+unset — mirrors the Upstash lesson) so a missing key never breaks the build.
