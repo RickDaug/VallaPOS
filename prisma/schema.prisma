@@ -107,6 +107,19 @@ model Business {
   qrPayEnabled Boolean      @default(false)
   qrPayLabel   String? // e.g. "PIX", "UPI", "Venmo"
   qrPayValue   String? // the string encoded into the QR
+  // Integrated payments (Stripe Connect, PAYMENTS.md §9). All nullable/defaulted
+  // so existing businesses are untouched and the rail stays OFF until onboarded.
+  // `country` selects the Connect account country + which local payment methods
+  // are eligible (US | MX | BR at launch); ISO-3166 alpha-2, uppercased.
+  country              String  @default("US")
+  // The connected account id (acct_...) once onboarding starts. Null = not
+  // connected. Unique so the account webhook can resolve exactly one business
+  // from an acct id, and a business can never hold two connected accounts.
+  stripeAccountId      String? @unique
+  // Mirrors the Accounts v2 `card_payments` capability status. Only when true may
+  // the (future) QR sale rail create a charge on this account. Flipped by the
+  // account webhook, never trusted from the client.
+  stripeChargesEnabled Boolean @default(false)
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 

@@ -20,6 +20,16 @@ const optionalUpstashToken = z.string().min(1).optional().catch(undefined);
 const optionalResendKey = z.string().min(1).optional().catch(undefined);
 const optionalReceiptFrom = z.string().email().optional().catch(undefined);
 
+// Integrated payments (Stripe Connect — PAYMENTS.md §9). ALL optional: when the
+// secret key is unset the payments feature stays OFF (isPaymentsConfigured() is
+// false) and the app/build behave exactly as before. `.catch(undefined)` mirrors
+// the Upstash/Resend handling so a malformed value pasted into Vercel degrades to
+// "off" instead of crashing the boot. The publishable key is NEXT_PUBLIC_* (safe
+// to ship to the client); the secret + webhook secret never leave the server.
+const optionalStripeSecret = z.string().min(1).optional().catch(undefined);
+const optionalStripePublishable = z.string().min(1).optional().catch(undefined);
+const optionalStripeWebhookSecret = z.string().min(1).optional().catch(undefined);
+
 const schema = z.object({
   DATABASE_URL: z.string().url(),
   BETTER_AUTH_SECRET: z.string().min(16),
@@ -36,6 +46,11 @@ const schema = z.object({
   // emailReceipt returns `email_not_configured` (see src/features/orders/email.ts).
   RESEND_API_KEY: optionalResendKey,
   RECEIPT_FROM_EMAIL: optionalReceiptFrom,
+  // Optional: Stripe Connect integrated payments (PAYMENTS.md §9). Unset = the
+  // payments feature is dormant (see src/features/payments/stripe.ts).
+  STRIPE_SECRET_KEY: optionalStripeSecret,
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: optionalStripePublishable,
+  STRIPE_WEBHOOK_SECRET: optionalStripeWebhookSecret,
 });
 
 const parsed = schema.safeParse(process.env);
