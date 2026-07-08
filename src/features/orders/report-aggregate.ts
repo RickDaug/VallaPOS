@@ -129,6 +129,39 @@ export function aggregateCashierSales(
   );
 }
 
+export interface ReportRange {
+  /** Inclusive start day, `YYYY-MM-DD`. */
+  fromStr: string;
+  /** Inclusive end day, `YYYY-MM-DD`. */
+  toStr: string;
+  /** Display label: a single date, or `"from – to"` for a multi-day range. */
+  label: string;
+}
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Resolve a reporting date range from raw query params. Both bounds default to
+ * `today` (a single-day report) and any malformed value falls back to `today`.
+ * The range is always well-ordered — if `from` is later than `to` the two are
+ * swapped — so callers can trust `fromStr <= toStr`. Pure (string-only, no
+ * `Date`) so it's unit-testable; the caller turns the strings into a
+ * `[start, end)` Date window.
+ */
+export function resolveReportRange(
+  fromParam: string | undefined,
+  toParam: string | undefined,
+  today: string,
+): ReportRange {
+  const norm = (v: string | undefined) => (v && DATE_RE.test(v) ? v : today);
+  let fromStr = norm(fromParam);
+  let toStr = norm(toParam);
+  // YYYY-MM-DD sorts lexicographically, so a plain string compare orders days.
+  if (fromStr > toStr) [fromStr, toStr] = [toStr, fromStr];
+  const label = fromStr === toStr ? fromStr : `${fromStr} – ${toStr}`;
+  return { fromStr, toStr, label };
+}
+
 const UNCATEGORIZED = "Uncategorized";
 
 /**
@@ -221,6 +254,8 @@ export interface ReportCsvInput {
   /** Human-readable label for a stored PaymentMethod (e.g. MANUAL -> "Other"). */
   methodLabel: (method: string) => string;
   items: ItemSalesReport;
+  /** Optional per-cashier breakdown; omitted (or empty) hides the section. */
+  cashiers?: CashierSalesRow[];
 }
 
 const UNVERIFIED_NOTE = "Unverified — operator-confirmed, no drawer/PSP evidence";
@@ -280,5 +315,70 @@ export function buildReportCsv(input: ReportCsvInput): string {
       amt(c.netSalesCents),
     ]),
   ];
+
+  // Optional per-cashier section (only when the caller supplies rows).
+  if (input.cashiers && input.cashiers.length > 0) {
+    rows.push(
+      [],
+      ["Sales by cashier", "Orders", "Net sales"],
+      // `cashier` is a resolved user/staff name — user-controlled, sanitize it.
+      ...input.cashiers.map((c) => [
+        sanitizeTextCell(c.cashier),
+        c.orderCount,
+        amt(c.netSalesCents),
+      ]),
+    );
+  }
+
   return rows.map(csvRow).join("\r\n");
+}
+
+export interface CsvReportMeta {
+  /** Range label for the CSV title row (a single date or `"from – to"`). */
+  rangeLabel: string;
+  currency: string;
+}
+
+/** Shared title + currency preamble rows for a single-table CSV export. */
+function csvPreamble(title: string, meta: CsvReportMeta): (string | number)[][] {
+  return [[title, meta.rangeLabel], [`Amounts in ${meta.currency}`], []];
+}
+
+/**
+ * Serialize the "Sales by item" table on its own (CRLF, RFC-4180). Item names
+ * are user-controlled → sanitized against CSV formula injection; amount cells
+ * stay raw decimals so a spreadsheet can sum them.
+ */
+export function buildItemSalesCsv(rows: ItemSalesRow[], meta: CsvReportMeta): string {
+  const out: (string | number)[][] = [
+    ...csvPreamble("VallaPOS — Sales by item", meta),
+    ["Item", "Quantity", "Net sales", "Tax"],
+    ...rows.map((i) => [
+      sanitizeTextCell(i.name),
+      i.quantity,
+      centsToAmount(i.netSalesCents),
+      centsToAmount(i.taxCents),
+    ]),
+  ];
+  return out.map(csvRow).join("\r\n");
+}
+
+/** Serialize the "Sales by category" table on its own. */
+export function buildCategorySalesCsv(rows: CategorySalesRow[], meta: CsvReportMeta): string {
+  const out: (string | number)[][] = [
+    ...csvPreamble("VallaPOS — Sales by category", meta),
+    ["Category", "Quantity", "Net sales"],
+    ...rows.map((c) => [sanitizeTextCell(c.category), c.quantity, centsToAmount(c.netSalesCents)]),
+  ];
+  return out.map(csvRow).join("\r\n");
+}
+
+/** Serialize the "Sales by cashier" (employee) table on its own. */
+export function buildCashierSalesCsv(rows: CashierSalesRow[], meta: CsvReportMeta): string {
+  const out: (string | number)[][] = [
+    ...csvPreamble("VallaPOS — Sales by cashier", meta),
+    ["Cashier", "Orders", "Net sales"],
+    ...rows.map((c) => [sanitizeTextCell(c.cashier), c.orderCount, centsToAmount(c.netSalesCents)]),
+  ];
+  return out.map(csvRow).join("\r\n");
 }
