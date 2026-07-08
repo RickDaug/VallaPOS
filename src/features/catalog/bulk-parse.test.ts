@@ -7,6 +7,7 @@ import {
   validateRow,
   parsePastedText,
   parseModifierLines,
+  buildIngredientOptions,
   PRESETS,
 } from "./bulk-parse";
 
@@ -176,5 +177,25 @@ describe("parseModifierLines", () => {
   it("keeps a name that contains digits when there's no trailing price", () => {
     const { options } = parseModifierLines("2% milk");
     expect(options).toEqual([{ name: "2% milk", priceDeltaCents: 0 }]);
+  });
+});
+
+describe("buildIngredientOptions", () => {
+  it("expands each ingredient into No (free) + Extra (+upcharge)", () => {
+    const { options, errors } = buildIngredientOptions("Onion\nCheese +0.75\nBacon +1.50");
+    expect(errors).toEqual([]);
+    expect(options).toEqual([
+      { name: "No Onion", priceDeltaCents: 0 },
+      { name: "Extra Onion", priceDeltaCents: 0 },
+      { name: "No Cheese", priceDeltaCents: 0 },
+      { name: "Extra Cheese", priceDeltaCents: 75 },
+      { name: "No Bacon", priceDeltaCents: 0 },
+      { name: "Extra Bacon", priceDeltaCents: 150 },
+    ]);
+  });
+
+  it("propagates parse errors (bad price, duplicate) from the ingredient lines", () => {
+    const { errors } = buildIngredientOptions("Onion +abc\nCheese\nCheese");
+    expect(errors.length).toBeGreaterThanOrEqual(2); // bad price + duplicate
   });
 });
