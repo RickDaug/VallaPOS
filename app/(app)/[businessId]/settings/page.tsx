@@ -4,6 +4,8 @@ import { requireMembership } from "@/lib/tenant";
 import { SettingsForm } from "@/features/settings/components/SettingsForm";
 import { DevicesManager } from "@/features/peripherals/components/DevicesManager";
 import { HardwareReadiness } from "@/features/peripherals/components/HardwareReadiness";
+import { PaymentsConnect } from "@/features/payments/components/PaymentsConnect";
+import { getPaymentsConnectStatus } from "@/features/payments/connect-queries";
 import { FloorPlanEditor } from "@/features/floor/components/FloorPlanEditor";
 import { getFloorLayout } from "@/features/floor/queries";
 import { pageHasCapability } from "@/lib/operator-guard";
@@ -41,6 +43,8 @@ export default async function SettingsPage({
   const showFloorEditor = business.mode === "RESTAURANT" && canFloor;
   const rooms = showFloorEditor ? await getFloorLayout(businessId) : [];
 
+  const paymentsStatus = canSettings ? await getPaymentsConnectStatus(businessId) : null;
+
   return (
     <section className="space-y-10">
       <div>
@@ -71,6 +75,19 @@ export default async function SettingsPage({
             <HardwareReadiness />
             <DevicesManager businessName={business.name} />
           </div>
+        </div>
+      )}
+
+      {canSettings && paymentsStatus && (
+        <div>
+          <header className="mb-4">
+            <h2 className="text-xl font-black">Payments</h2>
+            <p className="text-sm text-muted-foreground">
+              Connect your Stripe account to accept card &amp; QR payments. You stay the merchant of
+              record and keep your payouts — VallaPOS takes no cut.
+            </p>
+          </header>
+          <PaymentsConnect businessId={businessId} initial={paymentsStatus} />
         </div>
       )}
 
