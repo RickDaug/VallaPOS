@@ -16,7 +16,10 @@ import {
   createModifierGroupSchema,
   createModifierSchema,
   linkSchema,
+  bulkCreateItemsSchema,
+  createModifierGroupWithModifiersSchema,
 } from "./schema";
+import { getPreset, isBlankRow, validateRow, type ParsedRow } from "./bulk-parse";
 
 // Prisma's unique-constraint code, raised when a per-business SKU collides on
 // @@unique([businessId, sku]). We translate it into a friendly message.
@@ -325,6 +328,154 @@ export async function linkModifierGroup(input: z.infer<typeof linkSchema>) {
     where: { itemId_groupId: { itemId: item.id, groupId: group.id } },
     create: { itemId: item.id, groupId: group.id },
     update: {},
+  });
+  revalidateCatalog(ctx.businessId);
+}
+
+// ── Bulk entry (paste-or-type grid) ──────────────────────────────────────────
+
+export interface BulkCreateItemsResult {
+  created: number;
+  categoriesCreated: string[];
+  /** Rows we couldn't create, with a reason — surfaced so nothing drops silently. */
+  skipped: { row: number; name: string; reason: string }[];
+}
+
+/**
+ * Create many items (each with one or more variations) in a single transaction.
+ * Categories typed in the grid are auto-created (case-insensitive match to avoid
+ * "Drinks" vs "drinks" duplicates). Rows are re-validated server-side with the
+ * pure `bulk-parse` module; invalid rows and SKU conflicts are SKIPPED and
+ * reported, not silently dropped, so the operator can fix and re-save them.
+ */
+export async function bulkCreateItems(
+  input: z.infer<typeof bulkCreateItemsSchema>,
+): Promise<BulkCreateItemsResult> {
+  const data = bulkCreateItemsSchema.parse(input);
+  const ctx = await requireCapability(data.businessId, "manage_products");
+  const preset = getPreset(data.preset);
+
+  // 1. Validate every non-blank row.
+  const skipped: BulkCreateItemsResult["skipped"] = [];
+  let valid: { row: number; parsed: ParsedRow }[] = [];
+  data.rows.forEach((raw, i) => {
+    if (isBlankRow(raw)) return;
+    const res = validateRow(raw, preset);
+    const label = (raw.name ?? "").trim() || `row ${i + 1}`;
+    if (res.ok) valid.push({ row: i + 1, parsed: res.row });
+    else skipped.push({ row: i + 1, name: label, reason: res.error });
+  });
+
+  // 2. Resolve SKU conflicts (retail): dedupe within the batch + against the DB.
+  const skus = valid.map((v) => v.parsed.sku).filter((s): s is string => Boolean(s));
+  if (skus.length > 0) {
+    const existing = await db.variation.findMany({
+      where: { businessId: ctx.businessId, sku: { in: skus } },
+      select: { sku: true },
+    });
+    const taken = new Set(existing.map((e) => e.sku));
+    const batchSeen = new Set<string>();
+    valid = valid.filter((v) => {
+      const sku = v.parsed.sku;
+      if (!sku) return true;
+      if (taken.has(sku)) {
+        skipped.push({ row: v.row, name: v.parsed.name, reason: `SKU "${sku}" already exists` });
+        return false;
+      }
+      if (batchSeen.has(sku)) {
+        skipped.push({ row: v.row, name: v.parsed.name, reason: `Duplicate SKU "${sku}" in this batch` });
+        return false;
+      }
+      batchSeen.add(sku);
+      return true;
+    });
+  }
+
+  if (valid.length === 0) {
+    return { created: 0, categoriesCreated: [], skipped };
+  }
+
+  // 3. Resolve categories (case-insensitive) — reuse existing, create missing.
+  const existingCats = await db.category.findMany({
+    where: { businessId: ctx.businessId },
+    select: { id: true, name: true },
+  });
+  const catByLower = new Map(existingCats.map((c) => [c.name.toLowerCase(), c.id]));
+  const neededNames = new Map<string, string>(); // lower -> original casing (first seen)
+  for (const v of valid) {
+    const name = v.parsed.categoryName;
+    if (name && !catByLower.has(name.toLowerCase()) && !neededNames.has(name.toLowerCase())) {
+      neededNames.set(name.toLowerCase(), name);
+    }
+  }
+
+  const categoriesCreated: string[] = [];
+  await db.$transaction(
+    async (tx) => {
+      // Create any missing categories first, filling the id map.
+      for (const [lower, original] of neededNames) {
+        const created = await tx.category.create({
+          data: { businessId: ctx.businessId, name: original },
+        });
+        catByLower.set(lower, created.id);
+        categoriesCreated.push(original);
+      }
+      // Then create each item with its variations.
+      for (const v of valid) {
+        const categoryId = v.parsed.categoryName
+          ? (catByLower.get(v.parsed.categoryName.toLowerCase()) ?? null)
+          : null;
+        await tx.item.create({
+          data: {
+            businessId: ctx.businessId,
+            name: v.parsed.name,
+            type: v.parsed.type,
+            categoryId,
+            trackStock: false,
+            variations: {
+              create: v.parsed.variations.map((vr, idx) => ({
+                businessId: ctx.businessId,
+                name: vr.name,
+                priceCents: vr.priceCents,
+                sortOrder: idx,
+                // The item-level SKU rides the first (Default) variation only.
+                sku: idx === 0 ? v.parsed.sku : null,
+              })),
+            },
+          },
+        });
+      }
+    },
+    // Generous timeout: a large paste is a one-off admin action, not a hot path.
+    { timeout: 60_000, maxWait: 20_000 },
+  );
+
+  revalidateCatalog(ctx.businessId);
+  return { created: valid.length, categoriesCreated, skipped };
+}
+
+/** Create a modifier group and ALL its options in one call (no blank-row entry). */
+export async function createModifierGroupWithModifiers(
+  input: z.infer<typeof createModifierGroupWithModifiersSchema>,
+) {
+  const data = createModifierGroupWithModifiersSchema.parse(input);
+  const ctx = await requireCapability(data.businessId, "manage_products");
+
+  await db.modifierGroup.create({
+    data: {
+      businessId: ctx.businessId,
+      name: data.name,
+      minSelect: data.minSelect,
+      maxSelect: data.maxSelect,
+      modifiers: {
+        create: data.options.map((o, i) => ({
+          businessId: ctx.businessId,
+          name: o.name,
+          priceDeltaCents: o.priceDeltaCents,
+          sortOrder: i,
+        })),
+      },
+    },
   });
   revalidateCatalog(ctx.businessId);
 }

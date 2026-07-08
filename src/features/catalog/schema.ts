@@ -102,3 +102,45 @@ export const linkSchema = z.object({
   itemId: z.string().min(1),
   groupId: z.string().min(1),
 });
+
+// ── Bulk entry (paste-or-type grid) ──────────────────────────────────────────
+
+// A raw grid row — all cells optional strings; the server re-parses/validates
+// them with the pure `bulk-parse` module (never trusts the client).
+const bulkRowSchema = z.object({
+  name: z.string().optional(),
+  price: z.string().optional(),
+  category: z.string().optional(),
+  sku: z.string().optional(),
+  type: z.string().optional(),
+});
+
+export const bulkCreateItemsSchema = z.object({
+  businessId: businessIdSchema,
+  preset: z.enum(["menu", "retail", "service"]),
+  // Cap the batch so a runaway paste can't create an unbounded transaction.
+  rows: z.array(bulkRowSchema).max(1000),
+});
+
+// One modifier group + all its options created in a single call (kills the
+// one-at-a-time / blank-row entry). Options are pre-parsed by the client and
+// re-validated here.
+export const createModifierGroupWithModifiersSchema = z
+  .object({
+    businessId: businessIdSchema,
+    name: z.string().trim().min(1).max(60),
+    minSelect: z.number().int().min(0).max(99),
+    maxSelect: z.number().int().min(1).max(99),
+    options: z
+      .array(
+        z.object({
+          name: z.string().trim().min(1).max(60),
+          priceDeltaCents: z.number().int().min(0).max(10_000_000),
+        }),
+      )
+      .max(200),
+  })
+  .refine((d) => d.maxSelect >= d.minSelect, {
+    message: "maxSelect must be >= minSelect.",
+    path: ["maxSelect"],
+  });

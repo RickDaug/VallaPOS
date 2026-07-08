@@ -10,6 +10,7 @@ import {
   createItem,
   createModifier,
   createModifierGroup,
+  createModifierGroupWithModifiers,
   createVariation,
   deleteCategory,
   deleteItem,
@@ -23,6 +24,7 @@ import {
   updateItem,
   updateVariation,
 } from "@/features/catalog/actions";
+import { parseModifierLines } from "@/features/catalog/bulk-parse";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -66,6 +68,9 @@ export function ProductsManager({
   const [groupName, setGroupName] = useState("");
   const [groupMin, setGroupMin] = useState("0");
   const [groupMax, setGroupMax] = useState("1");
+  // Multi-line options box: type ALL options at once (one per line) instead of
+  // adding them one-by-one afterwards.
+  const [groupOptions, setGroupOptions] = useState("");
   const [modGroupId, setModGroupId] = useState("");
   const [modName, setModName] = useState("");
   const [modPrice, setModPrice] = useState("");
@@ -126,15 +131,43 @@ export function ProductsManager({
       return toast({ title: "Enter valid min/max selections.", variant: "error" });
     if (maxSelect < minSelect) return toast({ title: "Max must be at least min.", variant: "error" });
     const trimmed = groupName.trim();
-    run(
-      () => createModifierGroup({ businessId, name: trimmed, minSelect, maxSelect }),
-      () => {
-        setGroupName("");
-        setGroupMin("0");
-        setGroupMax("1");
-      },
-      { success: `Group “${trimmed}” added` },
-    );
+
+    // Parse the optional multi-line options box. When it has options, create the
+    // group + all of them in one call; otherwise just the (empty) group.
+    const { options, errors } = parseModifierLines(groupOptions);
+    if (errors.length > 0) {
+      return toast({
+        title: "Fix the options first",
+        description: `Line ${errors[0]!.line}: ${errors[0]!.message}`,
+        variant: "error",
+      });
+    }
+
+    const reset = () => {
+      setGroupName("");
+      setGroupMin("0");
+      setGroupMax("1");
+      setGroupOptions("");
+    };
+
+    if (options.length > 0) {
+      run(
+        () =>
+          createModifierGroupWithModifiers({
+            businessId,
+            name: trimmed,
+            minSelect,
+            maxSelect,
+            options,
+          }),
+        reset,
+        { success: `Group “${trimmed}” + ${options.length} option${options.length === 1 ? "" : "s"} added` },
+      );
+    } else {
+      run(() => createModifierGroup({ businessId, name: trimmed, minSelect, maxSelect }), reset, {
+        success: `Group “${trimmed}” added`,
+      });
+    }
   }
 
   function onAddModifier(e: React.FormEvent) {
@@ -401,6 +434,22 @@ export function ProductsManager({
                   />
                 </label>
               </div>
+              <label className="block text-sm">
+                <span className="mb-1 block text-muted-foreground">
+                  Options — one per line (optional)
+                </span>
+                <textarea
+                  value={groupOptions}
+                  onChange={(e) => setGroupOptions(e.target.value)}
+                  rows={4}
+                  placeholder={"Oat milk +0.75\nWhole milk\nAlmond +0.75"}
+                  className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm outline-none focus-visible:border-ring"
+                />
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  Add every option at once. Put a price after the name (<code>Oat milk +0.75</code>);
+                  no price means free.
+                </span>
+              </label>
               <Button type="submit" disabled={pending} className="w-full">
                 {pending ? "Saving…" : "Add group"}
               </Button>
