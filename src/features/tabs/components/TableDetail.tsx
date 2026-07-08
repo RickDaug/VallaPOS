@@ -31,6 +31,11 @@ import {
 import { lockOperator } from "@/features/employees/actions";
 import type { TabView, TabLineView } from "@/features/tabs/queries";
 import type { SellableEntry, SellableModifierGroup } from "@/features/catalog/queries";
+import { cn } from "@/lib/utils";
+
+/** A cashier-typed ad-hoc modifier (name + upcharge) collected before the line
+ *  is added to the tab. Mirrors the register's customModifiers payload. */
+type CustomModifier = { name: string; priceDeltaCents: number };
 
 const SHARED = "shared";
 type SeatKey = number | null;
@@ -114,20 +119,34 @@ export function TableDetail({
     });
   }
 
-  function addItem(entry: SellableEntry, modifierIds?: string[]) {
+  function addItem(
+    entry: SellableEntry,
+    opts?: { modifierIds?: string[]; customModifiers?: CustomModifier[] },
+  ) {
     run(() =>
       addTabLines({
         businessId,
         orderId: tab.orderId,
         seat: activeSeat,
-        lines: [{ variationId: entry.variationId, quantity: 1, modifierIds }],
+        lines: [
+          {
+            variationId: entry.variationId,
+            quantity: 1,
+            modifierIds: opts?.modifierIds,
+            // Only send when the cashier actually added some (keeps the payload
+            // identical to before for un-modified items).
+            customModifiers: opts?.customModifiers?.length ? opts.customModifiers : undefined,
+          },
+        ],
       }),
     );
   }
 
+  // Every item opens the add dialog so the cashier can pick catalog modifiers
+  // AND/OR type ad-hoc "No/Extra" ones — the tab has no client-side cart line to
+  // attach them to after the fact (unlike the register), so they're collected here.
   function onMenuClick(entry: SellableEntry) {
-    if (entry.modifierGroups.length > 0) setPicking(entry);
-    else addItem(entry);
+    setPicking(entry);
   }
 
   return (
@@ -242,10 +261,10 @@ export function TableDetail({
           entry={picking}
           currency={currency}
           onClose={() => setPicking(null)}
-          onConfirm={(ids) => {
+          onConfirm={({ modifierIds, customModifiers }) => {
             const entry = picking;
             setPicking(null);
-            addItem(entry, ids);
+            addItem(entry, { modifierIds, customModifiers });
           }}
         />
       )}
@@ -421,9 +440,13 @@ function ModifierPickerDialog({
   entry: SellableEntry;
   currency: string;
   onClose: () => void;
-  onConfirm: (modifierIds: string[]) => void;
+  onConfirm: (args: { modifierIds: string[]; customModifiers: CustomModifier[] }) => void;
 }) {
+  const money = (c: number) => formatMoney(c, currency);
   const [chosen, setChosen] = useState<Record<string, string[]>>({});
+  // Cashier-typed ad-hoc modifiers ("No onion" / "Extra cheese +$0.75"). These
+  // carry a trusted name + upcharge (the server caps + floors them at 0).
+  const [customMods, setCustomMods] = useState<CustomModifier[]>([]);
 
   function toggle(group: SellableModifierGroup, id: string) {
     setChosen((prev) => {
@@ -472,7 +495,7 @@ function ModifierPickerDialog({
                     >
                       <span>{m.name}</span>
                       {m.priceDeltaCents > 0 && (
-                        <span className="numeric text-muted-foreground">+{formatMoney(m.priceDeltaCents, currency)}</span>
+                        <span className="numeric text-muted-foreground">+{money(m.priceDeltaCents)}</span>
                       )}
                     </button>
                   );
@@ -480,17 +503,141 @@ function ModifierPickerDialog({
               </div>
             </div>
           ))}
+
+          {/* Ad-hoc "No/Extra" modifiers — no back-office setup required. */}
+          <div>
+            <p className="mb-1 text-sm font-semibold">
+              Special requests <span className="font-normal text-muted-foreground">(optional)</span>
+            </p>
+            {customMods.length > 0 && (
+              <ul className="mb-1.5 space-y-0.5">
+                {customMods.map((m, i) => (
+                  <li
+                    key={`${m.name}-${i}`}
+                    className="numeric flex items-center gap-1 text-xs text-muted-foreground"
+                  >
+                    <span className="truncate">
+                      + {m.name}
+                      {m.priceDeltaCents !== 0 && <> ({money(m.priceDeltaCents)})</>}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setCustomMods((cur) => cur.filter((_, j) => j !== i))}
+                      aria-label={`Remove ${m.name}`}
+                      className="shrink-0 rounded px-1 text-muted-foreground hover:text-destructive"
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <LineModAdder
+              onAdd={(name, priceDeltaCents) =>
+                setCustomMods((cur) => [...cur, { name, priceDeltaCents }])
+              }
+            />
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>
             Cancel
           </Button>
-          <Button size="sm" disabled={!valid} onClick={() => onConfirm(allIds)}>
+          <Button
+            size="sm"
+            disabled={!valid}
+            onClick={() => onConfirm({ modifierIds: allIds, customModifiers: customMods })}
+          >
             Add to tab
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Per-line ad-hoc modifier adder. The cashier types a modification on the order
+ * screen, picks No (free) or Extra, and optionally an upcharge on the Extra — no
+ * back-office setup. Emits the composed name ("No onion" / "Extra cheese") + cents.
+ * Replicated from the store register's LineModAdder so tabs match its behavior.
+ */
+function LineModAdder({ onAdd }: { onAdd: (name: string, priceDeltaCents: number) => void }) {
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<"No" | "Extra">("Extra");
+  const [name, setName] = useState("");
+  const [price, setPrice] = useState("");
+
+  function submit() {
+    const n = name.trim();
+    if (!n) return;
+    const cents =
+      mode === "Extra" ? Math.max(0, Math.round((parseFloat(price || "0") || 0) * 100)) : 0;
+    onAdd(`${mode} ${n}`, cents);
+    setName("");
+    setPrice("");
+    setMode("Extra");
+    setOpen(false);
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mt-1 text-xs font-medium text-primary hover:underline"
+      >
+        + Modify
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-2 space-y-2 rounded-md border border-border bg-muted/40 p-2">
+      <div className="flex gap-1">
+        {(["No", "Extra"] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => setMode(m)}
+            className={cn(
+              "flex-1 rounded-md px-2 py-1 text-xs font-semibold transition-colors",
+              mode === m ? "bg-primary text-primary-foreground" : "bg-background hover:bg-secondary",
+            )}
+          >
+            {m}
+          </button>
+        ))}
+      </div>
+      <Input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && submit()}
+        placeholder="e.g. onion"
+        aria-label="Modification"
+        className="h-9 text-sm"
+        autoFocus
+      />
+      {mode === "Extra" && (
+        <Input
+          inputMode="decimal"
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder="Upcharge (optional, e.g. 0.75)"
+          aria-label="Extra upcharge"
+          className="numeric h-9 text-sm"
+        />
+      )}
+      <div className="flex gap-2">
+        <Button size="sm" onClick={submit} disabled={!name.trim()} className="flex-1">
+          Add
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+      </div>
+    </div>
   );
 }
 
