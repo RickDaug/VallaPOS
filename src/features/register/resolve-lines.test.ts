@@ -49,7 +49,7 @@ describe("resolveOrderLines — custom modifiers", () => {
       { n: "Extra cheese", p: 75 },
     ]);
     // The money engine sees the upcharge too.
-    expect(moneyLines[0]!.modifiers.reduce((a, m) => a + m.priceDeltaCents, 0)).toBe(75);
+    expect((moneyLines[0]!.modifiers ?? []).reduce((a, m) => a + m.priceDeltaCents, 0)).toBe(75);
   });
 
   it("still rejects an unknown CATALOG modifier id (custom path doesn't loosen that)", async () => {
