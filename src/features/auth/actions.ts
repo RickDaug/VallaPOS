@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { allowCrossTenant } from "@/lib/tenant-backstop";
 import { requireSession } from "@/lib/tenant";
 
 const createBusinessSchema = z.object({
@@ -34,11 +35,15 @@ export async function getPrimaryBusinessId(): Promise<string | null> {
   // tenant-ok: intentionally cross-business. Before sign-in routing there is no
   // active businessId to scope by — we look up which business(es) THIS
   // authenticated user belongs to, filtered by their own userId. The user's own
-  // id is the isolation boundary here, not businessId.
-  const membership = await db.membership.findFirst({
-    where: { userId: session.user.id },
-    orderBy: { createdAt: "asc" },
-    select: { businessId: true },
-  });
+  // id is the isolation boundary here, not businessId. `allowCrossTenant` stands
+  // the runtime backstop down for this one reviewed query (the runtime twin of
+  // the `// tenant-ok` opt-out above).
+  const membership = await allowCrossTenant(() =>
+    db.membership.findFirst({
+      where: { userId: session.user.id },
+      orderBy: { createdAt: "asc" },
+      select: { businessId: true },
+    }),
+  );
   return membership?.businessId ?? null;
 }
