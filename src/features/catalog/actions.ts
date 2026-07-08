@@ -18,6 +18,7 @@ import {
   linkSchema,
   bulkCreateItemsSchema,
   createModifierGroupWithModifiersSchema,
+  addItemIngredientOptionsSchema,
 } from "./schema";
 import { getPreset, isBlankRow, validateRow, type ParsedRow } from "./bulk-parse";
 
@@ -452,6 +453,52 @@ export async function bulkCreateItems(
 
   revalidateCatalog(ctx.businessId);
   return { created: valid.length, categoriesCreated, skipped };
+}
+
+/**
+ * Attach a "No ___ / Extra ___" ingredient options group to ONE specific item.
+ * Creates the group (minSelect 0, each option independently tappable) with all
+ * options and links it to the item — in one transaction. This is the discoverable,
+ * per-item path so an operator never has to build a group then hunt for the link.
+ */
+export async function addItemIngredientOptions(
+  input: z.infer<typeof addItemIngredientOptionsSchema>,
+) {
+  const data = addItemIngredientOptionsSchema.parse(input);
+  const ctx = await requireCapability(data.businessId, "manage_products");
+
+  // The item must belong to this business (defense in depth).
+  const item = await db.item.findFirst({
+    where: { id: data.itemId, businessId: ctx.businessId },
+    select: { id: true },
+  });
+  if (!item) throw new Error("Item not found.");
+
+  // Each option is independently selectable (no onion AND extra cheese AND …),
+  // so the cap is the option count (bounded by the schema, and ≤ the 99 limit).
+  const maxSelect = Math.min(data.options.length, 99);
+
+  await db.$transaction(async (tx) => {
+    const group = await tx.modifierGroup.create({
+      data: {
+        businessId: ctx.businessId,
+        name: data.groupName,
+        minSelect: 0,
+        maxSelect,
+        modifiers: {
+          create: data.options.map((o, i) => ({
+            businessId: ctx.businessId,
+            name: o.name,
+            priceDeltaCents: o.priceDeltaCents,
+            sortOrder: i,
+          })),
+        },
+      },
+    });
+    await tx.itemModifierGroup.create({ data: { itemId: item.id, groupId: group.id } });
+  });
+
+  revalidateCatalog(ctx.businessId);
 }
 
 /** Create a modifier group and ALL its options in one call (no blank-row entry). */

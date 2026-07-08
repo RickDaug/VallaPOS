@@ -144,3 +144,21 @@ export const createModifierGroupWithModifiersSchema = z
     message: "maxSelect must be >= minSelect.",
     path: ["maxSelect"],
   });
+
+// Attach a "No ___ / Extra ___" ingredient options group to ONE specific item.
+// The client expands ingredients into options (via buildIngredientOptions); this
+// creates the group + links it to the item in one call.
+export const addItemIngredientOptionsSchema = z.object({
+  businessId: businessIdSchema,
+  itemId: z.string().min(1),
+  groupName: z.string().trim().min(1).max(60),
+  options: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1).max(60),
+        priceDeltaCents: z.number().int().min(0).max(10_000_000),
+      }),
+    )
+    .min(1)
+    .max(120), // up to ~60 ingredients (No + Extra each)
+});

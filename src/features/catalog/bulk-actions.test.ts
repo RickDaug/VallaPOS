@@ -12,6 +12,9 @@ const variationFindMany = vi.fn();
 const categoryFindMany = vi.fn();
 const categoryCreate = vi.fn();
 const itemCreate = vi.fn();
+const itemFindFirst = vi.fn();
+const modifierGroupCreate = vi.fn();
+const itemModifierGroupCreate = vi.fn();
 
 vi.mock("@/lib/operator-guard", () => ({
   requireCapability: (...args: unknown[]) => requireCapability(...args),
@@ -21,17 +24,20 @@ vi.mock("@/lib/db", () => {
   const tx = {
     category: { create: (...a: unknown[]) => categoryCreate(...a) },
     item: { create: (...a: unknown[]) => itemCreate(...a) },
+    modifierGroup: { create: (...a: unknown[]) => modifierGroupCreate(...a) },
+    itemModifierGroup: { create: (...a: unknown[]) => itemModifierGroupCreate(...a) },
   };
   return {
     db: {
       variation: { findMany: (...a: unknown[]) => variationFindMany(...a) },
       category: { findMany: (...a: unknown[]) => categoryFindMany(...a) },
+      item: { findFirst: (...a: unknown[]) => itemFindFirst(...a) },
       $transaction: (fn: (t: typeof tx) => Promise<void>) => fn(tx),
     },
   };
 });
 
-import { bulkCreateItems } from "./actions";
+import { bulkCreateItems, addItemIngredientOptions } from "./actions";
 
 const BIZ = "biz_1";
 
@@ -45,6 +51,9 @@ beforeEach(() => {
     name: data.name,
   }));
   itemCreate.mockResolvedValue({});
+  itemFindFirst.mockResolvedValue({ id: "item_1" });
+  modifierGroupCreate.mockResolvedValue({ id: "grp_1" });
+  itemModifierGroupCreate.mockResolvedValue({});
 });
 
 describe("bulkCreateItems", () => {
@@ -136,7 +145,7 @@ describe("bulkCreateItems", () => {
     expect(reasons.some((r) => r.startsWith("C:") && /Duplicate SKU/.test(r))).toBe(true);
   });
 
-  it("creates a group of options in one call is not this action (guard: returns empty on all-invalid)", async () => {
+  it("returns nothing created when every row is invalid", async () => {
     const res = await bulkCreateItems({
       businessId: BIZ,
       preset: "retail",
@@ -145,5 +154,49 @@ describe("bulkCreateItems", () => {
     expect(res.created).toBe(0);
     expect(itemCreate).not.toHaveBeenCalled();
     expect(res.skipped).toHaveLength(1);
+  });
+});
+
+describe("addItemIngredientOptions", () => {
+  it("creates the No/Extra group with an option per line and links it to the item", async () => {
+    await addItemIngredientOptions({
+      businessId: BIZ,
+      itemId: "item_1",
+      groupName: "Modifications",
+      options: [
+        { name: "No Onion", priceDeltaCents: 0 },
+        { name: "Extra Onion", priceDeltaCents: 0 },
+        { name: "No Cheese", priceDeltaCents: 0 },
+        { name: "Extra Cheese", priceDeltaCents: 75 },
+      ],
+    });
+
+    // The group is optional (minSelect 0) and each option is independently tappable.
+    const groupArg = modifierGroupCreate.mock.calls[0]![0] as {
+      data: { name: string; minSelect: number; maxSelect: number; modifiers: { create: unknown[] } };
+    };
+    expect(groupArg.data.name).toBe("Modifications");
+    expect(groupArg.data.minSelect).toBe(0);
+    expect(groupArg.data.maxSelect).toBe(4);
+    expect(groupArg.data.modifiers.create).toHaveLength(4);
+
+    // It's linked to the item.
+    const linkArg = itemModifierGroupCreate.mock.calls[0]![0] as {
+      data: { itemId: string; groupId: string };
+    };
+    expect(linkArg.data).toEqual({ itemId: "item_1", groupId: "grp_1" });
+  });
+
+  it("rejects when the item isn't in this business", async () => {
+    itemFindFirst.mockResolvedValue(null);
+    await expect(
+      addItemIngredientOptions({
+        businessId: BIZ,
+        itemId: "nope",
+        groupName: "Modifications",
+        options: [{ name: "No Onion", priceDeltaCents: 0 }],
+      }),
+    ).rejects.toThrow(/not found/i);
+    expect(modifierGroupCreate).not.toHaveBeenCalled();
   });
 });

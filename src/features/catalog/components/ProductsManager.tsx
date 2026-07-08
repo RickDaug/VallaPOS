@@ -6,6 +6,7 @@ import { Trash2, Pencil, ChevronUp, ChevronDown, Plus, PackageOpen } from "lucid
 import { formatMoney } from "@/lib/money";
 import type { ManagedCatalog, ManagedItem, ManagedVariation } from "@/features/catalog/queries";
 import {
+  addItemIngredientOptions,
   createCategory,
   createItem,
   createModifier,
@@ -24,7 +25,7 @@ import {
   updateItem,
   updateVariation,
 } from "@/features/catalog/actions";
-import { parseModifierLines } from "@/features/catalog/bulk-parse";
+import { parseModifierLines, buildIngredientOptions } from "@/features/catalog/bulk-parse";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -691,9 +692,100 @@ function ItemRow({
             run={run}
             confirm={confirm}
           />
+          <IngredientOptionsEditor
+            item={item}
+            businessId={businessId}
+            pending={pending}
+            run={run}
+          />
         </div>
       )}
     </li>
+  );
+}
+
+// ── Per-item ingredient options (No ___ / Extra ___) ──────────────────────────
+
+/**
+ * Type an item's ingredients once; this generates a "No ___" (free) + "Extra ___"
+ * (+upcharge) option for each and links them to THIS item, so they appear in the
+ * register's options picker when the item is rung up. Co-located with the item so
+ * setup is discoverable (no separate group-create + link dance).
+ */
+function IngredientOptionsEditor({
+  item,
+  businessId,
+  pending,
+  run,
+}: {
+  item: ManagedItem;
+  businessId: string;
+  pending: boolean;
+  run: RunFn;
+}) {
+  const [text, setText] = useState("");
+  const [groupName, setGroupName] = useState("Modifications");
+
+  const { options, errors } = buildIngredientOptions(text);
+  const ingredientCount = options.length / 2;
+
+  function onAdd() {
+    if (errors.length > 0 || options.length === 0) return;
+    const name = groupName.trim() || "Modifications";
+    run(
+      () => addItemIngredientOptions({ businessId, itemId: item.id, groupName: name, options }),
+      () => setText(""),
+      { success: `Added ${ingredientCount} ingredient${ingredientCount === 1 ? "" : "s"} to “${item.name}”` },
+    );
+  }
+
+  return (
+    <div className="mt-3 border-t border-border pt-3">
+      <p className="text-sm font-semibold">Ingredient options (No / Extra)</p>
+      <p className="mb-2 text-xs text-muted-foreground">
+        One ingredient per line; add <code>+price</code> for the Extra upcharge (blank = free). Each
+        becomes a “No ___” and an “Extra ___” the cashier can tap when ringing up this item.
+      </p>
+      <div className="flex gap-2">
+        <Input
+          value={groupName}
+          onChange={(e) => setGroupName(e.target.value)}
+          placeholder="Group name"
+          className="max-w-[10rem]"
+          aria-label="Options group name"
+        />
+      </div>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={4}
+        placeholder={"Onion\nTomato\nCheese +0.75\nBacon +1.50"}
+        className="mt-2 w-full rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm outline-none focus-visible:border-ring"
+        aria-label="Ingredients"
+      />
+      <div className="mt-1 flex items-center justify-between gap-2">
+        <span className="text-xs text-muted-foreground">
+          {errors.length > 0 ? (
+            <span className="text-destructive">
+              {errors[0]!.line > 0 ? `Line ${errors[0]!.line}: ` : ""}
+              {errors[0]!.message}
+            </span>
+          ) : ingredientCount > 0 ? (
+            `${ingredientCount} ingredient${ingredientCount === 1 ? "" : "s"} → ${options.length} options`
+          ) : (
+            "Add one ingredient per line"
+          )}
+        </span>
+        <Button
+          type="button"
+          size="sm"
+          onClick={onAdd}
+          disabled={pending || errors.length > 0 || options.length === 0}
+        >
+          Add options
+        </Button>
+      </div>
+    </div>
   );
 }
 

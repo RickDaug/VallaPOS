@@ -298,6 +298,31 @@ export function parseModifierLines(text: string): ModifierParseResult {
   return { options, errors };
 }
 
+/** "Extra " is the longest prefix we prepend; keep the pair ≤ the 60-char cap. */
+const INGREDIENT_NAME_MAX = 54;
+
+/**
+ * Expand an ingredient list into "No ___" (free) + "Extra ___" (+upcharge)
+ * modifier options. Each line is `Ingredient` or `Ingredient +price` (the price
+ * is the EXTRA upcharge; no price = the extra is free too). Reuses
+ * `parseModifierLines` for the line parsing (so money formats + dup detection +
+ * blank-skipping are shared), then produces two options per ingredient.
+ */
+export function buildIngredientOptions(text: string): ModifierParseResult {
+  const parsed = parseModifierLines(text);
+  const options: ParsedModifierOption[] = [];
+  const errors = [...parsed.errors];
+  for (const ing of parsed.options) {
+    if (ing.name.length > INGREDIENT_NAME_MAX) {
+      errors.push({ line: 0, message: `Ingredient too long: "${ing.name}"` });
+      continue;
+    }
+    options.push({ name: `No ${ing.name}`, priceDeltaCents: 0 });
+    options.push({ name: `Extra ${ing.name}`, priceDeltaCents: ing.priceDeltaCents });
+  }
+  return { options, errors };
+}
+
 export function parsePastedText(text: string, columns: ColumnKey[]): RawRow[] {
   const rows: RawRow[] = [];
   for (const rawLine of text.replace(/\r\n?/g, "\n").split("\n")) {
