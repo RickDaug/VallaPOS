@@ -5,6 +5,10 @@ import {
   aggregateTenders,
   tenderVerification,
   buildReportCsv,
+  buildItemSalesCsv,
+  buildCategorySalesCsv,
+  buildCashierSalesCsv,
+  resolveReportRange,
   centsToAmount,
   csvField,
   sanitizeTextCell,
@@ -125,6 +129,112 @@ describe("aggregateTenders", () => {
       verifiedCollectedCents: 0,
       unverifiedCollectedCents: 0,
     });
+  });
+});
+
+describe("resolveReportRange", () => {
+  it("defaults both bounds to today for missing/blank params", () => {
+    expect(resolveReportRange(undefined, undefined, "2026-07-08")).toEqual({
+      fromStr: "2026-07-08",
+      toStr: "2026-07-08",
+      label: "2026-07-08",
+    });
+  });
+
+  it("falls back to today for shape-invalid values", () => {
+    expect(resolveReportRange("nope", "07/08/2026", "2026-07-08")).toEqual({
+      fromStr: "2026-07-08",
+      toStr: "2026-07-08",
+      label: "2026-07-08",
+    });
+  });
+
+  it("labels a multi-day range with an en dash", () => {
+    const r = resolveReportRange("2026-07-01", "2026-07-08", "2026-07-08");
+    expect(r).toEqual({
+      fromStr: "2026-07-01",
+      toStr: "2026-07-08",
+      label: "2026-07-01 – 2026-07-08",
+    });
+  });
+
+  it("swaps an inverted range so from <= to", () => {
+    const r = resolveReportRange("2026-07-08", "2026-07-01", "2026-07-08");
+    expect(r.fromStr).toBe("2026-07-01");
+    expect(r.toStr).toBe("2026-07-08");
+  });
+});
+
+describe("per-table CSV builders", () => {
+  const meta = { rangeLabel: "2026-07-01 – 2026-07-08", currency: "USD" };
+
+  it("buildItemSalesCsv emits a title, header, and sanitized rows", () => {
+    const csv = buildItemSalesCsv(
+      [
+        { name: "Burger, Deluxe", quantity: 3, netSalesCents: 3000, taxCents: 248 },
+        { name: "=evil", quantity: 1, netSalesCents: 100, taxCents: 0 },
+      ],
+      meta,
+    );
+    expect(csv).toContain("VallaPOS — Sales by item,2026-07-01 – 2026-07-08");
+    expect(csv).toContain("Amounts in USD");
+    expect(csv).toContain("Item,Quantity,Net sales,Tax");
+    expect(csv).toContain('"Burger, Deluxe",3,30.00,2.48');
+    expect(csv).toContain("'=evil,1,1.00,0.00"); // formula-injection neutralized
+    expect(csv).toContain("\r\n");
+  });
+
+  it("buildCategorySalesCsv emits category rows", () => {
+    const csv = buildCategorySalesCsv([{ category: "Food", quantity: 4, netSalesCents: 3400 }], meta);
+    expect(csv).toContain("VallaPOS — Sales by category,2026-07-01 – 2026-07-08");
+    expect(csv).toContain("Category,Quantity,Net sales");
+    expect(csv).toContain("Food,4,34.00");
+  });
+
+  it("buildCashierSalesCsv emits cashier rows and sanitizes names", () => {
+    const csv = buildCashierSalesCsv(
+      [
+        { cashier: "Ada", orderCount: 2, netSalesCents: 1500 },
+        { cashier: "@bad", orderCount: 1, netSalesCents: 500 },
+      ],
+      meta,
+    );
+    expect(csv).toContain("VallaPOS — Sales by cashier,2026-07-01 – 2026-07-08");
+    expect(csv).toContain("Cashier,Orders,Net sales");
+    expect(csv).toContain("Ada,2,15.00");
+    expect(csv).toContain("'@bad,1,5.00");
+  });
+});
+
+describe("buildReportCsv cashier section", () => {
+  const base = {
+    dateStr: "2026-07-08",
+    currency: "USD",
+    orderCount: 1,
+    grossSalesCents: 1000,
+    discountCents: 0,
+    netSalesCents: 1000,
+    taxCents: 0,
+    tipCents: 0,
+    refundsCents: 0,
+    totalCollectedCents: 1000,
+    byMethod: [],
+    tenders: noTenders,
+    methodLabel: paymentMethodLabel,
+    items: aggregateItemSales([]),
+  };
+
+  it("appends a Sales by cashier section when cashiers are supplied", () => {
+    const csv = buildReportCsv({
+      ...base,
+      cashiers: [{ cashier: "Ada", orderCount: 2, netSalesCents: 1500 }],
+    });
+    expect(csv).toContain("Sales by cashier,Orders,Net sales");
+    expect(csv).toContain("Ada,2,15.00");
+  });
+
+  it("omits the cashier section when none are supplied", () => {
+    expect(buildReportCsv(base)).not.toContain("Sales by cashier");
   });
 });
 

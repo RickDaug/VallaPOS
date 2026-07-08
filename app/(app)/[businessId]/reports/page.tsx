@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireMembership } from "@/lib/tenant";
 import { getDailyReport, getItemSalesReport, getCashierSalesReport } from "@/features/orders/queries";
+import { resolveReportRange } from "@/features/orders/report-aggregate";
 import { paymentMethodLabel } from "@/features/orders/payment-method";
 import { pageHasCapability } from "@/lib/operator-guard";
 import { NoAccess } from "@/components/no-access";
@@ -23,10 +24,10 @@ export default async function ReportsPage({
   searchParams,
 }: {
   params: Promise<{ businessId: string }>;
-  searchParams: Promise<{ date?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; date?: string }>;
 }) {
   const { businessId } = await params;
-  const { date } = await searchParams;
+  const { from, to, date } = await searchParams;
   await requireMembership(businessId);
   if (!(await pageHasCapability(businessId, "view_reports"))) return <NoAccess what="reports" />;
 
@@ -36,9 +37,11 @@ export default async function ReportsPage({
   });
   if (!business) notFound();
 
-  const dateStr = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : toDateInput(new Date());
-  const start = new Date(`${dateStr}T00:00:00`);
-  const end = new Date(start);
+  // Resolve the [from, to] day range (both default to today; `?date=` is a
+  // legacy single-day shorthand). `end` is exclusive = the day after `to`.
+  const range = resolveReportRange(from ?? date, to ?? date, toDateInput(new Date()));
+  const start = new Date(`${range.fromStr}T00:00:00`);
+  const end = new Date(`${range.toStr}T00:00:00`);
   end.setDate(end.getDate() + 1);
 
   const report = await getDailyReport(businessId, start, end);
@@ -46,21 +49,45 @@ export default async function ReportsPage({
   const itemSales = await getItemSalesReport(businessId, start, end);
   const cashierSales = await getCashierSalesReport(businessId, start, end);
   const money = (c: number) => formatMoney(c, business.currency);
+  const exportHref = (table?: string) =>
+    `/${businessId}/reports/export?from=${range.fromStr}&to=${range.toStr}` +
+    (table ? `&table=${table}` : "");
 
   return (
     <section>
       <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-black md:text-3xl">End-of-day report</h1>
-          <p className="text-sm text-muted-foreground">Z-report — sales, tax, and cash for the day.</p>
+          <h1 className="text-2xl font-black md:text-3xl">Sales report</h1>
+          <p className="text-sm text-muted-foreground">
+            Sales, tax, and cash for {range.fromStr === range.toStr ? "the day" : "the range"} —{" "}
+            <span className="numeric">{range.label}</span>.
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <form method="get" className="flex items-center gap-2">
-            <Input type="date" name="date" defaultValue={dateStr} className="numeric h-11 w-auto" />
+        <div className="flex flex-wrap items-end gap-2">
+          <form method="get" className="flex flex-wrap items-end gap-2">
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              From
+              <Input
+                type="date"
+                name="from"
+                defaultValue={range.fromStr}
+                max={range.toStr}
+                className="numeric h-11 w-auto"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              To
+              <Input
+                type="date"
+                name="to"
+                defaultValue={range.toStr}
+                className="numeric h-11 w-auto"
+              />
+            </label>
             <Button type="submit" size="sm">View</Button>
           </form>
           <a
-            href={`/${businessId}/reports/export?date=${dateStr}`}
+            href={exportHref()}
             download
             className={buttonVariants({ variant: "outline", size: "sm" })}
           >
@@ -203,7 +230,7 @@ export default async function ReportsPage({
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <Card>
           <CardContent className="p-5">
-            <h2 className="mb-4 text-lg font-bold">Sales by item</h2>
+            <TableHeading title="Sales by item" exportHref={exportHref("item")} />
             {itemSales.byItem.length === 0 ? (
               <p className="text-sm text-muted-foreground">No items sold this day.</p>
             ) : (
@@ -231,7 +258,7 @@ export default async function ReportsPage({
 
         <Card>
           <CardContent className="p-5">
-            <h2 className="mb-4 text-lg font-bold">Sales by category</h2>
+            <TableHeading title="Sales by category" exportHref={exportHref("category")} />
             {itemSales.byCategory.length === 0 ? (
               <p className="text-sm text-muted-foreground">No sales this day.</p>
             ) : (
@@ -261,7 +288,7 @@ export default async function ReportsPage({
       <div className="mt-6">
         <Card>
           <CardContent className="p-5">
-            <h2 className="mb-4 text-lg font-bold">Sales by cashier</h2>
+            <TableHeading title="Sales by cashier" exportHref={exportHref("cashier")} />
             {cashierSales.length === 0 ? (
               <p className="text-sm text-muted-foreground">No sales this day.</p>
             ) : (
@@ -288,6 +315,21 @@ export default async function ReportsPage({
         </Card>
       </div>
     </section>
+  );
+}
+
+function TableHeading({ title, exportHref }: { title: string; exportHref: string }) {
+  return (
+    <div className="mb-4 flex items-center justify-between gap-2">
+      <h2 className="text-lg font-bold">{title}</h2>
+      <a
+        href={exportHref}
+        download
+        className={buttonVariants({ variant: "ghost", size: "sm" })}
+      >
+        Export CSV
+      </a>
+    </div>
   );
 }
 
