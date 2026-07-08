@@ -63,6 +63,20 @@ export const checkoutSchema = z.object({
         // Chosen modifier ids for this line. The server RE-LOOKS-UP each id
         // (businessId-scoped) and never trusts client-sent names/prices.
         modifierIds: z.array(z.string().min(1)).max(50).optional(),
+        // AD-HOC modifiers the cashier typed at the order screen (e.g. "No onion",
+        // "Extra cheese"). Unlike `modifierIds`, these have no catalog row, so the
+        // name + upcharge ARE cashier-provided — like a manual discount. Bounded:
+        // the upcharge only ever ADDS (min 0), so it can't be used to underpay, and
+        // it's capped. Persisted as a name/price snapshot on the order line.
+        customModifiers: z
+          .array(
+            z.object({
+              name: z.string().trim().min(1).max(80),
+              priceDeltaCents: z.number().int().min(0).max(MAX_SNAPSHOT_PRICE_CENTS),
+            }),
+          )
+          .max(20)
+          .optional(),
       }),
     )
     .min(1, "Cart is empty"),
