@@ -250,6 +250,33 @@ export function Register({
     );
   }
 
+  /** Add a cashier-typed ad-hoc modifier (e.g. "No onion", "Extra cheese +$0.75")
+   * to a cart line. The `custom:` id prefix marks it so checkout sends it as a
+   * customModifier (name + price), not a catalog modifier id. */
+  function addCustomModifier(key: string, name: string, priceDeltaCents: number) {
+    setCart((cur) =>
+      cur.map((l) => {
+        if (l.key !== key) return l;
+        const modifiers = [
+          ...l.modifiers,
+          { id: `custom:${crypto.randomUUID()}`, name, priceDeltaCents },
+        ];
+        return { ...l, modifiers, key: lineKey(l.variationId, modifiers.map((m) => m.id)) };
+      }),
+    );
+  }
+
+  /** Remove a modifier (used for the cashier's ad-hoc ones) from a cart line. */
+  function removeModifier(key: string, modId: string) {
+    setCart((cur) =>
+      cur.map((l) => {
+        if (l.key !== key) return l;
+        const modifiers = l.modifiers.filter((m) => m.id !== modId);
+        return { ...l, modifiers, key: lineKey(l.variationId, modifiers.map((m) => m.id)) };
+      }),
+    );
+  }
+
   function resetSale() {
     setCart([]);
     setTipRate(0);
@@ -288,11 +315,19 @@ export function Register({
     return submit({
       businessId,
       clientUuid: clientUuidRef.current,
-      lines: cart.map((l) => ({
-        variationId: l.variationId,
-        quantity: l.qty,
-        modifierIds: l.modifiers.map((m) => m.id),
-      })),
+      lines: cart.map((l) => {
+        const custom = l.modifiers.filter((m) => m.id.startsWith("custom:"));
+        return {
+          variationId: l.variationId,
+          quantity: l.qty,
+          // Catalog modifiers go by id (server re-looks-up their price)…
+          modifierIds: l.modifiers.filter((m) => !m.id.startsWith("custom:")).map((m) => m.id),
+          // …ad-hoc ones carry their cashier-typed name + upcharge.
+          customModifiers: custom.length
+            ? custom.map((m) => ({ name: m.name, priceDeltaCents: m.priceDeltaCents }))
+            : undefined,
+        };
+      }),
       tipCents: totals.tipCents,
       cartDiscountCents,
       method: tenderMethod,
@@ -307,8 +342,12 @@ export function Register({
         quoted: true,
         lines: cart.map((l) => ({
           unitPriceCents: l.priceCents,
+          // Only CATALOG modifier deltas are snapshotted (keyed by real id). The
+          // cashier's ad-hoc modifiers are already trusted via customModifiers.
           modifierDeltas: Object.fromEntries(
-            l.modifiers.map((m) => [m.id, m.priceDeltaCents]),
+            l.modifiers
+              .filter((m) => !m.id.startsWith("custom:"))
+              .map((m) => [m.id, m.priceDeltaCents]),
           ),
         })),
       },
@@ -469,6 +508,8 @@ export function Register({
       error={error}
       pending={pending}
       changeQty={changeQty}
+      addCustomModifier={addCustomModifier}
+      removeModifier={removeModifier}
       completeSale={completeSale}
     />
   );
@@ -677,6 +718,90 @@ function FavoriteStar({
 
 /** The current-sale panel (cart lines + totals + tender). Rendered inline on
  *  desktop and inside the mobile Sheet — identical behavior in both. */
+/**
+ * Per-line ad-hoc modifier adder. The cashier types a modification on the order
+ * screen, picks No (free) or Extra, and optionally an upcharge on the Extra — no
+ * back-office setup. Emits the composed name ("No onion" / "Extra cheese") + cents.
+ */
+function LineModAdder({ onAdd }: { onAdd: (name: string, priceDeltaCents: number) => void }) {
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<"No" | "Extra">("Extra");
+  const [name, setName] = useState("");
+  const [price, setPrice] = useState("");
+
+  function submit() {
+    const n = name.trim();
+    if (!n) return;
+    const cents =
+      mode === "Extra" ? Math.max(0, Math.round((parseFloat(price || "0") || 0) * 100)) : 0;
+    onAdd(`${mode} ${n}`, cents);
+    setName("");
+    setPrice("");
+    setMode("Extra");
+    setOpen(false);
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mt-1 text-xs font-medium text-primary hover:underline"
+      >
+        + Modify
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-2 space-y-2 rounded-md border border-border bg-muted/40 p-2">
+      <div className="flex gap-1">
+        {(["No", "Extra"] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => setMode(m)}
+            className={cn(
+              "flex-1 rounded-md px-2 py-1 text-xs font-semibold transition-colors",
+              mode === m ? "bg-primary text-primary-foreground" : "bg-background hover:bg-secondary",
+            )}
+          >
+            {m}
+          </button>
+        ))}
+      </div>
+      <Input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && submit()}
+        placeholder="e.g. onion"
+        aria-label="Modification"
+        className="h-9 text-sm"
+        autoFocus
+      />
+      {mode === "Extra" && (
+        <Input
+          inputMode="decimal"
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder="Upcharge (optional, e.g. 0.75)"
+          aria-label="Extra upcharge"
+          className="numeric h-9 text-sm"
+        />
+      )}
+      <div className="flex gap-2">
+        <Button size="sm" onClick={submit} disabled={!name.trim()} className="flex-1">
+          Add
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function CartPanel({
   cart,
   money,
@@ -699,6 +824,8 @@ function CartPanel({
   error,
   pending,
   changeQty,
+  addCustomModifier,
+  removeModifier,
   completeSale,
 }: {
   cart: CartLine[];
@@ -722,6 +849,8 @@ function CartPanel({
   error: string | null;
   pending: boolean;
   changeQty: (key: string, delta: number) => void;
+  addCustomModifier: (key: string, name: string, priceDeltaCents: number) => void;
+  removeModifier: (key: string, modId: string) => void;
   completeSale: () => void;
 }) {
   return (
@@ -743,14 +872,27 @@ function CartPanel({
                 {line.modifiers.length > 0 && (
                   <ul className="mt-0.5 space-y-0.5">
                     {line.modifiers.map((m) => (
-                      <li key={m.id} className="numeric truncate text-xs text-muted-foreground">
-                        + {m.name}
-                        {m.priceDeltaCents !== 0 && <> ({money(m.priceDeltaCents)})</>}
+                      <li key={m.id} className="numeric flex items-center gap-1 text-xs text-muted-foreground">
+                        <span className="truncate">
+                          + {m.name}
+                          {m.priceDeltaCents !== 0 && <> ({money(m.priceDeltaCents)})</>}
+                        </span>
+                        {m.id.startsWith("custom:") && (
+                          <button
+                            type="button"
+                            onClick={() => removeModifier(line.key, m.id)}
+                            aria-label={`Remove ${m.name}`}
+                            className="shrink-0 rounded px-1 text-muted-foreground hover:text-destructive"
+                          >
+                            ×
+                          </button>
+                        )}
                       </li>
                     ))}
                   </ul>
                 )}
                 <p className="numeric text-sm text-muted-foreground">{money(lineUnit)} each</p>
+                <LineModAdder onAdd={(name, cents) => addCustomModifier(line.key, name, cents)} />
               </div>
               <div className="flex items-center gap-1.5">
                 <Button

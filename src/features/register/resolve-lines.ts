@@ -23,6 +23,13 @@ export interface LineInput {
   lineDiscountCents?: number;
   modifierIds?: string[];
   /**
+   * AD-HOC modifiers the cashier typed at the order screen (no catalog row). The
+   * name + upcharge are cashier-provided (validated + capped by the checkout
+   * schema); the upcharge only ADDS (min 0), like a manual line addition. Snapshotted
+   * onto the order line the same way catalog modifiers are.
+   */
+  customModifiers?: { name: string; priceDeltaCents: number }[];
+  /**
    * OFFLINE PRICE SNAPSHOT override (deliberate, bounded trust relaxation —
    * see register/actions.ts). Present ONLY when replaying an offline sale whose
    * cash was already collected at a quoted price. When set, the resolver uses
@@ -120,13 +127,23 @@ export async function resolveOrderLines(
     }
 
     const chosenModifiers = chosenIds.map((id) => modifierById.get(id)!);
+
+    // AD-HOC modifiers: trust the cashier-typed name + upcharge (bounded by the
+    // schema; the delta only adds). Synthetic ids keep them distinct in the money
+    // engine; only name + delta are persisted (OrderLineModifier has no modifier FK).
+    const customModifiers: ResolvedModifier[] = (line.customModifiers ?? []).map((c, i) => ({
+      id: `custom_${i}`,
+      nameSnapshot: c.name.trim(),
+      priceDeltaCents: c.priceDeltaCents,
+    }));
+    const allModifiers = [...chosenModifiers, ...customModifiers];
     const lineDiscountCents = line.lineDiscountCents ?? 0;
 
     moneyLines.push({
       unitPriceCents,
       quantity: line.quantity,
       lineDiscountCents,
-      modifiers: chosenModifiers,
+      modifiers: allModifiers,
     });
 
     return {
@@ -134,7 +151,7 @@ export async function resolveOrderLines(
       unitPriceCents,
       quantity: line.quantity,
       lineDiscountCents,
-      modifiers: chosenModifiers,
+      modifiers: allModifiers,
       nameSnapshot:
         variation.name && variation.name !== "Default"
           ? `${variation.item.name} — ${variation.name}`
