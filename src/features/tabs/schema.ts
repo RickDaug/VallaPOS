@@ -102,6 +102,19 @@ export const settleTabSchema = z.object({
   // tender below the amount due); irrelevant for QR/MANUAL, hence defaulted so a
   // non-cash settle needn't send it.
   cashTenderedCents: z.number().int().min(0).max(10_000_000).default(0),
+  // Manager-approval override for an UNVERIFIED tender (QR / MANUAL). When the
+  // operator settling the tab lacks `approve_unverified_tender` (a cashier), a
+  // manager enters their PIN to authorize the unverified settlement. Verified
+  // SERVER-SIDE against a capability-holding member of THIS business — the client
+  // value is never trusted. Ignored for CASH and when the operator already holds
+  // the capability. Digits-only, same 4–8 length as a member PIN. Mirrors the
+  // store register's checkout schema (features/register/schema.ts).
+  managerPin: z
+    .string()
+    .regex(/^\d+$/, "PIN must be digits only.")
+    .min(4)
+    .max(8)
+    .optional(),
 });
 
 export type TabLineInput = z.infer<typeof tabLineInputSchema>;

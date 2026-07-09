@@ -6,8 +6,10 @@ import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireCapability } from "@/lib/operator-guard";
+import { can } from "@/lib/capabilities";
 import { computePricedOrder, priceLine } from "@/features/register/pricing";
 import { resolveOrderLines } from "@/features/register/resolve-lines";
+import { APPROVE_UNVERIFIED_TENDER, verifyManagerApproval } from "@/features/register/manager-approval";
 import { planSettlement, type TabLine } from "./tab-math";
 import {
   openTabSchema,
@@ -323,12 +325,51 @@ export interface SettleResult {
   closed: boolean;
 }
 
+/**
+ * A settle that could not complete because an UNVERIFIED tender (QR / MANUAL) was
+ * settled by an operator who lacks `approve_unverified_tender` (a cashier) and the
+ * manager-PIN override was missing or wrong. No payment is written and the tab is
+ * untouched. Mirrors the store register's CheckoutRejection so the UI reuses the
+ * same manager-PIN prompt path.
+ *  - manager_approval_required: no PIN supplied — show the prompt.
+ *  - invalid_manager_pin: a PIN was supplied but didn't match a capability-holder
+ *    (or that holder is locked out / none is configured) — show "try again".
+ */
+export interface SettleRejection {
+  error: "manager_approval_required" | "invalid_manager_pin";
+}
+
 // `z.input` (not `z.infer`) so callers may omit the defaulted `method` /
 // `cashTenderedCents` (the schema fills them) — a QR/MANUAL settle needn't send
 // cash, and an existing whole-tab CASH settle needn't name the method.
-export async function settleTab(input: z.input<typeof settleTabSchema>): Promise<SettleResult> {
+export async function settleTab(
+  input: z.input<typeof settleTabSchema>,
+): Promise<SettleResult | SettleRejection> {
   const data = settleTabSchema.parse(input);
   const ctx = await requireCapability(data.businessId, "take_orders");
+
+  // MANAGER-APPROVAL GATE for UNVERIFIED tenders (QR / MANUAL "Other"), mirroring
+  // the store register (features/register/actions.ts). Cash is verified in-drawer
+  // and never gated. For a QR/MANUAL settle:
+  //  - If the operator already HOLDS `approve_unverified_tender` (an owner/manager
+  //    settling their own tab) → no friction, proceed.
+  //  - Otherwise (a cashier) → require a manager-PIN override, verified server-side
+  //    against a capability-holding member of THIS business. A missing PIN asks the
+  //    UI to prompt; a wrong/locked/absent one is rejected. No payment is written on
+  //    rejection, so retrying with a PIN can't double-collect. There is no offline
+  //    tab settlement, so (unlike checkout) there is no replay exemption.
+  const isUnverifiedTender = data.method === "QR" || data.method === "MANUAL";
+  if (isUnverifiedTender && !can(ctx.role, ctx.permissions, APPROVE_UNVERIFIED_TENDER)) {
+    if (!data.managerPin) {
+      return { error: "manager_approval_required" };
+    }
+    const approved = await verifyManagerApproval(ctx.businessId, data.managerPin);
+    if (!approved) {
+      return { error: "invalid_manager_pin" };
+    }
+    // Approved — proceed. The settlement stays attributed to the tab/cashier; the
+    // approving manager only authorizes the unverified tender.
+  }
 
   const order = await db.order.findFirst({
     where: { id: data.orderId, businessId: ctx.businessId, status: "OPEN" },

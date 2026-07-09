@@ -2,7 +2,8 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Minus, Plus, Trash2, Users, Split, Merge, Loader2 } from "lucide-react";
+import { ArrowLeft, Minus, Plus, Trash2, Users, Split, Merge, Loader2, Lock, Delete } from "lucide-react";
+import { PIN_MIN_LENGTH, PIN_MAX_LENGTH } from "@/features/employees/schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,6 +38,17 @@ import { cn } from "@/lib/utils";
 /** A cashier-typed ad-hoc modifier (name + upcharge) collected before the line
  *  is added to the tab. Mirrors the register's customModifiers payload. */
 type CustomModifier = { name: string; priceDeltaCents: number };
+
+/** The settle payload the dialog hands up — carried on `pendingSettle` so a
+ *  manager-PIN retry can re-run the exact same settlement. */
+type SettleArgs = {
+  seats: (number | null)[] | "all";
+  method: TenderMethod;
+  tipCents: number;
+  cashTenderedCents: number;
+  dueCents: number;
+  willClose: boolean;
+};
 
 const SHARED = "shared";
 type SeatKey = number | null;
@@ -84,6 +96,13 @@ export function TableDetail({
 
   const [picking, setPicking] = useState<SellableEntry | null>(null);
   const [settleOpen, setSettleOpen] = useState(false);
+  // Manager-PIN override for an UNVERIFIED tender (QR/Other) settled by a cashier.
+  // `pendingSettle` remembers the settle args so an approved PIN retries the SAME
+  // settlement; null = prompt closed. Mirrors the store register (Register.tsx).
+  const [pendingSettle, setPendingSettle] = useState<SettleArgs | null>(null);
+  const [managerPinPrompt, setManagerPinPrompt] = useState<{ pin: string; error: string | null } | null>(
+    null,
+  );
 
   // Group the display lines by seat (numeric seats asc, Shared last).
   const linesBySeat = useMemo(() => {
@@ -107,6 +126,55 @@ export function TableDetail({
         await fn();
         if (opts?.success) toast({ title: opts.success, variant: "success" });
         if (opts?.closeOnDone) {
+          // A closed tab is a completed sale → re-lock so the next order needs a PIN.
+          await lockOperator({ businessId }).catch(() => {});
+          router.push(`/${businessId}/floor`);
+        } else {
+          router.refresh();
+        }
+      } catch (err) {
+        toast({
+          title: "Something went wrong",
+          description: err instanceof Error ? err.message : undefined,
+          variant: "error",
+        });
+      }
+    });
+  }
+
+  // Settle the tab (or split). QR/MANUAL settled by a cashier is gated server-side:
+  // the action returns { error } instead of throwing, and we open the manager-PIN
+  // prompt, then retry the SAME settlement with the PIN. CASH and self-approving
+  // operators settle straight through. No payment is written on a rejection, so a
+  // retry can't double-collect.
+  function handleSettle(args: SettleArgs, managerPin?: string) {
+    startTransition(async () => {
+      try {
+        const result = await settleTab({
+          businessId,
+          orderId: tab.orderId,
+          seats: args.seats === "all" ? undefined : args.seats,
+          method: args.method,
+          tipCents: args.tipCents,
+          cashTenderedCents: args.cashTenderedCents,
+          managerPin,
+        });
+        if ("error" in result) {
+          // Unverified tender needs a manager's PIN — open (or re-open) the prompt.
+          setPendingSettle(args);
+          setManagerPinPrompt({
+            pin: "",
+            error:
+              result.error === "invalid_manager_pin"
+                ? "Incorrect manager PIN. Ask a manager to approve."
+                : null,
+          });
+          return;
+        }
+        setManagerPinPrompt(null);
+        setPendingSettle(null);
+        toast({ title: args.willClose ? "Tab settled and closed" : "Payment taken", variant: "success" });
+        if (args.willClose) {
           // A closed tab is a completed sale → re-lock so the next order needs a PIN.
           await lockOperator({ businessId }).catch(() => {});
           router.push(`/${businessId}/floor`);
@@ -281,20 +349,23 @@ export function TableDetail({
           seatGroups={seatGroups.filter((g) => g.unsettledAmountCents > 0)}
           disabled={pending}
           onClose={() => setSettleOpen(false)}
-          onSettle={({ seats, method, tipCents, cashTenderedCents, willClose }) =>
-            run(
-              () =>
-                settleTab({
-                  businessId,
-                  orderId: tab.orderId,
-                  seats: seats === "all" ? undefined : seats,
-                  method,
-                  tipCents,
-                  cashTenderedCents,
-                }),
-              { closeOnDone: willClose, success: willClose ? "Tab settled and closed" : "Payment taken" },
-            )
-          }
+          onSettle={(args) => handleSettle(args)}
+        />
+      )}
+
+      {managerPinPrompt && pendingSettle && (
+        <ManagerApprovalPrompt
+          methodLabel={METHOD_LABELS[pendingSettle.method]}
+          amount={fmt(pendingSettle.dueCents)}
+          pin={managerPinPrompt.pin}
+          error={managerPinPrompt.error}
+          pending={pending}
+          onChangePin={(pin) => setManagerPinPrompt((cur) => (cur ? { ...cur, pin } : cur))}
+          onCancel={() => {
+            setManagerPinPrompt(null);
+            setPendingSettle(null);
+          }}
+          onSubmit={() => handleSettle(pendingSettle, managerPinPrompt.pin)}
         />
       )}
     </div>
@@ -743,7 +814,7 @@ function SettleDialog({
   seatGroups: { seat: SeatKey; unsettledAmountCents: number }[];
   disabled: boolean;
   onClose: () => void;
-  onSettle: (args: { seats: (number | null)[] | "all"; method: TenderMethod; tipCents: number; cashTenderedCents: number; willClose: boolean }) => void;
+  onSettle: (args: SettleArgs) => void;
 }) {
   const [mode, setMode] = useState<"whole" | "seats">("whole");
   const [selectedSeats, setSelectedSeats] = useState<Set<SeatKey>>(new Set());
@@ -919,10 +990,117 @@ function SettleDialog({
           <Button
             size="sm"
             disabled={disabled || !canPay}
-            onClick={() => onSettle({ seats, method, tipCents, cashTenderedCents: isCash ? tenderCents : 0, willClose })}
+            onClick={() => onSettle({ seats, method, tipCents, cashTenderedCents: isCash ? tenderCents : 0, dueCents, willClose })}
           >
             {disabled && <Loader2 size={15} className="animate-spin" />}
             {isCash ? "Take" : "Record"} {formatMoney(dueCents, currency)}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const PIN_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "back"] as const;
+
+/**
+ * Manager-PIN prompt shown when a cashier (an operator WITHOUT
+ * `approve_unverified_tender`) settles a tab with an UNVERIFIED tender (QR /
+ * Other). The PIN is verified SERVER-SIDE against a capability-holding member;
+ * this is only the entry surface. The settlement stays attributed to the tab —
+ * the manager merely authorizes. An operator who already holds the capability
+ * never sees this (the server approves silently). Mirrors the store register's
+ * ManagerApprovalPrompt (features/register/components/Register.tsx).
+ */
+function ManagerApprovalPrompt({
+  methodLabel,
+  amount,
+  pin,
+  error,
+  pending,
+  onChangePin,
+  onCancel,
+  onSubmit,
+}: {
+  methodLabel: string;
+  amount: string;
+  pin: string;
+  error: string | null;
+  pending: boolean;
+  onChangePin: (pin: string) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  function press(key: string) {
+    if (key === "back") onChangePin(pin.slice(0, -1));
+    else if (/^\d$/.test(key) && pin.length < PIN_MAX_LENGTH) onChangePin(pin + key);
+  }
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(isOpen) => {
+        if (!isOpen && !pending) onCancel();
+      }}
+    >
+      <DialogContent aria-label="Manager approval required" className="max-w-sm">
+        <DialogHeader>
+          <div className="mx-auto mb-1 flex h-12 w-12 items-center justify-center rounded-full bg-primary/15 text-primary">
+            <Lock size={22} />
+          </div>
+          <DialogTitle className="text-center">Manager approval</DialogTitle>
+          <DialogDescription className="text-center">
+            {methodLabel} is an unverified tender. A manager must enter their PIN to approve{" "}
+            <span className="numeric font-semibold">{amount}</span>.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div
+          className={cn(
+            "mb-3 flex h-14 items-center justify-center rounded-lg border bg-card text-2xl font-black tracking-[0.3em]",
+            error ? "border-destructive/60" : "border-border",
+          )}
+          aria-live="polite"
+        >
+          {pin.replace(/./g, "•") || (
+            <span className="text-base font-normal text-muted-foreground">····</span>
+          )}
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {PIN_KEYS.map((key, i) =>
+            key === "" ? (
+              <div key={i} />
+            ) : (
+              <button
+                key={i}
+                type="button"
+                onClick={() => press(key)}
+                disabled={pending}
+                aria-label={key === "back" ? "Delete" : key}
+                className="flex h-14 items-center justify-center rounded-md border border-border bg-card text-xl font-bold transition-colors hover:bg-muted active:scale-[0.98] disabled:opacity-50"
+              >
+                {key === "back" ? <Delete size={20} /> : key}
+              </button>
+            ),
+          )}
+        </div>
+
+        {error && (
+          <p className="mt-3 text-center text-sm font-medium text-destructive" role="alert">
+            {error}
+          </p>
+        )}
+
+        <DialogFooter className="mt-4">
+          <Button variant="outline" onClick={onCancel} disabled={pending} className="flex-1">
+            Cancel
+          </Button>
+          <Button
+            onClick={onSubmit}
+            disabled={pending || pin.length < PIN_MIN_LENGTH}
+            className="flex-1"
+          >
+            {pending ? "Checking…" : "Approve"}
           </Button>
         </DialogFooter>
       </DialogContent>

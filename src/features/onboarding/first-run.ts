@@ -79,8 +79,13 @@ export function checklistSteps(
   if (caps.canManageProducts) {
     steps.push({
       key: "item",
+      // A sample item ships in every new catalog, so the register already works —
+      // this step nudges the merchant to add a REAL product (the seed doesn't
+      // complete it; see getFirstRunState). Copy makes that "sell now" clear.
       title: "Add your first item",
-      description: "Build your catalog so there's something to tap on the register.",
+      description: state.hasItems
+        ? "Your catalog is ready to sell."
+        : "You can sell the sample item right now — add your own products when you're ready.",
       href: "products",
       cta: state.hasItems ? "Add more" : "Add item",
       done: state.hasItems,
