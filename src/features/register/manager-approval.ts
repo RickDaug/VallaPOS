@@ -1,7 +1,12 @@
 import "server-only";
 
 import { db } from "@/lib/db";
-import { assertNotLocked, recordFailure, recordSuccess } from "@/lib/pin-throttle";
+import {
+  assertApprovalNotLocked,
+  recordApprovalFailure,
+  recordApprovalSuccess,
+  recordSuccess,
+} from "@/lib/pin-throttle";
 import { verifyPin } from "@/features/employees/pin";
 
 /**
@@ -31,17 +36,34 @@ export const APPROVE_UNVERIFIED_TENDER = "approve_unverified_tender" as const;
 /**
  * True iff `pin` matches an active, capability-holding member of `businessId`.
  *
- * Iterates the (typically few) capability-holders with a PIN set, honoring each
- * one's throttle/lockout independently. Returns false — never throws — for an
- * empty/locked/non-matching set so a brute-forcer learns nothing (mirrors
- * verifyMemberPin's anti-enumeration contract). Returns false if NO member can
- * approve (the business has no manager/owner PIN configured): the override is
- * unavailable rather than implicitly granted.
+ * Brute-force protection lives on a SEPARATE, business-scoped APPROVAL throttle
+ * namespace — never on the candidate managers' personal PIN keys. A wrong
+ * approval PIN records a SINGLE failure against that approval namespace; it must
+ * NOT record a failure against every non-matching manager, because those
+ * personal keys are shared with the operator-unlock / clock-in / verifyMemberPin
+ * throttle and doing so would let ordinary (even legitimate) approval traffic
+ * lock innocent owners/managers out of their own register/clock — a
+ * self-inflicted lockout with no attacker (see HIGH #8).
+ *
+ * Returns false — never throws — for an empty/locked/non-matching set so a
+ * brute-forcer learns nothing (mirrors verifyMemberPin's anti-enumeration
+ * contract). Returns false if NO member can approve (the business has no
+ * manager/owner PIN configured): the override is unavailable rather than
+ * implicitly granted.
  */
 export async function verifyManagerApproval(
   businessId: string,
   pin: string,
 ): Promise<boolean> {
+  // Rate-limit the approval SURFACE itself (not any manager's personal PIN
+  // throttle): once too many wrong approval PINs have been entered for this
+  // business recently, deny generically without even hitting the DB.
+  try {
+    await assertApprovalNotLocked(businessId);
+  } catch {
+    return false;
+  }
+
   // Members who can approve: an OWNER (all-access) or anyone whose stored
   // permissions include the capability. Active + PIN set. Tenant-scoped.
   const candidates = await db.membership.findMany({
@@ -55,19 +77,18 @@ export async function verifyManagerApproval(
   });
 
   for (const candidate of candidates) {
-    // Skip a candidate that is currently locked out; try the rest.
-    try {
-      await assertNotLocked(businessId, candidate.id);
-    } catch {
-      continue;
-    }
     if (verifyPin(pin, candidate.pinHash)) {
+      // Matched: authorize. Clear the approval counter, and reset ONLY this
+      // manager's own throttle (a correct PIN is proof of identity) — no other
+      // manager's key is touched.
       await recordSuccess(businessId, candidate.id);
+      await recordApprovalSuccess(businessId);
       return true;
     }
-    // A wrong guess against this candidate counts toward ITS lockout — the same
-    // throttle that protects the operator-unlock PIN entry.
-    await recordFailure(businessId, candidate.id);
   }
+
+  // Matched no capable manager: record a SINGLE failure against the approval
+  // namespace — never against any individual manager's personal PIN key.
+  await recordApprovalFailure(businessId);
   return false;
 }

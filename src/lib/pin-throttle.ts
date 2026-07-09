@@ -33,6 +33,17 @@ function key(businessId: string, membershipId: string): string {
   return `pin-throttle:${businessId}:${membershipId}`;
 }
 
+/**
+ * Throttle key for the manager-APPROVAL surface (unverified-tender override),
+ * kept in a namespace DISTINCT from any member's personal PIN key so a wrong
+ * approval PIN rate-limits the approval attempt itself without ever touching —
+ * and locking — a real manager's own unlock/clock-in throttle. Scoped per
+ * business (membership IDs are cuids, so the literal `approval` never collides).
+ */
+function approvalKey(businessId: string): string {
+  return `pin-throttle:approval:${businessId}`;
+}
+
 type Entry = { count: number; lockedUntil: number; expiresAt: number };
 
 /** Lazily created singleton Redis client, or `null` when Upstash isn't configured. */
@@ -71,7 +82,53 @@ export async function assertNotLocked(
   businessId: string,
   membershipId: string,
 ): Promise<void> {
-  const k = key(businessId, membershipId);
+  return assertKeyNotLocked(key(businessId, membershipId));
+}
+
+/**
+ * Record a failed PIN attempt. Increments the consecutive-failure counter within
+ * the sliding window and locks the membership once it reaches `MAX_FAILURES`.
+ */
+export async function recordFailure(
+  businessId: string,
+  membershipId: string,
+): Promise<void> {
+  return recordKeyFailure(key(businessId, membershipId));
+}
+
+/** Reset the counter/lockout after a successful PIN verification. */
+export async function recordSuccess(
+  businessId: string,
+  membershipId: string,
+): Promise<void> {
+  return recordKeySuccess(key(businessId, membershipId));
+}
+
+/**
+ * Manager-APPROVAL throttle: same window/threshold/cool-down as the per-member
+ * throttle above, but keyed on a SEPARATE `approval:` namespace (see
+ * `approvalKey`). A wrong approval PIN increments only this business-scoped
+ * approval counter, so it can be rate-limited without ever counting a failure
+ * against — or locking out — an individual manager's personal unlock/clock-in
+ * PIN key.
+ */
+export async function assertApprovalNotLocked(businessId: string): Promise<void> {
+  return assertKeyNotLocked(approvalKey(businessId));
+}
+
+/** Record a failed manager-approval attempt against the approval namespace. */
+export async function recordApprovalFailure(businessId: string): Promise<void> {
+  return recordKeyFailure(approvalKey(businessId));
+}
+
+/** Clear the approval-namespace counter/lockout after a successful approval. */
+export async function recordApprovalSuccess(businessId: string): Promise<void> {
+  return recordKeySuccess(approvalKey(businessId));
+}
+
+// --- Key-based primitives shared by every namespace above ------------------
+
+async function assertKeyNotLocked(k: string): Promise<void> {
   const redis = getRedis();
   const now = Date.now();
 
@@ -85,15 +142,7 @@ export async function assertNotLocked(
   if (entry && entry.lockedUntil > now) throw new Error("PIN entry temporarily locked.");
 }
 
-/**
- * Record a failed PIN attempt. Increments the consecutive-failure counter within
- * the sliding window and locks the membership once it reaches `MAX_FAILURES`.
- */
-export async function recordFailure(
-  businessId: string,
-  membershipId: string,
-): Promise<void> {
-  const k = key(businessId, membershipId);
+async function recordKeyFailure(k: string): Promise<void> {
   const redis = getRedis();
   const now = Date.now();
 
@@ -117,12 +166,7 @@ export async function recordFailure(
   memStore.set(k, { count, lockedUntil, expiresAt: now + ttl * 1000 });
 }
 
-/** Reset the counter/lockout after a successful PIN verification. */
-export async function recordSuccess(
-  businessId: string,
-  membershipId: string,
-): Promise<void> {
-  const k = key(businessId, membershipId);
+async function recordKeySuccess(k: string): Promise<void> {
   const redis = getRedis();
   if (redis) {
     await redis.del(k);
