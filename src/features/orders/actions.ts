@@ -20,6 +20,7 @@ import {
   planPartialRefund,
   netCollectedTotal,
   type PaymentMovement,
+  type ReversingPayment,
 } from "./refund";
 import type { OrderStatus, PaymentMethod } from "@prisma/client";
 
@@ -82,7 +83,21 @@ export async function emailReceipt(input: EmailReceiptInput): Promise<EmailRecei
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type RefundVoidResult =
-  | { ok: true; status: OrderStatus; reversedCents: number }
+  | {
+      ok: true;
+      status: OrderStatus;
+      reversedCents: number;
+      // Cash physically returned from the till (drawer-reconciled). Always set by
+      // refundOrder/voidOrder; optional only so existing result literals (e.g. in
+      // unit tests / callers that don't inspect it) stay assignable.
+      cashRefundedCents?: number;
+      // QR/MANUAL portion: a negative Payment is RECORDED to reverse the sale in
+      // the books, but there is no PSP to move money, so the operator must settle
+      // it by hand. Surfaced (not silently implied as settled) so the UI can say
+      // "manual refund required".
+      manualRefundCents?: number;
+      manualRefundRequired?: boolean;
+    }
   | {
       ok: false;
       reason:
@@ -93,6 +108,25 @@ export type RefundVoidResult =
         | "amount_not_positive"
         | "exceeds_net_collected";
     };
+
+/**
+ * Split reversal magnitudes into the cash that leaves the till vs the QR/MANUAL
+ * portion that has no PSP and therefore needs a MANUAL refund by the operator.
+ */
+function classifyRefund(reversals: ReversingPayment[]): {
+  cashRefundedCents: number;
+  manualRefundCents: number;
+  manualRefundRequired: boolean;
+} {
+  let cashRefundedCents = 0;
+  let manualRefundCents = 0;
+  for (const r of reversals) {
+    const magnitude = -r.amountCents; // reversals are negative
+    if (r.method === "CASH") cashRefundedCents += magnitude;
+    else manualRefundCents += magnitude;
+  }
+  return { cashRefundedCents, manualRefundCents, manualRefundRequired: manualRefundCents > 0 };
+}
 
 /** Statuses that are already terminal for refund/void purposes. */
 const SETTLED: ReadonlySet<OrderStatus> = new Set<OrderStatus>(["VOIDED", "REFUNDED"]);
@@ -124,10 +158,13 @@ export async function voidOrder(input: VoidOrderInput): Promise<RefundVoidResult
     const reversals = planFullReversal(movements);
     const reversedCents = -reversals.reduce((s, r) => s + r.amountCents, 0);
 
+    // A cash reversal takes money out of the till, so it must land in an OPEN
+    // drawer session (throws when none is open — see assertOpenDrawerForCash).
+    await assertOpenDrawerForCash(tx, ctx.businessId, reversals);
     await applyReversal(tx, ctx.businessId, order.id, order.payments, reversals, "VOIDED");
 
     revalidatePaths(ctx.businessId, order.id);
-    return { ok: true, status: "VOIDED", reversedCents };
+    return { ok: true, status: "VOIDED", reversedCents, ...classifyRefund(reversals) };
   });
 }
 
@@ -165,9 +202,10 @@ export async function refundOrder(input: RefundOrderInput): Promise<RefundVoidRe
       const reversals = planFullReversal(movements);
       if (reversals.length === 0) return { ok: false, reason: "nothing_collected" };
       const reversedCents = -reversals.reduce((s, r) => s + r.amountCents, 0);
+      await assertOpenDrawerForCash(tx, ctx.businessId, reversals);
       await applyReversal(tx, ctx.businessId, order.id, order.payments, reversals, "REFUNDED");
       revalidatePaths(ctx.businessId, order.id);
-      return { ok: true, status: "REFUNDED", reversedCents };
+      return { ok: true, status: "REFUNDED", reversedCents, ...classifyRefund(reversals) };
     }
 
     // PARTIAL refund: reverse exactly `amountCents`, validated against net-collected.
@@ -184,6 +222,7 @@ export async function refundOrder(input: RefundOrderInput): Promise<RefundVoidRe
     const remainingAfter = netCollectedTotal(movements) - reversedCents;
     const nextStatus: OrderStatus = remainingAfter <= 0 ? "REFUNDED" : "PARTIALLY_REFUNDED";
 
+    await assertOpenDrawerForCash(tx, ctx.businessId, plan.reversals);
     await applyReversal(
       tx,
       ctx.businessId,
@@ -195,11 +234,33 @@ export async function refundOrder(input: RefundOrderInput): Promise<RefundVoidRe
       nextStatus,
     );
     revalidatePaths(ctx.businessId, order.id);
-    return { ok: true, status: nextStatus, reversedCents };
+    return { ok: true, status: nextStatus, reversedCents, ...classifyRefund(plan.reversals) };
   });
 }
 
 type Tx = Parameters<Parameters<typeof db.$transaction>[0]>[0];
+
+/**
+ * A cash refund/void physically removes money from the till. The drawer and
+ * Z-report now key cash by PAYMENT time, so a cash reversal recorded while NO
+ * drawer is open would never be reconciled against any session. Guard it: when
+ * any reversal is CASH, require an open drawer session for the business (scoped
+ * by businessId) and THROW (like the capability guard) when there is none, so
+ * the whole transaction rolls back and nothing is written.
+ */
+async function assertOpenDrawerForCash(
+  tx: Tx,
+  businessId: string,
+  reversals: ReversingPayment[],
+): Promise<void> {
+  const hasCash = reversals.some((r) => r.method === "CASH" && r.amountCents < 0);
+  if (!hasCash) return;
+  const open = await tx.cashDrawerSession.findFirst({
+    where: { businessId, closedAt: null },
+    select: { id: true },
+  });
+  if (!open) throw new Error("NO_OPEN_DRAWER_FOR_CASH_REFUND");
+}
 
 /**
  * Write the reversing negative Payment rows, optionally mark the original

@@ -97,17 +97,58 @@ describe("planPartialRefund", () => {
     expect(plan).toEqual({ ok: true, reversals: [{ method: "CASH", amountCents: -300 }] });
   });
 
-  it("drains the largest balance first, ties broken by method name", () => {
-    // CARD 1500 (largest) drained first, then CASH 1000.
+  it("allocates proportionally across the actual tenders (rows largest first)", () => {
+    // total 2500; a 2000 refund splits 1500/2500 to CARD and 1000/2500 to CASH.
     const plan = planPartialRefund([pay("CASH", 1000), pay("CARD", 1500)], 2000);
     expect(plan.ok).toBe(true);
     if (plan.ok) {
       expect(plan.reversals).toEqual([
-        { method: "CARD", amountCents: -1500 },
-        { method: "CASH", amountCents: -500 },
+        { method: "CARD", amountCents: -1200 },
+        { method: "CASH", amountCents: -800 },
       ]);
       const sum = -plan.reversals.reduce((s, r) => s + r.amountCents, 0);
       expect(sum).toBe(2000);
+    }
+  });
+
+  it("SAFE split-tender: never refunds the whole amount as cash on a cash+QR order", () => {
+    // Customer paid half cash, half QR. A 500 refund must NOT come back as 500
+    // cash (the old 'largest balance first' policy did exactly that on a tie).
+    const plan = planPartialRefund([pay("CASH", 500), pay("QR", 500)], 500);
+    expect(plan.ok).toBe(true);
+    if (plan.ok) {
+      // Proportional: 250 off each tender. No method exceeds what was paid on it.
+      expect(plan.reversals).toEqual([
+        { method: "CASH", amountCents: -250 },
+        { method: "QR", amountCents: -250 },
+      ]);
+    }
+  });
+
+  it("distributes leftover cents by largest fractional part (ties by method name)", () => {
+    // 51 across two equal 100 balances → 25.5 each; the odd cent goes to CASH
+    // (tie on fraction, CASH sorts before QR). Reversals still sum to -51.
+    const plan = planPartialRefund([pay("CASH", 100), pay("QR", 100)], 51);
+    expect(plan.ok).toBe(true);
+    if (plan.ok) {
+      expect(plan.reversals).toEqual([
+        { method: "CASH", amountCents: -26 },
+        { method: "QR", amountCents: -25 },
+      ]);
+      const sum = -plan.reversals.reduce((s, r) => s + r.amountCents, 0);
+      expect(sum).toBe(51);
+    }
+  });
+
+  it("never allocates a method more than its balance (proportional cap)", () => {
+    // A tiny-cash / big-QR order: a large refund can't over-draw the 5c of cash.
+    const plan = planPartialRefund([pay("CASH", 5), pay("QR", 995)], 900);
+    expect(plan.ok).toBe(true);
+    if (plan.ok) {
+      const cash = plan.reversals.find((r) => r.method === "CASH");
+      expect(-(cash?.amountCents ?? 0)).toBeLessThanOrEqual(5);
+      const sum = -plan.reversals.reduce((s, r) => s + r.amountCents, 0);
+      expect(sum).toBe(900);
     }
   });
 

@@ -213,10 +213,13 @@ export function centsToAmount(cents: number): string {
 
 /**
  * Neutralize CSV formula injection in a USER-CONTROLLED TEXT cell. A spreadsheet
- * evaluates any cell beginning with `= + - @` (or a leading tab/CR) as a
- * formula, so a malicious item/category name like `=cmd|...` could run on open.
- * Prefix such a cell with a single quote `'` so the spreadsheet treats it as
- * literal text.
+ * evaluates any cell beginning with `= + - @` as a formula. It also STRIPS a
+ * leading control char (tab, CR, LF/newline, vertical tab, form feed) before
+ * parsing, so a value like `"\n=1+1"` still evaluates -- and RFC-4180 quoting
+ * for the newline does NOT stop that. So a malicious item/category name like
+ * `=cmd|...` OR `\n=cmd|...` could run on open; we neutralize any leading
+ * formula trigger or C0 control char by prefixing the cell with a single quote
+ * `'` so the spreadsheet treats it as literal text.
  *
  * IMPORTANT: apply this ONLY to text cells (item name, category). It must NOT
  * touch numeric/amount cells: `centsToAmount` legitimately emits values like
@@ -224,7 +227,10 @@ export function centsToAmount(cents: number): string {
  * and break `SUM()` in the exported report.
  */
 export function sanitizeTextCell(s: string): string {
-  return /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+  // Formula triggers (= + - @) OR any leading C0 control char (\x00-\x1f, which
+  // includes \t, \n and \r): a leading control char is stripped before the
+  // spreadsheet parses the cell, so a leading newline must be neutralized too.
+  return /^[=+\-@]/.test(s) || /^[\x00-\x1f]/.test(s) ? `'${s}` : s;
 }
 
 /** Escape one CSV field per RFC 4180 (quote if it contains comma/quote/newline). */

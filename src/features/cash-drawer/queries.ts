@@ -67,12 +67,17 @@ export async function listDrawerSessions(
 
 /**
  * NET cash that moved through the drawer since it opened: the sum of CASH
- * `Payment.amountCents` on this business's orders created in [openedAt, end),
+ * `Payment.amountCents` whose OWN `createdAt` falls in [openedAt, end),
  * counted by ACTUAL payment movements (status-agnostic) so the negative
  * reversing payments written by a cash refund/void are INCLUDED — a cash refund
- * therefore reduces expected drawer cash. This matches the Z-report's
- * `cashCollectedCents` (CASH payment movements, refunds included) exactly, so
- * the drawer and the report never disagree. Scoped tightly by businessId.
+ * therefore reduces expected drawer cash.
+ *
+ * The window is keyed on PAYMENT time, not the order's creation time: a tab
+ * opened before this session but settled in cash during it still lands in this
+ * drawer, and a cash refund taken today against an older order lands in today's
+ * window (never retroactively in an already-closed session). This matches the
+ * Z-report's `cashCollectedCents` (also keyed on payment time) exactly, so the
+ * drawer and the report never disagree. Scoped tightly by businessId.
  */
 export async function getCashCollectedSince(
   businessId: string,
@@ -84,10 +89,12 @@ export async function getCashCollectedSince(
     where: {
       businessId,
       method: "CASH",
-      // No status filter: a refund's negative CASH payment must net out the
-      // drawer. Scope by the ORDER's creation window (same window the Z-report
-      // uses), tenant-scoped on both the payment and the order.
-      order: { businessId, createdAt: { gte: openedAt, lt: end } },
+      // Key the window on the PAYMENT's own timestamp so cash settlement time
+      // (not order-open time) decides the drawer session. No status filter: a
+      // refund's negative CASH payment must net out the drawer. Tenant-scoped on
+      // both the payment and its order.
+      createdAt: { gte: openedAt, lt: end },
+      order: { businessId },
     },
   });
   return agg._sum.amountCents ?? 0;
