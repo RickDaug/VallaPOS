@@ -17,6 +17,7 @@ import {
 import { NumberPad } from "@/components/ui/number-pad";
 import { useToast } from "@/components/ui/toast";
 import { dollarsToCents, quickTenderOptions } from "@/features/register/tender";
+import { TENDER_METHODS, type TenderMethod } from "@/features/register/schema";
 import { formatMoney } from "@/lib/money";
 import { groupBySeat, planSettlement, tabTotals, type TabLine } from "@/features/tabs/tab-math";
 import {
@@ -42,6 +43,9 @@ type SeatKey = number | null;
 function seatLabel(seat: SeatKey): string {
   return seat === null ? "Shared" : `Seat ${seat}`;
 }
+
+/** Human labels for the tender methods, mirroring the store register's wording. */
+const METHOD_LABELS: Record<TenderMethod, string> = { CASH: "Cash", QR: "QR", MANUAL: "Other" };
 
 export function TableDetail({
   businessId,
@@ -277,13 +281,14 @@ export function TableDetail({
           seatGroups={seatGroups.filter((g) => g.unsettledAmountCents > 0)}
           disabled={pending}
           onClose={() => setSettleOpen(false)}
-          onSettle={({ seats, tipCents, cashTenderedCents, willClose }) =>
+          onSettle={({ seats, method, tipCents, cashTenderedCents, willClose }) =>
             run(
               () =>
                 settleTab({
                   businessId,
                   orderId: tab.orderId,
                   seats: seats === "all" ? undefined : seats,
+                  method,
                   tipCents,
                   cashTenderedCents,
                 }),
@@ -738,12 +743,16 @@ function SettleDialog({
   seatGroups: { seat: SeatKey; unsettledAmountCents: number }[];
   disabled: boolean;
   onClose: () => void;
-  onSettle: (args: { seats: (number | null)[] | "all"; tipCents: number; cashTenderedCents: number; willClose: boolean }) => void;
+  onSettle: (args: { seats: (number | null)[] | "all"; method: TenderMethod; tipCents: number; cashTenderedCents: number; willClose: boolean }) => void;
 }) {
   const [mode, setMode] = useState<"whole" | "seats">("whole");
   const [selectedSeats, setSelectedSeats] = useState<Set<SeatKey>>(new Set());
+  // Tender method mirrors the store register (CASH | QR | MANUAL "Other"). CASH
+  // requires cash ≥ due and shows change; QR/MANUAL take the payment out-of-band.
+  const [method, setMethod] = useState<TenderMethod>("CASH");
   const [tipStr, setTipStr] = useState("");
   const [tenderStr, setTenderStr] = useState("");
+  const isCash = method === "CASH";
 
   const seats: (number | null)[] | "all" =
     mode === "whole" ? "all" : Array.from(selectedSeats);
@@ -766,8 +775,10 @@ function SettleDialog({
   const tipCents = dollarsToCents(tipStr);
   const dueCents = amountCents + tipCents;
   const tenderCents = dollarsToCents(tenderStr);
-  const changeCents = Math.max(tenderCents - dueCents, 0);
-  const canPay = !planError && amountCents > 0 && tenderCents >= dueCents;
+  // Change + the cash-covers-due requirement only apply to a CASH tender; QR/MANUAL
+  // record the amount as taken out-of-band (no tender, no change).
+  const changeCents = isCash ? Math.max(tenderCents - dueCents, 0) : 0;
+  const canPay = !planError && amountCents > 0 && (!isCash || tenderCents >= dueCents);
 
   function toggleSeat(seat: SeatKey) {
     setSelectedSeats((prev) => {
@@ -825,6 +836,21 @@ function SettleDialog({
             </div>
           )}
 
+          {/* Tender method — mirrors the store register's CASH | QR | Other set. */}
+          <div className="grid grid-cols-3 gap-2" role="group" aria-label="Payment method">
+            {TENDER_METHODS.map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMethod(m)}
+                aria-pressed={method === m}
+                className={`h-10 rounded-md border text-sm font-medium transition-colors active:scale-[0.98] ${method === m ? "border-primary bg-primary/10" : "border-input hover:bg-muted"}`}
+              >
+                {METHOD_LABELS[m]}
+              </button>
+            ))}
+          </div>
+
           <div className="rounded-lg bg-muted p-3 text-sm">
             <div className="flex justify-between">
               <span>Amount due</span>
@@ -840,37 +866,47 @@ function SettleDialog({
               <span>Total</span>
               <span className="numeric font-bold">{formatMoney(dueCents, currency)}</span>
             </div>
-            <div className="flex justify-between text-success">
-              <span>Change</span>
-              <span className="numeric">{formatMoney(changeCents, currency)}</span>
-            </div>
+            {isCash && (
+              <div className="flex justify-between text-success">
+                <span>Change</span>
+                <span className="numeric">{formatMoney(changeCents, currency)}</span>
+              </div>
+            )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className={cn("grid gap-3", isCash ? "grid-cols-2" : "grid-cols-1")}>
             <div>
               <Label htmlFor="tip">Tip ($)</Label>
               <Input id="tip" inputMode="decimal" className="numeric" value={tipStr} onChange={(e) => setTipStr(e.target.value)} placeholder="0.00" />
             </div>
-            <div>
-              <Label htmlFor="tender">Cash ($)</Label>
-              <Input id="tender" inputMode="decimal" className="numeric" value={tenderStr} onChange={(e) => setTenderStr(e.target.value)} placeholder="0.00" />
-            </div>
+            {isCash && (
+              <div>
+                <Label htmlFor="tender">Cash ($)</Label>
+                <Input id="tender" inputMode="decimal" className="numeric" value={tenderStr} onChange={(e) => setTenderStr(e.target.value)} placeholder="0.00" />
+              </div>
+            )}
           </div>
 
-          <div className="flex flex-wrap gap-1.5">
-            {quickTenderOptions(dueCents).map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setTenderStr((c / 100).toFixed(2))}
-                className="rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted"
-              >
-                {formatMoney(c, currency)}
-              </button>
-            ))}
-          </div>
+          {/* Cash-only aids: quick-tender chips + number pad. QR/Other take the
+              payment out-of-band, so there's no cash to count. */}
+          {isCash && (
+            <>
+              <div className="flex flex-wrap gap-1.5">
+                {quickTenderOptions(dueCents).map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setTenderStr((c / 100).toFixed(2))}
+                    className="rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted"
+                  >
+                    {formatMoney(c, currency)}
+                  </button>
+                ))}
+              </div>
 
-          <NumberPad value={tenderStr} onChange={setTenderStr} />
+              <NumberPad value={tenderStr} onChange={setTenderStr} />
+            </>
+          )}
 
           {planError && <p className="text-sm font-medium text-destructive">{planError}</p>}
           {willClose && !planError && <p className="text-xs text-muted-foreground">This settles the last items — the tab will close.</p>}
@@ -883,10 +919,10 @@ function SettleDialog({
           <Button
             size="sm"
             disabled={disabled || !canPay}
-            onClick={() => onSettle({ seats, tipCents, cashTenderedCents: tenderCents, willClose })}
+            onClick={() => onSettle({ seats, method, tipCents, cashTenderedCents: isCash ? tenderCents : 0, willClose })}
           >
             {disabled && <Loader2 size={15} className="animate-spin" />}
-            Take {formatMoney(dueCents, currency)}
+            {isCash ? "Take" : "Record"} {formatMoney(dueCents, currency)}
           </Button>
         </DialogFooter>
       </DialogContent>

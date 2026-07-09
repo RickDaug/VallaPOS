@@ -22,8 +22,10 @@
  * `(businessId, deviceToken)`, so a wrong/foreign token sees an empty queue. The
  * handler is intentionally defensive + cheap (no DB, no session, bounded work).
  *
- * The queue store is the in-memory singleton (`getCloudPrntStore`) — ⚠ NOT durable
- * on serverless (see `cloudprnt.ts`). Production swaps in an Upstash/DB store.
+ * The queue store comes from `getCloudPrntStore()`, which PREFERS the durable
+ * Upstash-Redis backend and only falls back to the in-memory store when Upstash
+ * is unconfigured (loudly warning in serverless/prod — see `cloudprnt-store.ts`).
+ * This handler is storage-agnostic: both backends implement the same `QueueStore`.
  */
 
 import {

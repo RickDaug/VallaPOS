@@ -53,11 +53,29 @@ describe("whereMentionsBusinessId", () => {
     expect(whereMentionsBusinessId({ businessId: { equals: "b1" } })).toBe(true);
   });
 
-  it("detects businessId nested inside AND / OR / NOT combinators", () => {
+  it("detects businessId nested inside AND / OR combinators", () => {
     expect(whereMentionsBusinessId({ AND: [{ active: true }, { businessId: "b1" }] })).toBe(true);
     expect(whereMentionsBusinessId({ OR: [{ businessId: "b1" }, { businessId: "b2" }] })).toBe(true);
-    expect(whereMentionsBusinessId({ NOT: { businessId: "b1" } })).toBe(true);
     expect(whereMentionsBusinessId({ AND: [{ role: "OWNER" }, { OR: [{ businessId: "b" }] }] })).toBe(true);
+  });
+
+  // R3-#4 (RESIDUAL 1, negation case): a businessId reachable ONLY through a
+  // logical `NOT` matches every OTHER tenant — the opposite of a scope — so it must
+  // NOT count as scoped.
+  it("does NOT count a businessId reachable only through a NOT combinator", () => {
+    expect(whereMentionsBusinessId({ NOT: { businessId: "b1" } })).toBe(false);
+    expect(whereMentionsBusinessId({ NOT: { businessId: { in: ["b1", "b2"] } } })).toBe(false);
+    expect(whereMentionsBusinessId({ AND: [{ NOT: { businessId: "b1" } }] })).toBe(false);
+  });
+
+  it("still passes a real scope that merely coexists with a NOT clause", () => {
+    // Top-level businessId (un-negated) plus an unrelated NOT is fine.
+    expect(whereMentionsBusinessId({ businessId: "b1", NOT: { status: "PAID" } })).toBe(true);
+    // A field-level `not` operator (lowercase) is NOT the logical combinator and
+    // does not negate the surrounding scope — the common `{ businessId, id: { not } }`.
+    expect(whereMentionsBusinessId({ businessId: "b1", id: { not: "o1" } })).toBe(true);
+    // A double NOT un-negates, matching Prisma's evaluation.
+    expect(whereMentionsBusinessId({ NOT: { NOT: { businessId: "b1" } } })).toBe(true);
   });
 
   it("returns false for a nested where that never mentions businessId", () => {

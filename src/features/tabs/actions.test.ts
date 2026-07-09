@@ -285,6 +285,41 @@ describe("settleTab", () => {
     expect(paymentCreate).not.toHaveBeenCalled();
   });
 
+  it("defaults the payment method to CASH with tender + change", async () => {
+    orderFindFirst.mockResolvedValue(openOrder);
+    await settleTab({ businessId: BUSINESS_ID, orderId: "order_1", tipCents: 0, cashTenderedCents: 2000 });
+    const pay = paymentCreate.mock.calls[0]![0].data;
+    expect(pay.method).toBe("CASH");
+    expect(pay.tenderedCents).toBe(2000);
+    expect(pay.changeCents).toBe(2000 - 1624);
+  });
+
+  it("settles with QR out-of-band (no tender, no change, no cash-cover check)", async () => {
+    orderFindFirst.mockResolvedValue(openOrder);
+    // No cash is sent for QR; the out-of-band guard must NOT reject it.
+    const res = await settleTab({ businessId: BUSINESS_ID, orderId: "order_1", method: "QR", tipCents: 0, cashTenderedCents: 0 });
+    const pay = paymentCreate.mock.calls[0]![0].data;
+    expect(pay.method).toBe("QR");
+    expect(pay.tenderedCents).toBeNull();
+    expect(pay.changeCents).toBe(0);
+    expect(pay.amountCents).toBe(1624); // still the server-computed amount + tip
+    expect(res.changeCents).toBe(0);
+    expect(res.closed).toBe(true);
+  });
+
+  it("settles with MANUAL (Other) out-of-band, including a tip", async () => {
+    orderFindFirst.mockResolvedValue(openOrder);
+    orderLineUpdateMany.mockResolvedValue({ count: 1 });
+    orderLineCount.mockResolvedValue(1);
+    const res = await settleTab({ businessId: BUSINESS_ID, orderId: "order_1", seats: [1], method: "MANUAL", tipCents: 200, cashTenderedCents: 0 });
+    const pay = paymentCreate.mock.calls[0]![0].data;
+    expect(pay.method).toBe("MANUAL");
+    expect(pay.tenderedCents).toBeNull();
+    expect(pay.amountCents).toBe(1083 + 200); // seat-1 goods + tip
+    expect(res.changeCents).toBe(0);
+    expect(res.closed).toBe(false);
+  });
+
   it("throws when the tab isn't this business's open order (tenant scope)", async () => {
     orderFindFirst.mockResolvedValue(null);
     await expect(
