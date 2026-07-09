@@ -115,8 +115,19 @@ export function parseMoneyToCents(input: string): number | null {
     } else {
       s = parts.join("");
     }
+  } else if (hasDot) {
+    // Only dots. Symmetric to the comma rule so LATAM dot-grouping parses right:
+    // a single dot with exactly 1-2 trailing digits is a decimal point ("9.99"),
+    // so it's left as-is; ANY other dot use is a thousands grouping to strip
+    // ("1.234" → 1234, "1.234.567" → 1234567). Without this, "1.234" wrongly
+    // parsed as 1.234 (≈$1.23) instead of $1,234.00.
+    const parts = s.split(".");
+    const last = parts[parts.length - 1]!;
+    if (!(parts.length === 2 && last.length > 0 && last.length <= 2)) {
+      s = parts.join("");
+    }
   }
-  // else: only dots (or none) — already a valid JS number form.
+  // else: no separators — already a valid integer form.
 
   const value = Number(s);
   if (!Number.isFinite(value) || value < 0) return null;
@@ -257,10 +268,13 @@ export function parseModifierLines(text: string): ModifierParseResult {
       name = n!.trim();
       priceStr = p.trim();
     } else {
-      // A trailing token that is a bare number, or starts with + / $, is taken
-      // as the price. Starting with +/$ means "I meant a price" — so "Cheese
-      // +abc" is caught as a BAD price rather than silently becoming a name.
-      const m = line.match(/^(.+?)[\s:]+([+$]\S*|[\d.,]+)$/);
+      // A trailing token is taken as the price ONLY when it clearly looks like
+      // one: it starts with + / $ ("+0.75", "$2" — "I meant a price", so "Cheese
+      // +abc" is caught as a BAD price rather than silently becoming a name), OR
+      // it's a number carrying a decimal separator ("0.75", "1,50"). A BARE
+      // integer is NOT a price, so a name like "Combo 2" keeps its trailing
+      // number instead of being mis-split into "Combo" +$2 (audit R4 #3).
+      const m = line.match(/^(.+?)[\s:]+([+$]\S*|\d*[.,]\d+)$/);
       if (m) {
         name = m[1]!.trim();
         priceStr = m[2]!.trim();

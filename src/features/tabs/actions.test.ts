@@ -29,6 +29,15 @@ vi.mock("@/lib/operator-guard", () => ({
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
+// The manager-approval gate for unverified (QR/MANUAL) tab settlements. Mocked so
+// the test controls whether a submitted PIN is accepted; APPROVE_UNVERIFIED_TENDER
+// keeps its real value so `can(...)` (real, unmocked) resolves correctly.
+const verifyManagerApproval = vi.fn();
+vi.mock("@/features/register/manager-approval", () => ({
+  APPROVE_UNVERIFIED_TENDER: "approve_unverified_tender",
+  verifyManagerApproval: (...args: unknown[]) => verifyManagerApproval(...args),
+}));
+
 vi.mock("@/lib/db", () => {
   const tx = {
     orderCounter: { upsert: (...a: unknown[]) => orderCounterUpsert(...a) },
@@ -65,6 +74,13 @@ vi.mock("@/lib/db", () => {
 import { openTab, addTabLines, settleTab } from "./actions";
 
 const BUSINESS_ID = "biz_1";
+
+/** Narrow a settle result to the success shape (throws if it was a manager-approval
+ *  rejection) so a test can read amountCents/changeCents/closed off it. */
+function settled(res: Awaited<ReturnType<typeof settleTab>>) {
+  if ("error" in res) throw new Error(`unexpected settle rejection: ${res.error}`);
+  return res;
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -234,7 +250,7 @@ describe("settleTab", () => {
 
   it("settles the whole tab and closes it to PAID", async () => {
     orderFindFirst.mockResolvedValue(openOrder);
-    const res = await settleTab({ businessId: BUSINESS_ID, orderId: "order_1", tipCents: 0, cashTenderedCents: 2000 });
+    const res = settled(await settleTab({ businessId: BUSINESS_ID, orderId: "order_1", tipCents: 0, cashTenderedCents: 2000 }));
     expect(res.amountCents).toBe(1083 + 541);
     expect(res.changeCents).toBe(2000 - 1624);
     expect(res.closed).toBe(true);
@@ -248,7 +264,7 @@ describe("settleTab", () => {
     orderFindFirst.mockResolvedValue(openOrder);
     orderLineUpdateMany.mockResolvedValue({ count: 1 }); // only seat-1 line
     orderLineCount.mockResolvedValue(1); // seat-2 line remains
-    const res = await settleTab({ businessId: BUSINESS_ID, orderId: "order_1", seats: [1], tipCents: 0, cashTenderedCents: 2000 });
+    const res = settled(await settleTab({ businessId: BUSINESS_ID, orderId: "order_1", seats: [1], tipCents: 0, cashTenderedCents: 2000 }));
     expect(res.amountCents).toBe(1083);
     expect(res.closed).toBe(false);
     const closeData = orderUpdate.mock.calls[0]![0].data;
@@ -261,7 +277,7 @@ describe("settleTab", () => {
     orderFindFirst.mockResolvedValue(openOrder);
     orderLineUpdateMany.mockResolvedValue({ count: 1 });
     orderLineCount.mockResolvedValue(1);
-    const res = await settleTab({ businessId: BUSINESS_ID, orderId: "order_1", seats: [1], tipCents: 200, cashTenderedCents: 2000 });
+    const res = settled(await settleTab({ businessId: BUSINESS_ID, orderId: "order_1", seats: [1], tipCents: 200, cashTenderedCents: 2000 }));
     expect(paymentCreate.mock.calls[0]![0].data.amountCents).toBe(1083 + 200);
     expect(res.changeCents).toBe(2000 - 1283);
   });
@@ -295,9 +311,18 @@ describe("settleTab", () => {
   });
 
   it("settles with QR out-of-band (no tender, no change, no cash-cover check)", async () => {
+    // Operator can self-approve the unverified tender (owner/manager) — no PIN.
+    requireCapability.mockResolvedValue({
+      businessId: BUSINESS_ID,
+      membershipId: "m1",
+      role: "CASHIER",
+      permissions: ["take_orders", "approve_unverified_tender"],
+      name: "Cashier",
+      deviceMembershipId: "m1",
+    });
     orderFindFirst.mockResolvedValue(openOrder);
     // No cash is sent for QR; the out-of-band guard must NOT reject it.
-    const res = await settleTab({ businessId: BUSINESS_ID, orderId: "order_1", method: "QR", tipCents: 0, cashTenderedCents: 0 });
+    const res = settled(await settleTab({ businessId: BUSINESS_ID, orderId: "order_1", method: "QR", tipCents: 0, cashTenderedCents: 0 }));
     const pay = paymentCreate.mock.calls[0]![0].data;
     expect(pay.method).toBe("QR");
     expect(pay.tenderedCents).toBeNull();
@@ -308,10 +333,19 @@ describe("settleTab", () => {
   });
 
   it("settles with MANUAL (Other) out-of-band, including a tip", async () => {
+    // Operator can self-approve the unverified tender (owner/manager) — no PIN.
+    requireCapability.mockResolvedValue({
+      businessId: BUSINESS_ID,
+      membershipId: "m1",
+      role: "CASHIER",
+      permissions: ["take_orders", "approve_unverified_tender"],
+      name: "Cashier",
+      deviceMembershipId: "m1",
+    });
     orderFindFirst.mockResolvedValue(openOrder);
     orderLineUpdateMany.mockResolvedValue({ count: 1 });
     orderLineCount.mockResolvedValue(1);
-    const res = await settleTab({ businessId: BUSINESS_ID, orderId: "order_1", seats: [1], method: "MANUAL", tipCents: 200, cashTenderedCents: 0 });
+    const res = settled(await settleTab({ businessId: BUSINESS_ID, orderId: "order_1", seats: [1], method: "MANUAL", tipCents: 200, cashTenderedCents: 0 }));
     const pay = paymentCreate.mock.calls[0]![0].data;
     expect(pay.method).toBe("MANUAL");
     expect(pay.tenderedCents).toBeNull();
@@ -325,5 +359,56 @@ describe("settleTab", () => {
     await expect(
       settleTab({ businessId: BUSINESS_ID, orderId: "order_x", tipCents: 0, cashTenderedCents: 5000 }),
     ).rejects.toThrow(/Open tab not found/);
+  });
+
+  // ── Manager-approval gate for UNVERIFIED tenders (QR/MANUAL) — Round-4 #1 ──────
+  describe("manager-approval gate (QR/MANUAL)", () => {
+    it("requires a manager PIN for a QR settle by a cashier — writes nothing", async () => {
+      // Default operator is a CASHIER (no approve_unverified_tender), no PIN sent.
+      const res = await settleTab({ businessId: BUSINESS_ID, orderId: "order_1", method: "QR", tipCents: 0 });
+      expect(res).toEqual({ error: "manager_approval_required" });
+      // Fails fast before any order lookup / payment write.
+      expect(orderFindFirst).not.toHaveBeenCalled();
+      expect(paymentCreate).not.toHaveBeenCalled();
+      expect(verifyManagerApproval).not.toHaveBeenCalled();
+    });
+
+    it("rejects a wrong manager PIN for a MANUAL settle (invalid_manager_pin)", async () => {
+      verifyManagerApproval.mockResolvedValue(false);
+      const res = await settleTab({
+        businessId: BUSINESS_ID,
+        orderId: "order_1",
+        method: "MANUAL",
+        tipCents: 0,
+        managerPin: "0000",
+      });
+      expect(res).toEqual({ error: "invalid_manager_pin" });
+      expect(verifyManagerApproval).toHaveBeenCalledWith(BUSINESS_ID, "0000");
+      expect(paymentCreate).not.toHaveBeenCalled();
+    });
+
+    it("settles an unverified tender once a manager PIN is approved", async () => {
+      verifyManagerApproval.mockResolvedValue(true);
+      orderFindFirst.mockResolvedValue(openOrder);
+      const res = await settleTab({
+        businessId: BUSINESS_ID,
+        orderId: "order_1",
+        method: "QR",
+        tipCents: 0,
+        managerPin: "1234",
+      });
+      expect(verifyManagerApproval).toHaveBeenCalledWith(BUSINESS_ID, "1234");
+      expect("error" in res).toBe(false);
+      expect(paymentCreate.mock.calls[0]![0].data.method).toBe("QR");
+      if (!("error" in res)) expect(res.closed).toBe(true);
+    });
+
+    it("does NOT gate a CASH settle (verified in-drawer, no PIN needed)", async () => {
+      orderFindFirst.mockResolvedValue(openOrder);
+      const res = settled(await settleTab({ businessId: BUSINESS_ID, orderId: "order_1", tipCents: 0, cashTenderedCents: 2000 }));
+      expect("error" in res).toBe(false);
+      expect(verifyManagerApproval).not.toHaveBeenCalled();
+      expect(paymentCreate.mock.calls[0]![0].data.method).toBe("CASH");
+    });
   });
 });

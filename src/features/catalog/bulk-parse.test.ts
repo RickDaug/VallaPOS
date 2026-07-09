@@ -29,6 +29,13 @@ describe("parseMoneyToCents", () => {
     expect(parseMoneyToCents("1,500")).toBe(150000); // $1,500.00
   });
 
+  it("treats a dot as thousands when it can't be a 1-2 digit decimal (LATAM)", () => {
+    expect(parseMoneyToCents("1.234")).toBe(123400); // dot = thousands → $1,234.00
+    expect(parseMoneyToCents("9.99")).toBe(999); // dot = decimal (1-2 digits) — unchanged
+    expect(parseMoneyToCents("1.234,56")).toBe(123456); // LATAM: dot thousands, comma decimal
+    expect(parseMoneyToCents("1,234.56")).toBe(123456); // US: comma thousands, dot decimal
+  });
+
   it("rejects blanks, negatives, and junk", () => {
     expect(parseMoneyToCents("")).toBeNull();
     expect(parseMoneyToCents("   ")).toBeNull();
@@ -177,6 +184,23 @@ describe("parseModifierLines", () => {
   it("keeps a name that contains digits when there's no trailing price", () => {
     const { options } = parseModifierLines("2% milk");
     expect(options).toEqual([{ name: "2% milk", priceDeltaCents: 0 }]);
+  });
+
+  it("keeps a trailing BARE number in the name — 'Combo 2' is not a $2 upcharge", () => {
+    const { options, errors } = parseModifierLines("Combo 2");
+    expect(errors).toEqual([]);
+    expect(options).toEqual([{ name: "Combo 2", priceDeltaCents: 0 }]);
+  });
+
+  it("still splits a trailing token that clearly looks like a price", () => {
+    // "+2"/"$2" are explicit ("I meant a price"); "1.50"/"2,50" carry a decimal.
+    const { options, errors } = parseModifierLines("Combo +2\nDeluxe 1.50\nMeal $3");
+    expect(errors).toEqual([]);
+    expect(options).toEqual([
+      { name: "Combo", priceDeltaCents: 200 },
+      { name: "Deluxe", priceDeltaCents: 150 },
+      { name: "Meal", priceDeltaCents: 300 },
+    ]);
   });
 });
 
