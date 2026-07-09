@@ -33,6 +33,7 @@ export default async function SettingsPage({
       currency: true,
       taxInclusive: true,
       mode: true,
+      singleOperatorMode: true,
       qrPayEnabled: true,
       qrPayLabel: true,
       qrPayValue: true,

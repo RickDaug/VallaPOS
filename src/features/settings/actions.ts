@@ -17,6 +17,7 @@ export async function updateBusinessSettings(input: UpdateSettingsInput) {
       currency: data.currency,
       taxInclusive: data.taxInclusive,
       mode: data.mode,
+      singleOperatorMode: data.singleOperatorMode,
       qrPayEnabled: data.qrPayEnabled,
       qrPayLabel: data.qrPayLabel ?? null,
       qrPayValue: data.qrPayValue ?? null,

@@ -84,6 +84,7 @@ export function Register({
   taxRateBps,
   currency,
   taxInclusive,
+  singleOperatorMode,
   qrPay,
 }: {
   businessId: string;
@@ -91,6 +92,7 @@ export function Register({
   taxRateBps: number;
   currency: string;
   taxInclusive: boolean;
+  singleOperatorMode: boolean;
   qrPay: QrPayConfig | null;
 }) {
   const router = useRouter();
@@ -326,10 +328,15 @@ export function Register({
   // (the chosen "re-lock after each sale" behavior). The shell re-renders to the
   // operator lock screen on refresh.
   async function finishAndLock() {
-    try {
-      await lockOperator({ businessId });
-    } catch {
-      /* best effort — idle auto-lock is the backstop */
+    // Single-operator "stay unlocked" mode: keep the current operator active so a
+    // solo owner isn't re-authenticating before every sale. Otherwise re-lock the
+    // terminal after each sale (secure shared-till default).
+    if (!singleOperatorMode) {
+      try {
+        await lockOperator({ businessId });
+      } catch {
+        /* best effort — idle auto-lock is the backstop */
+      }
     }
     resetSale();
     router.refresh();

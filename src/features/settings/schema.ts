@@ -1,6 +1,8 @@
 import { z } from "zod";
 
-export const CURRENCIES = ["USD", "CAD", "EUR", "GBP", "AUD"] as const;
+// Includes MXN + BRL so a Mexican/Brazilian merchant (US+LATAM target market)
+// can re-save their currency from Settings, not just at signup.
+export const CURRENCIES = ["USD", "MXN", "BRL", "CAD", "EUR", "GBP", "AUD"] as const;
 
 /**
  * Business settings update payload. Extracted from the server action so the
@@ -18,6 +20,8 @@ export const updateSettingsSchema = z
     // STORE = instant retail checkout; RESTAURANT unlocks the floor plan + open
     // tabs with per-seat split checks.
     mode: z.enum(["STORE", "RESTAURANT"]),
+    // Single-operator "stay unlocked" mode (see Business.singleOperatorMode).
+    singleOperatorMode: z.boolean().default(false),
     // Merchant-configured QR payment (confirm-based, no PSP). When enabled the
     // register offers a QR tender that displays qrPayValue (a payment handle or
     // link) for the customer to scan. Value/label are trimmed; empties → null.

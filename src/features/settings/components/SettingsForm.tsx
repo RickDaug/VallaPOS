@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
 
-const CURRENCIES = ["USD", "CAD", "EUR", "GBP", "AUD"] as const;
+const CURRENCIES = ["USD", "MXN", "BRL", "CAD", "EUR", "GBP", "AUD"] as const;
 type Currency = (typeof CURRENCIES)[number];
 type Mode = "STORE" | "RESTAURANT";
 
@@ -24,6 +24,7 @@ export function SettingsForm({
     currency: string;
     taxInclusive: boolean;
     mode: Mode;
+    singleOperatorMode: boolean;
     qrPayEnabled: boolean;
     qrPayLabel: string | null;
     qrPayValue: string | null;
@@ -39,6 +40,7 @@ export function SettingsForm({
   );
   const [taxInclusive, setTaxInclusive] = useState(initial.taxInclusive);
   const [mode, setMode] = useState<Mode>(initial.mode);
+  const [singleOperatorMode, setSingleOperatorMode] = useState(initial.singleOperatorMode);
   const [qrPayEnabled, setQrPayEnabled] = useState(initial.qrPayEnabled);
   const [qrPayLabel, setQrPayLabel] = useState(initial.qrPayLabel ?? "");
   const [qrPayValue, setQrPayValue] = useState(initial.qrPayValue ?? "");
@@ -63,6 +65,7 @@ export function SettingsForm({
           currency,
           taxInclusive,
           mode,
+          singleOperatorMode,
           qrPayEnabled,
           qrPayLabel: qrPayLabel.trim(),
           qrPayValue: qrPayValue.trim(),
@@ -164,6 +167,23 @@ export function SettingsForm({
               checked={taxInclusive}
               onChange={(e) => setTaxInclusive(e.target.checked)}
               className="h-5 w-5 accent-primary"
+            />
+          </label>
+
+          <label className="flex items-center justify-between gap-3 rounded-lg bg-muted px-4 py-3">
+            <span>
+              <span className="block font-medium text-foreground">Stay unlocked (single operator)</span>
+              <span className="text-sm text-muted-foreground">
+                Don&apos;t re-lock the register after each sale — best for one person selling from one
+                device. Leave off for a shared till so staff sign in per shift.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              checked={singleOperatorMode}
+              onChange={(e) => setSingleOperatorMode(e.target.checked)}
+              className="h-5 w-5 accent-primary"
+              aria-label="Stay unlocked (single operator mode)"
             />
           </label>
 

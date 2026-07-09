@@ -54,3 +54,15 @@ describe("updateSettingsSchema — QR payment", () => {
     ).toThrow();
   });
 });
+
+describe("updateSettingsSchema — currency + single-operator mode", () => {
+  it("accepts the LATAM currencies (MXN, BRL)", () => {
+    expect(updateSettingsSchema.parse({ ...base(), currency: "MXN" as const }).currency).toBe("MXN");
+    expect(updateSettingsSchema.parse({ ...base(), currency: "BRL" as const }).currency).toBe("BRL");
+  });
+
+  it("defaults singleOperatorMode off and round-trips it on", () => {
+    expect(updateSettingsSchema.parse(base()).singleOperatorMode).toBe(false);
+    expect(updateSettingsSchema.parse({ ...base(), singleOperatorMode: true }).singleOperatorMode).toBe(true);
+  });
+});
