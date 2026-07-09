@@ -145,29 +145,61 @@ function hasMeaningfulValue(value: unknown): boolean {
  * query). A developer could still defeat it by binding businessId to an
  * unrelated literal — this is a safety net, not a proof of isolation.
  *
- * ── Known limitation (by design) ─────────────────────────────────────────────
- * This detector, and the backstop as a whole, only guards FILTER/BULK ops (see
- * GUARDED_OPS). Single-row id-keyed ops — findUnique/update/delete/upsert — are
- * intentionally OUT OF SCOPE: they target one row by a unique key and are the
- * same boundary the static guard draws to avoid false positives. Scoping those
- * remains the caller's responsibility (via the compound `businessId_*` unique or
- * a post-read businessId check).
+ * ── KNOWN RESIDUALS (by design — the explicit boundary of this backstop) ──────
+ * Two classes of unscoped/mis-scoped query are NOT caught, on purpose. They are
+ * documented here so the boundary is unambiguous; closing them fully would require
+ * either type-level analysis or gating single-row ops (both cause false positives
+ * on legitimate queries), so they remain the caller's responsibility:
+ *
+ *   RESIDUAL 1 — a businessId bound to the WRONG (hardcoded) literal. The detector
+ *     is a NAME+VALUE-presence check, not a correctness check: `where: { businessId:
+ *     "some-other-tenant" }` looks perfectly scoped and passes. We can't know the
+ *     "right" businessId here without the request context. (The negation case —
+ *     `where: { NOT: { businessId } }`, which matches every OTHER tenant — WAS a
+ *     residual and is now CLOSED: a businessId reachable only through a `NOT`
+ *     combinator no longer counts as scoping. See the negation tracking below.)
+ *
+ *   RESIDUAL 2 — single-row id-keyed ops (findUnique / update / delete / upsert)
+ *     are OUT OF SCOPE entirely (they aren't in GUARDED_OPS): they target one row
+ *     by a unique key and are the same boundary the static guard draws to avoid
+ *     false positives. Scoping those stays the caller's job — via the compound
+ *     `businessId_*` unique, or a post-read businessId check.
  */
 export function whereMentionsBusinessId(where: unknown): boolean {
+  // Start un-negated; `scanForBusinessId` flips the flag under a `NOT` combinator.
+  return scanForBusinessId(where, false);
+}
+
+/**
+ * Recursive worker for {@link whereMentionsBusinessId}, tracking whether we're
+ * currently inside a logical `NOT` (RESIDUAL 1, negation case). A `businessId`
+ * reached ONLY through a `NOT` INVERTS the constraint — `where: { NOT: { businessId
+ * } }` matches every OTHER tenant, the opposite of a scope — so it must NOT count.
+ *
+ * Only the uppercase Prisma logical combinator `NOT` toggles negation; a
+ * field-level `not` operator (e.g. `id: { not: x }`, `businessId: { not: y }`) is a
+ * normal nested object and does NOT — which is why the common
+ * `{ businessId, id: { not } }` shape still passes (its top-level businessId is
+ * found un-negated first). Double `NOT` un-negates, as Prisma evaluates it.
+ */
+function scanForBusinessId(where: unknown, negated: boolean): boolean {
   if (where == null || typeof where !== "object") return false;
 
   if (Array.isArray(where)) {
-    return where.some((entry) => whereMentionsBusinessId(entry));
+    return where.some((entry) => scanForBusinessId(entry, negated));
   }
 
   for (const [key, value] of Object.entries(where as Record<string, unknown>)) {
-    // A businessId-mentioning key counts ONLY when it carries a meaningful value
-    // (top-level `businessId`, or a populated compound `businessId_*` key). A
-    // valueless `businessId: undefined/null/""` is treated as absent — keep
-    // scanning the rest of the `where` in case a real scope lives elsewhere.
-    if (key.includes("businessId") && hasMeaningfulValue(value)) return true;
-    // Recurse into nested objects/arrays (AND/OR/NOT, relation filters, …).
-    if (whereMentionsBusinessId(value)) return true;
+    // Entering a logical `NOT` inverts the sense for everything beneath it.
+    const childNegated = key === "NOT" ? !negated : negated;
+    // A businessId-mentioning key counts ONLY when it is (a) NOT under negation and
+    // (b) carries a meaningful value (top-level `businessId`, or a populated
+    // compound `businessId_*` key). A negated or valueless businessId is treated as
+    // absent — keep scanning in case a real, un-negated scope lives elsewhere.
+    if (!childNegated && key.includes("businessId") && hasMeaningfulValue(value)) return true;
+    // Recurse into nested objects/arrays (AND/OR/NOT, relation filters, …),
+    // carrying the (possibly toggled) negation flag.
+    if (scanForBusinessId(value, childNegated)) return true;
   }
   return false;
 }

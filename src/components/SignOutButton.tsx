@@ -8,6 +8,11 @@ import {
   pendingCount,
   replayQueuedCheckouts,
 } from "@/lib/offline/checkout-queue";
+// R3-#3: the Serwist page-cache names + purge live in a plain-TS sibling so the
+// cache-name contract is unit-tested (page-caches.test.ts) without rendering this
+// client component. purgePageCaches deletes the pinned names AND any `pages*` cache
+// by prefix, so a Serwist rename can't silently strand the prior operator's pages.
+import { purgePageCaches } from "./page-caches";
 
 /**
  * Sign out and wipe the on-device offline queue (M-4).
@@ -65,18 +70,10 @@ async function clearOfflineQueueForSignOut(): Promise<boolean> {
 
   // R-1: Purge the Serwist page caches so an offline navigation after a user
   // switch on a shared device can't serve the previous operator's authed,
-  // business-scoped pages. These caches are written by Serwist's defaultCache
-  // (NetworkFirst). Best effort — never block sign-out on a delete failure.
+  // business-scoped pages. See purgePageCaches (deletes the pinned names AND any
+  // `pages*` cache by prefix). Best effort — never block sign-out on a failure.
   if (typeof window !== "undefined" && "caches" in window) {
-    try {
-      await Promise.all(
-        ["pages", "pages-rsc", "pages-rsc-prefetch"].map((name) =>
-          caches.delete(name),
-        ),
-      );
-    } catch {
-      // Cache Storage unavailable — nothing to purge.
-    }
+    await purgePageCaches(caches);
   }
   return true;
 }

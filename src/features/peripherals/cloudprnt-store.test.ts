@@ -7,7 +7,14 @@ vi.mock("@/lib/env", () => ({
   env: { UPSTASH_REDIS_REST_URL: undefined, UPSTASH_REDIS_REST_TOKEN: undefined },
 }));
 
-import { RedisQueueStore, type RedisListClient } from "./cloudprnt-store";
+import {
+  RedisQueueStore,
+  hasUpstashConfig,
+  selectCloudPrntStoreKind,
+  inMemoryStoreIsUnsafe,
+  type RedisListClient,
+  type CloudPrntStoreEnv,
+} from "./cloudprnt-store";
 import type { PrintJob, QueueKey } from "./cloudprnt";
 
 /**
@@ -141,5 +148,52 @@ describe("RedisQueueStore", () => {
     expect(await store.peek(otherKey)).toBeNull();
     // the isolation is realised as distinct Redis keys
     expect([...redis.lists.keys()]).toContain("cloudprnt:biz-1:tok-A");
+  });
+});
+
+/**
+ * R3-#1: store SELECTION policy. The durable Redis store must be the DEFAULT path
+ * whenever Upstash is configured; the in-memory fallback is only for a missing
+ * Upstash config, and is flagged as UNSAFE (so the caller warns loudly) whenever
+ * that fallback happens in a serverless/production environment.
+ */
+describe("cloudprnt store selection (R3-#1)", () => {
+  const withUpstash = (serverless: boolean): CloudPrntStoreEnv => ({
+    upstashUrl: "https://example.upstash.io",
+    upstashToken: "tok",
+    serverless,
+  });
+  const noUpstash = (serverless: boolean): CloudPrntStoreEnv => ({
+    upstashUrl: undefined,
+    upstashToken: undefined,
+    serverless,
+  });
+
+  it("hasUpstashConfig requires BOTH url and token", () => {
+    expect(hasUpstashConfig(withUpstash(true))).toBe(true);
+    expect(hasUpstashConfig(noUpstash(true))).toBe(false);
+    expect(hasUpstashConfig({ upstashUrl: "https://x", upstashToken: undefined, serverless: true })).toBe(false);
+    expect(hasUpstashConfig({ upstashUrl: undefined, upstashToken: "tok", serverless: true })).toBe(false);
+    expect(hasUpstashConfig({ upstashUrl: "", upstashToken: "tok", serverless: true })).toBe(false);
+  });
+
+  it("prefers Redis whenever Upstash is configured (serverless or not)", () => {
+    expect(selectCloudPrntStoreKind(withUpstash(true))).toBe("redis");
+    expect(selectCloudPrntStoreKind(withUpstash(false))).toBe("redis");
+  });
+
+  it("falls back to in-memory only when Upstash is absent", () => {
+    expect(selectCloudPrntStoreKind(noUpstash(true))).toBe("memory");
+    expect(selectCloudPrntStoreKind(noUpstash(false))).toBe("memory");
+  });
+
+  it("flags the in-memory fallback as UNSAFE only in a serverless/prod env", () => {
+    // Unsafe: no Upstash AND serverless → the fallback drops jobs between instances.
+    expect(inMemoryStoreIsUnsafe(noUpstash(true))).toBe(true);
+    // Safe: no Upstash but a single long-lived process (local dev / self-host).
+    expect(inMemoryStoreIsUnsafe(noUpstash(false))).toBe(false);
+    // Never unsafe when the durable Redis store is selected, regardless of env.
+    expect(inMemoryStoreIsUnsafe(withUpstash(true))).toBe(false);
+    expect(inMemoryStoreIsUnsafe(withUpstash(false))).toBe(false);
   });
 });

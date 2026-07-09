@@ -323,7 +323,10 @@ export interface SettleResult {
   closed: boolean;
 }
 
-export async function settleTab(input: z.infer<typeof settleTabSchema>): Promise<SettleResult> {
+// `z.input` (not `z.infer`) so callers may omit the defaulted `method` /
+// `cashTenderedCents` (the schema fills them) — a QR/MANUAL settle needn't send
+// cash, and an existing whole-tab CASH settle needn't name the method.
+export async function settleTab(input: z.input<typeof settleTabSchema>): Promise<SettleResult> {
   const data = settleTabSchema.parse(input);
   const ctx = await requireCapability(data.businessId, "take_orders");
 
@@ -344,20 +347,25 @@ export async function settleTab(input: z.infer<typeof settleTabSchema>): Promise
   });
 
   const amountWithTip = plan.amountCents + data.tipCents;
-  if (data.cashTenderedCents < amountWithTip) {
+  // Tender resolution mirrors the store register (features/register/actions.ts):
+  // CASH must cover the amount due and yields change; QR / MANUAL ("Other") record
+  // the payment as taken out-of-band — no tender, no change. Integer cents only.
+  const isCash = data.method === "CASH";
+  if (isCash && data.cashTenderedCents < amountWithTip) {
     throw new Error("Cash tendered is less than the amount due.");
   }
-  const changeCents = data.cashTenderedCents - amountWithTip;
+  const tenderedCents = isCash ? data.cashTenderedCents : null;
+  const changeCents = isCash ? data.cashTenderedCents - amountWithTip : 0;
 
   const closed = await db.$transaction(async (tx) => {
     const payment = await tx.payment.create({
       data: {
         businessId: ctx.businessId,
         orderId: data.orderId,
-        method: "CASH",
+        method: data.method,
         status: "CAPTURED",
-        amountCents: amountWithTip, // goods for these seats + tip = cash collected
-        tenderedCents: data.cashTenderedCents,
+        amountCents: amountWithTip, // goods for these seats + tip = amount collected
+        tenderedCents,
         changeCents,
       },
       select: { id: true },

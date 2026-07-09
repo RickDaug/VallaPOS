@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TENDER_METHODS } from "@/features/register/schema";
 
 /**
  * Zod schemas for restaurant open-tab writes. Non-`server-only` so the rules are
@@ -91,7 +92,16 @@ export const settleTabSchema = z.object({
   // settle (use null in the array for the shared group).
   seats: z.array(seatSchema).min(1).nullable().optional(),
   tipCents: z.number().int().min(0).max(10_000_000).default(0),
-  cashTenderedCents: z.number().int().min(0).max(10_000_000),
+  // How the tab (or split) was tendered. Mirrors the store register's tender set
+  // (CASH | QR | MANUAL "Other"). CASH must cover the amount due and yields
+  // change; QR / MANUAL record the payment as taken out-of-band (no tender, no
+  // change) — same semantics as features/register/schema.ts. Defaults to CASH so
+  // existing callers/payloads settle unchanged.
+  method: z.enum(TENDER_METHODS).default("CASH"),
+  // Cash given by the customer. Enforced only for CASH (the action rejects a
+  // tender below the amount due); irrelevant for QR/MANUAL, hence defaulted so a
+  // non-cash settle needn't send it.
+  cashTenderedCents: z.number().int().min(0).max(10_000_000).default(0),
 });
 
 export type TabLineInput = z.infer<typeof tabLineInputSchema>;
