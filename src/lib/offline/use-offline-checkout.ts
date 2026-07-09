@@ -10,6 +10,12 @@
  *   already online with a non-empty queue — every queued sale is replayed FIFO.
  *   Replay leans on the server action's `clientUuid` idempotency, so a sale that
  *   actually committed before we lost the response is reconciled, not duplicated.
+ * - Replay NEVER discards a cash-collected sale (HIGH #2): a sale that keeps
+ *   failing is eventually parked in the dead-letter store. The hook exposes
+ *   `needsReconciliation` (the parked count) and `lastReplay` (committed vs
+ *   dead-lettered this pass) so the register can show the right feedback: a
+ *   success toast ONLY for genuinely committed sales, and a persistent warning
+ *   when any sale needs a human to reconcile it.
  *
  * Background Sync is intentionally not used: Safari/iOS lack it, and the
  * `online`-event fallback covers every target browser uniformly.
@@ -23,7 +29,8 @@ import {
   type CheckoutRejection,
 } from "@/features/register/schema";
 import { checkout } from "@/features/register/actions";
-import { enqueueCheckout, pendingCount, replayQueuedCheckouts } from "./checkout-queue";
+import { enqueueCheckout, pendingCount, replayOfflineQueue } from "./checkout-queue";
+import { deadLetterCount } from "./dead-letter";
 
 export type SubmitResult =
   | { status: "completed"; receipt: Receipt }
@@ -31,6 +38,16 @@ export type SubmitResult =
   // The server declined the sale pending manager approval of an unverified
   // (QR/MANUAL) tender. The register prompts for / re-prompts for a manager PIN.
   | { status: "rejected"; rejection: CheckoutRejection };
+
+/** Outcome of the most recent replay pass, for one-shot UI feedback. */
+export interface ReplayOutcome {
+  /** Sales that committed on the server this pass. */
+  committed: number;
+  /** Sales moved to the dead-letter store this pass. */
+  deadLettered: number;
+  /** Monotonic marker so consumers can react to each distinct pass exactly once. */
+  at: number;
+}
 
 /**
  * Strip the offline price snapshot from a payload before an ONLINE send. The
@@ -68,14 +85,21 @@ export function useOfflineCheckout() {
   const [online, setOnline] = useState(true);
   const [pending, setPending] = useState(0);
   const [syncing, setSyncing] = useState(false);
+  const [needsReconciliation, setNeedsReconciliation] = useState(0);
+  const [lastReplay, setLastReplay] = useState<ReplayOutcome | null>(null);
   const replayingRef = useRef(false);
 
-  const refreshPending = useCallback(async () => {
+  const refreshCounts = useCallback(async () => {
     try {
       setPending(await pendingCount());
     } catch {
       // IndexedDB unavailable (e.g. private mode) — treat as no queue.
       setPending(0);
+    }
+    try {
+      setNeedsReconciliation(await deadLetterCount());
+    } catch {
+      setNeedsReconciliation(0);
     }
   }, []);
 
@@ -86,21 +110,33 @@ export function useOfflineCheckout() {
     replayingRef.current = true;
     setSyncing(true);
     try {
-      // Shared replay logic (also used by the sign-out hygiene path).
-      await replayQueuedCheckouts();
+      const summary = await replayOfflineQueue();
+      setPending(summary.pending);
+      setNeedsReconciliation(summary.needsReconciliation);
+      // Only announce a pass that actually did something, so the register can
+      // fire exactly-once feedback (committed → success, dead-lettered → warn).
+      if (summary.committed > 0 || summary.deadLettered > 0) {
+        setLastReplay({
+          committed: summary.committed,
+          deadLettered: summary.deadLettered,
+          at: Date.now(),
+        });
+      }
+    } catch {
+      // Replay itself blew up (IndexedDB unavailable, etc.) — just refresh counts.
+      await refreshCounts();
     } finally {
-      await refreshPending();
       setSyncing(false);
       replayingRef.current = false;
     }
-  }, [refreshPending]);
+  }, [refreshCounts]);
 
   const submit = useCallback(
     async (payload: CheckoutInput): Promise<SubmitResult> => {
       if (typeof navigator !== "undefined" && !navigator.onLine) {
         // Offline: keep the price snapshot — it's what the customer was quoted.
         await enqueueCheckout(payload);
-        await refreshPending();
+        await refreshCounts();
         return { status: "queued" };
       }
       try {
@@ -119,18 +155,18 @@ export function useOfflineCheckout() {
           // The send failed mid-flight (we just went offline) — queue the sale
           // WITH its snapshot so the quoted price survives the deferred replay.
           await enqueueCheckout(payload);
-          await refreshPending();
+          await refreshCounts();
           return { status: "queued" };
         }
         throw err; // genuine server rejection — let the caller surface it
       }
     },
-    [refreshPending, replayQueue],
+    [refreshCounts, replayQueue],
   );
 
   useEffect(() => {
     setOnline(navigator.onLine);
-    void refreshPending();
+    void refreshCounts();
 
     const goOnline = () => {
       setOnline(true);
@@ -148,7 +184,7 @@ export function useOfflineCheckout() {
       window.removeEventListener("online", goOnline);
       window.removeEventListener("offline", goOffline);
     };
-  }, [refreshPending, replayQueue]);
+  }, [refreshCounts, replayQueue]);
 
-  return { online, pending, syncing, submit, replayQueue };
+  return { online, pending, syncing, needsReconciliation, lastReplay, submit, replayQueue };
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Check,
@@ -9,11 +10,13 @@ import {
   LayoutGrid,
   List,
   Lock,
+  PackagePlus,
   Plus,
   RefreshCw,
   Search,
   ShoppingCart,
   Star,
+  TriangleAlert,
   Volume2,
   VolumeX,
   WifiOff,
@@ -41,7 +44,7 @@ import {
 } from "@/features/register/preferences";
 import { NO_TIP, TIP_PERCENTS, tipCentsFor, type TipSelection } from "@/features/register/tip";
 import { useTapFeedback } from "@/features/register/use-tap-feedback";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -124,21 +127,35 @@ export function Register({
   const [density, setDensity] = useState<Density>("grid");
   // Mobile cart Sheet (desktop renders the cart inline and ignores this).
   const [cartOpen, setCartOpen] = useState(false);
-  const { online, pending: queuedCount, syncing, submit } = useOfflineCheckout();
+  const { online, pending: queuedCount, syncing, needsReconciliation, lastReplay, submit } =
+    useOfflineCheckout();
   const { toast } = useToast();
   // Multi-sensory tap confirmation (haptic + optional click) for item taps and
   // the charge action, so cashiers trust a press without looking.
   const { tap, soundEnabled, toggleSound } = useTapFeedback();
 
-  // Closure feedback when the offline backlog finishes replaying: the sync
-  // banner just disappears otherwise. Fires only on the >0 → 0 transition.
-  const prevPendingRef = useRef(queuedCount);
+  // Feedback keyed off the ACTUAL outcome of each replay pass — never off the
+  // queue merely draining to zero (a sale can leave the queue by being parked in
+  // the dead-letter store, which is NOT a success). Fires once per pass:
+  //   • only-committed  → "Offline sales synced" (success)
+  //   • any dead-lettered → a distinct warning; the persistent banner below then
+  //     keeps the "needs reconciliation" count visible until it's resolved.
+  const lastReplayAtRef = useRef(0);
   useEffect(() => {
-    if (online && prevPendingRef.current > 0 && queuedCount === 0) {
+    if (!lastReplay || lastReplay.at === lastReplayAtRef.current) return;
+    lastReplayAtRef.current = lastReplay.at;
+    if (lastReplay.deadLettered > 0) {
+      const n = lastReplay.deadLettered;
+      toast({
+        title: `${n} offline ${n === 1 ? "sale" : "sales"} couldn't be synced`,
+        description: "Cash was collected but the sale was refused. See “needs reconciliation” above.",
+        variant: "error",
+        duration: 8000,
+      });
+    } else if (lastReplay.committed > 0) {
       toast({ title: "Offline sales synced", variant: "success" });
     }
-    prevPendingRef.current = queuedCount;
-  }, [online, queuedCount, toast]);
+  }, [lastReplay, toast]);
 
   const money = (c: number) => formatMoney(c, currency);
 
@@ -556,6 +573,7 @@ export function Register({
         />
       )}
       <OfflineBanner online={online} queuedCount={queuedCount} syncing={syncing} />
+      <ReconciliationBanner count={needsReconciliation} />
       <div className="grid gap-6 xl:grid-cols-[1fr_400px]">
       {/* Catalog */}
       <Card>
@@ -613,7 +631,11 @@ export function Register({
             </div>
           )}
           {filtered.length === 0 ? (
-            <EmptyState favoritesEmpty={activeCategory === FAVORITES_PSEUDO_CATEGORY} />
+            <EmptyState
+              favoritesEmpty={activeCategory === FAVORITES_PSEUDO_CATEGORY}
+              catalogEmpty={catalog.length === 0}
+              businessId={businessId}
+            />
           ) : density === "list" ? (
             <ul className="divide-y divide-border rounded-lg border border-border">
               {filtered.map((entry) => (
@@ -694,7 +716,9 @@ export function Register({
       <button
         type="button"
         onClick={() => setCartOpen(true)}
-        className="fixed inset-x-3 bottom-3 z-40 flex items-center justify-between gap-3 rounded-xl bg-primary px-5 py-3 text-primary-foreground shadow-lg active:scale-[0.99] xl:hidden"
+        // Sit ABOVE the fixed BottomNav on phones (its ~64px height + safe-area
+        // inset); the nav is hidden at lg+, so drop back to a plain bottom gap there.
+        className="fixed inset-x-3 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-40 flex items-center justify-between gap-3 rounded-xl bg-primary px-5 py-3 text-primary-foreground shadow-lg active:scale-[0.99] lg:bottom-3 xl:hidden"
         aria-label={`Open cart, ${cartCount} ${cartCount === 1 ? "item" : "items"}, total ${money(totals.totalCents)}`}
       >
         <span className="flex items-center gap-2 font-bold">
@@ -1515,22 +1539,81 @@ function ManagerApprovalPrompt({
   );
 }
 
-function EmptyState({ favoritesEmpty }: { favoritesEmpty?: boolean }) {
+function EmptyState({
+  favoritesEmpty,
+  catalogEmpty,
+  businessId,
+}: {
+  favoritesEmpty?: boolean;
+  catalogEmpty?: boolean;
+  businessId: string;
+}) {
+  if (favoritesEmpty) {
+    return (
+      <div className="flex flex-col items-center gap-2 rounded-lg bg-muted p-10 text-center">
+        <Star size={28} className="text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">
+          No favorites yet. Tap the star on an item to pin it here.
+        </p>
+      </div>
+    );
+  }
+
+  // No products in the catalog at all — give the merchant a real way forward
+  // instead of a dead-end instruction, a prominent button to the Products screen.
+  if (catalogEmpty) {
+    return (
+      <div className="flex flex-col items-center gap-4 rounded-lg bg-muted p-10 text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/15 text-primary">
+          <PackagePlus size={28} />
+        </div>
+        <div className="space-y-1">
+          <h3 className="text-base font-bold">No items to sell yet</h3>
+          <p className="text-sm text-muted-foreground">
+            Add your first product to start ringing up sales.
+          </p>
+        </div>
+        <Link
+          href={`/${businessId}/products`}
+          className={cn(buttonVariants({ size: "lg" }), "mt-1")}
+        >
+          <PackagePlus size={20} />
+          Add your first item
+        </Link>
+      </div>
+    );
+  }
+
+  // Catalog has products, but the current search / category filter matched none.
   return (
     <div className="flex flex-col items-center gap-2 rounded-lg bg-muted p-10 text-center">
-      {favoritesEmpty ? (
-        <>
-          <Star size={28} className="text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">
-            No favorites yet. Tap the star on an item to pin it here.
-          </p>
-        </>
-      ) : (
-        <>
-          <Search size={28} className="text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">No items found. Add products in the Products screen.</p>
-        </>
-      )}
+      <Search size={28} className="text-muted-foreground" />
+      <p className="text-sm text-muted-foreground">
+        No items match your search. Try a different term or category.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Persistent, high-visibility indicator that one or more cash-collected offline
+ * sales could not be replayed and are parked in the dead-letter store awaiting
+ * manual reconciliation (HIGH #2). Unlike a toast, it stays on screen until the
+ * count returns to zero, so the discrepancy can never be silently missed.
+ */
+function ReconciliationBanner({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <div
+      role="alert"
+      className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-sm font-medium text-foreground"
+    >
+      <TriangleAlert size={16} className="mt-0.5 shrink-0 text-destructive" />
+      <span>
+        {count} {count === 1 ? "sale needs" : "sales need"} reconciliation — cash was collected
+        but {count === 1 ? "it" : "they"} couldn&apos;t be synced to the server. Contact a manager
+        to record {count === 1 ? "it" : "them"} manually.
+      </span>
     </div>
   );
 }
