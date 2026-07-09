@@ -3,6 +3,7 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createSecondaryStorage } from "@/lib/redis";
+import { sendPasswordResetEmail } from "@/lib/auth-emails";
 
 // When Upstash is configured, Better Auth uses Redis as a SHARED, persistent
 // store for the rate limiter (otherwise it's per-instance in-memory and resets
@@ -40,6 +41,16 @@ export const auth = betterAuth({
   ),
   emailAndPassword: {
     enabled: true,
+    // Self-serve password reset (audit R4 #2 — the day-7 lockout fix). Better
+    // Auth mints the reset token + verification URL; we just deliver it via the
+    // already-configured Resend transport. The URL routes through Better Auth's
+    // GET /api/auth/reset-password/:token, which validates the token and then
+    // redirects the browser to our `/reset-password?token=…` page. When Resend
+    // isn't configured this degrades to a logged link (see auth-emails.ts) so a
+    // reset never hard-fails — it mirrors the receipt-email optional-env pattern.
+    sendResetPassword: async ({ user, url }) => {
+      await sendPasswordResetEmail(user.email, url);
+    },
   },
   session: {
     expiresIn: 60 * 60 * 24 * 7, // 7 days

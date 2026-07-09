@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import {
   Boxes,
   CreditCard,
@@ -10,6 +12,8 @@ import {
   WifiOff,
   Check,
 } from "lucide-react";
+import { auth } from "@/lib/auth";
+import { getPrimaryBusinessId } from "@/features/auth/actions";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -44,7 +48,19 @@ const TRUST = [
   "Set up in a single sitting",
 ];
 
-export default function HomePage() {
+export default async function HomePage() {
+  // Session-aware routing (audit R4 #3): a returning, already-authenticated owner
+  // should land on their till — not the marketing/sign-in surface. Resolve their
+  // primary business server-side and redirect to its register; a signed-in user
+  // with no business yet goes to the create-business recovery page. The PWA
+  // start_url is "/", so an installed till launches here and lands on the
+  // register in one hop. Unauthenticated visitors fall through to the landing page.
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (session) {
+    const businessId = await getPrimaryBusinessId();
+    redirect(businessId ? `/${businessId}/register` : "/start");
+  }
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       {/* Hero */}
