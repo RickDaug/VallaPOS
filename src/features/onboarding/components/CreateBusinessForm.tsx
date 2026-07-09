@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createBusiness } from "@/features/auth/actions";
 import { regionForCountry, DEFAULT_REGION } from "@/features/onboarding/regions";
 import { RegionSelect } from "@/features/onboarding/components/RegionSelect";
+import { BusinessTypeSelect, type BusinessMode } from "@/features/onboarding/components/BusinessTypeSelect";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -20,6 +21,7 @@ import { SignOutButton } from "@/components/SignOutButton";
 export function CreateBusinessForm() {
   const router = useRouter();
   const [businessName, setBusinessName] = useState("");
+  const [mode, setMode] = useState<BusinessMode>("STORE");
   const [country, setCountry] = useState<string>(DEFAULT_REGION.country);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -30,8 +32,10 @@ export function CreateBusinessForm() {
     setPending(true);
     try {
       const { currency } = regionForCountry(country);
-      const { businessId } = await createBusiness({ name: businessName, country, currency });
-      router.push(`/${businessId}/products`);
+      const { businessId } = await createBusiness({ name: businessName, country, currency, mode });
+      // A seeded sample item is already there, so land on the register to ring a
+      // first sale rather than empty Products (audit R2 #6).
+      router.push(`/${businessId}/register`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create your business.");
       setPending(false);
@@ -58,6 +62,7 @@ export function CreateBusinessForm() {
                 onChange={(e) => setBusinessName(e.target.value)}
               />
             </div>
+            <BusinessTypeSelect mode={mode} onChange={setMode} />
             <RegionSelect country={country} onChange={setCountry} />
             {error && (
               <p className="text-sm font-medium text-destructive" role="alert">

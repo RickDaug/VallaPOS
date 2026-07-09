@@ -13,7 +13,18 @@ const createBusinessSchema = z.object({
   // Business, so this needs no migration. Defaulted so older callers still work.
   country: z.enum(COUNTRY_CODES).default(DEFAULT_REGION.country),
   currency: z.enum(CURRENCY_CODES).default(DEFAULT_REGION.currency),
+  // Store vs Restaurant, asked at sign-up (audit R2 #7). RESTAURANT unlocks the
+  // floor plan + open tabs. Field already exists on Business — no migration.
+  mode: z.enum(["STORE", "RESTAURANT"]).default("STORE"),
 });
+
+/**
+ * A single, clearly-labeled demo product seeded into every new business so the
+ * register isn't empty on the first visit — the merchant can tap-and-ring it
+ * immediately to feel the flow, then delete it (audit R2 #9).
+ */
+const SAMPLE_ITEM_NAME = "Sample item (tap to sell — delete anytime)";
+const SAMPLE_ITEM_PRICE_CENTS = 500;
 
 /**
  * Create a business for the currently-authenticated user and make them OWNER.
@@ -24,19 +35,44 @@ export async function createBusiness(input: {
   name: string;
   country?: string;
   currency?: string;
+  mode?: string;
 }): Promise<{ businessId: string }> {
   const session = await requireSession();
-  const { name, country, currency } = createBusinessSchema.parse(input);
+  const { name, country, currency, mode } = createBusinessSchema.parse(input);
 
   const business = await db.business.create({
     data: {
       name,
       country,
       currency,
+      mode,
+      // A brand-new business is a single operator until staff are added, so it
+      // starts "unlocked" — the register doesn't re-lock after every sale, which
+      // would otherwise re-authenticate a solo owner before each transaction
+      // (audit R2 #1). They can switch to the secure shared-till behavior in
+      // Settings once they add a team. This is a create-time data default only.
+      singleOperatorMode: true,
       memberships: { create: { userId: session.user.id, role: "OWNER" } },
       orderCounter: { create: {} }, // start the per-business order-number sequence at 0
     },
     select: { id: true },
+  });
+
+  // Seed the demo product (own businessId — tenant-scoped write). Non-fatal: if
+  // this ever fails the merchant just starts with an empty catalog rather than a
+  // broken sign-up.
+  await db.item.create({
+    data: {
+      businessId: business.id,
+      name: SAMPLE_ITEM_NAME,
+      variations: {
+        create: {
+          businessId: business.id,
+          name: "Default",
+          priceCents: SAMPLE_ITEM_PRICE_CENTS,
+        },
+      },
+    },
   });
 
   return { businessId: business.id };

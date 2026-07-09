@@ -7,6 +7,7 @@ import { authClient } from "@/lib/auth-client";
 import { createBusiness } from "@/features/auth/actions";
 import { regionForCountry, DEFAULT_REGION } from "@/features/onboarding/regions";
 import { RegionSelect } from "@/features/onboarding/components/RegionSelect";
+import { BusinessTypeSelect, type BusinessMode } from "@/features/onboarding/components/BusinessTypeSelect";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -34,6 +35,7 @@ export default function SignUpPage() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [businessName, setBusinessName] = useState("");
+  const [mode, setMode] = useState<BusinessMode>("STORE");
   const [country, setCountry] = useState<string>(DEFAULT_REGION.country);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -51,10 +53,11 @@ export default function SignUpPage() {
         return;
       }
       const { currency } = regionForCountry(country);
-      const { businessId } = await createBusiness({ name: businessName, country, currency });
-      // Route a brand-new merchant to catalog setup (they have no items yet), not
-      // the empty register (audit #3). The first-run checklist guides from there.
-      router.push(`/${businessId}/products`);
+      const { businessId } = await createBusiness({ name: businessName, country, currency, mode });
+      // Land on the register, not empty Products (audit R2 #6): a seeded sample
+      // item is already there, so the merchant can tap-and-ring a first sale
+      // immediately. The first-run checklist guides adding real items from there.
+      router.push(`/${businessId}/register`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
@@ -84,6 +87,7 @@ export default function SignUpPage() {
                 onChange={(e) => setBusinessName(e.target.value)}
               />
             </div>
+            <BusinessTypeSelect mode={mode} onChange={setMode} />
             <RegionSelect country={country} onChange={setCountry} />
             <div>
               <Label htmlFor="email">Email</Label>
@@ -103,9 +107,16 @@ export default function SignUpPage() {
                 type="password"
                 value={password}
                 autoComplete="new-password"
+                minLength={8}
                 required
+                aria-describedby="password-hint"
                 onChange={(e) => setPassword(e.target.value)}
               />
+              {/* Show the rule up front so sign-up isn't rejected after submit
+                  (audit R2 #8). Matches Better Auth's 8-char minimum. */}
+              <p id="password-hint" className="mt-1 text-xs text-muted-foreground">
+                Use at least 8 characters.
+              </p>
             </div>
             {error && (
               <p className="text-sm font-medium text-destructive" role="alert">

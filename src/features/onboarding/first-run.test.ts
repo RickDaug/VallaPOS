@@ -40,10 +40,10 @@ describe("isFirstRun", () => {
 });
 
 describe("checklistSteps", () => {
-  it("lists tax, item, and sale for an owner in order", () => {
+  it("lists item, tax, and sale for an owner in item-first order", () => {
     const steps = checklistSteps(state(), OWNER);
-    expect(steps.map((s) => s.key)).toEqual(["tax", "item", "sale"]);
-    expect(steps.map((s) => s.href)).toEqual(["settings", "products", "register"]);
+    expect(steps.map((s) => s.key)).toEqual(["item", "tax", "sale"]);
+    expect(steps.map((s) => s.href)).toEqual(["products", "settings", "register"]);
   });
 
   it("marks steps done from state; the sale step is never pre-done", () => {
@@ -55,6 +55,21 @@ describe("checklistSteps", () => {
   it("omits owner-only steps a cashier can't act on (only 'make a sale' remains)", () => {
     const steps = checklistSteps(state(), CASHIER);
     expect(steps.map((s) => s.key)).toEqual(["sale"]);
+  });
+
+  it("completes the tax step when 0% tax is acknowledged (no configured rate)", () => {
+    const nudged = checklistSteps(state(), OWNER);
+    expect(nudged.find((s) => s.key === "tax")!.done).toBe(false);
+
+    const acked = checklistSteps(state(), OWNER, { taxAcknowledged: true });
+    const tax = acked.find((s) => s.key === "tax")!;
+    expect(tax.done).toBe(true);
+    expect(tax.cta).toBe("Review");
+  });
+
+  it("counts an acknowledged 0%-tax setup toward progress", () => {
+    const steps = checklistSteps(state({ hasItems: true }), OWNER, { taxAcknowledged: true });
+    expect(checklistProgress(steps)).toEqual({ done: 2, total: 3 });
   });
 
   it("changes the tax/item CTA labels once those are done", () => {

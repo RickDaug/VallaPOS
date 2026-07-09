@@ -1,11 +1,13 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
   Boxes,
   LayoutGrid,
+  MoreHorizontal,
   Receipt,
   Settings,
   ShoppingCart,
@@ -57,6 +59,11 @@ function isMuted(slug: string, firstRun: boolean, active: boolean): boolean {
   return firstRun && !active && !FIRST_RUN_PRIMARY.has(slug);
 }
 
+// On phones the bottom bar shows only the sale-critical tabs as first-class; the
+// rest go behind a "More" sheet so the bar stays scannable (audit R2 #2). Floor
+// is sale-critical in RESTAURANT mode (it's the restaurant home).
+const BOTTOM_PRIMARY = new Set(["register", "floor", "orders", "products"]);
+
 /** Desktop sidebar nav (vertical). */
 export function SideNav({
   businessId,
@@ -93,7 +100,15 @@ export function SideNav({
   );
 }
 
-/** Mobile bottom-tab nav (fixed, safe-area aware). */
+const tabClass = "flex min-h-[52px] flex-col items-center justify-center gap-1 py-2 text-[11px] font-medium";
+
+/**
+ * Mobile bottom-tab nav (fixed, safe-area aware). Shows the sale-critical tabs
+ * first-class and tucks secondary tabs (Reports/Drawer/Team/Settings) into a
+ * "More" sheet so the bar never crowds past 5 targets (audit R2 #2). Capability
+ * gating is preserved — the split happens after filtering, and "More" only shows
+ * when the operator actually has secondary tabs.
+ */
 export function BottomNav({
   businessId,
   mode,
@@ -106,30 +121,99 @@ export function BottomNav({
   firstRun?: boolean;
 }) {
   const isActive = useActive(businessId);
+  const pathname = usePathname();
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  // Close the More sheet after navigating.
+  useEffect(() => {
+    setMoreOpen(false);
+  }, [pathname]);
+
   const items = navFor(mode, operator);
+  const primary = items.filter((i) => BOTTOM_PRIMARY.has(i.slug));
+  const overflow = items.filter((i) => !BOTTOM_PRIMARY.has(i.slug));
+  const overflowActive = overflow.some((i) => isActive(i.slug));
+  const columns = primary.length + (overflow.length > 0 ? 1 : 0);
+
   return (
-    <nav
-      // Column count tracks the item count (7 in store, 8 in restaurant); set
-      // inline so Tailwind doesn't need to pre-generate a dynamic grid-cols class.
-      style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
-      className="fixed inset-x-0 bottom-0 z-40 grid border-t border-border bg-card pb-[env(safe-area-inset-bottom)] lg:hidden"
-      aria-label="Primary"
-    >
-      {items.map(({ slug, label, Icon }) => (
-        <Link
-          key={slug}
-          href={`/${businessId}/${slug}`}
-          aria-current={isActive(slug) ? "page" : undefined}
-          className={cn(
-            "flex flex-col items-center justify-center gap-1 py-2 text-[11px] font-medium",
-            isActive(slug) ? "text-primary" : "text-muted-foreground",
-            isMuted(slug, firstRun, isActive(slug)) && "opacity-50",
-          )}
-        >
-          <Icon size={20} />
-          {label}
-        </Link>
-      ))}
-    </nav>
+    <>
+      {moreOpen && (
+        <>
+          {/* Backdrop closes the sheet; the sheet lists the secondary tabs. */}
+          <button
+            type="button"
+            aria-label="Close menu"
+            onClick={() => setMoreOpen(false)}
+            className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+          />
+          <div
+            id="more-menu"
+            role="menu"
+            aria-label="More"
+            className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+56px)] z-50 border-t border-border bg-card p-2 shadow-lg lg:hidden"
+          >
+            <div className="grid grid-cols-2 gap-1">
+              {overflow.map(({ slug, label, Icon }) => (
+                <Link
+                  key={slug}
+                  href={`/${businessId}/${slug}`}
+                  role="menuitem"
+                  aria-current={isActive(slug) ? "page" : undefined}
+                  className={cn(
+                    "flex min-h-12 items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium",
+                    isActive(slug)
+                      ? "bg-muted text-primary"
+                      : "text-foreground hover:bg-muted",
+                  )}
+                >
+                  <Icon size={20} />
+                  {label}
+                </Link>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      <nav
+        // Column count tracks primary tabs (+1 for More); set inline so Tailwind
+        // doesn't need to pre-generate a dynamic grid-cols class.
+        style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+        className="fixed inset-x-0 bottom-0 z-40 grid border-t border-border bg-card pb-[env(safe-area-inset-bottom)] lg:hidden"
+        aria-label="Primary"
+      >
+        {primary.map(({ slug, label, Icon }) => (
+          <Link
+            key={slug}
+            href={`/${businessId}/${slug}`}
+            aria-current={isActive(slug) ? "page" : undefined}
+            className={cn(
+              tabClass,
+              isActive(slug) ? "text-primary" : "text-muted-foreground",
+              isMuted(slug, firstRun, isActive(slug)) && "opacity-50",
+            )}
+          >
+            <Icon size={20} />
+            {label}
+          </Link>
+        ))}
+        {overflow.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setMoreOpen((o) => !o)}
+            aria-haspopup="menu"
+            aria-expanded={moreOpen}
+            aria-controls="more-menu"
+            className={cn(
+              tabClass,
+              moreOpen || overflowActive ? "text-primary" : "text-muted-foreground",
+            )}
+          >
+            <MoreHorizontal size={20} />
+            More
+          </button>
+        )}
+      </nav>
+    </>
   );
 }

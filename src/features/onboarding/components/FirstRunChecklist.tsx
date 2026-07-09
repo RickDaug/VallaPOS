@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Check, ChevronDown, ChevronUp, Percent, Sparkles, X } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Lock, LockOpen, Percent, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
 import {
@@ -12,6 +12,7 @@ import {
   type FirstRunState,
   type OnboardingCaps,
 } from "@/features/onboarding/first-run";
+import { getSingleOperatorMode, setSingleOperatorMode } from "@/features/onboarding/actions";
 
 /**
  * First-run activation surface, rendered above the app content until the
@@ -52,6 +53,19 @@ function Checklist({
     setCollapsed(localStorage.getItem(key) === "1");
   }, [key]);
 
+  // Per-device "I charge no tax" acknowledgement so a 0%-tax merchant can
+  // complete the tax step instead of being nudged forever (audit R2 #4).
+  const taxAckKey = `vp_tax_ack_${businessId}`;
+  const [taxAcknowledged, setTaxAcknowledged] = useState(false);
+  useEffect(() => {
+    setTaxAcknowledged(localStorage.getItem(taxAckKey) === "1");
+  }, [taxAckKey]);
+
+  function acknowledgeNoTax() {
+    localStorage.setItem(taxAckKey, "1");
+    setTaxAcknowledged(true);
+  }
+
   function toggle() {
     setCollapsed((c) => {
       const next = !c;
@@ -60,7 +74,7 @@ function Checklist({
     });
   }
 
-  const steps = checklistSteps(state, caps);
+  const steps = checklistSteps(state, caps, { taxAcknowledged });
   const { done, total } = checklistProgress(steps);
 
   return (
@@ -116,6 +130,15 @@ function Checklist({
                   {step.title}
                 </span>
                 <span className="block text-sm text-muted-foreground">{step.description}</span>
+                {step.key === "tax" && !step.done && (
+                  <button
+                    type="button"
+                    onClick={acknowledgeNoTax}
+                    className="mt-1 text-sm font-medium text-primary underline underline-offset-2"
+                  >
+                    I don&apos;t charge tax
+                  </button>
+                )}
               </span>
               <Link
                 href={`/${businessId}/${step.href}`}
@@ -130,7 +153,72 @@ function Checklist({
           ))}
         </ol>
       )}
+
+      {!collapsed && caps.canManageSettings && <StayUnlockedCard businessId={businessId} />}
     </section>
+  );
+}
+
+/**
+ * Surfaces the "stay unlocked" (single-operator) choice during first run so a
+ * solo owner discovers it without digging into Settings (audit R2 #1b). New
+ * businesses default to unlocked; this lets them confirm it or switch to the
+ * shared-till behavior before they hire staff. Reads/writes the real setting via
+ * server actions, capability-gated to owners/managers.
+ */
+function StayUnlockedCard({ businessId }: { businessId: string }) {
+  const [value, setValue] = useState<boolean | null>(null);
+  const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    getSingleOperatorMode(businessId)
+      .then((v) => active && setValue(v))
+      .catch(() => active && setValue(null));
+    return () => {
+      active = false;
+    };
+  }, [businessId]);
+
+  async function onToggle(next: boolean) {
+    setPending(true);
+    setValue(next); // optimistic
+    try {
+      await setSingleOperatorMode(businessId, next);
+    } catch {
+      setValue(!next); // revert on failure
+    } finally {
+      setPending(false);
+    }
+  }
+
+  if (value === null) return null;
+
+  return (
+    <div className="mx-4 mb-4 flex items-center gap-3 rounded-lg border border-border bg-card p-3">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+        {value ? <LockOpen size={16} /> : <Lock size={16} />}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-semibold leading-tight">Stay unlocked while you sell solo</span>
+        <span className="block text-sm text-muted-foreground">
+          {value
+            ? "The register won't re-lock after each sale — perfect for one person on one device. Turn this off when you add staff who share a till."
+            : "The register locks after each sale so staff sign in per shift. Turn on to skip re-locking while you sell solo."}
+        </span>
+      </span>
+      <label className="flex shrink-0 items-center gap-2">
+        <span className="sr-only">Stay unlocked (single operator mode)</span>
+        <input
+          type="checkbox"
+          checked={value}
+          disabled={pending}
+          onChange={(e) => onToggle(e.target.checked)}
+          aria-label="Stay unlocked (single operator mode)"
+          className="h-5 w-5 accent-primary"
+        />
+      </label>
+    </div>
   );
 }
 
