@@ -14,6 +14,8 @@ import {
   Search,
   ShoppingCart,
   Star,
+  Volume2,
+  VolumeX,
   WifiOff,
 } from "lucide-react";
 import { PIN_MIN_LENGTH, PIN_MAX_LENGTH } from "@/features/employees/schema";
@@ -37,6 +39,8 @@ import {
   saveFavorites,
   toggleFavorite,
 } from "@/features/register/preferences";
+import { NO_TIP, TIP_PERCENTS, tipCentsFor, type TipSelection } from "@/features/register/tip";
+import { useTapFeedback } from "@/features/register/use-tap-feedback";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -66,8 +70,6 @@ type CartLine = {
   modifiers: ChosenModifier[];
 };
 
-const TIP_PRESETS = [0, 0.15, 0.2, 0.25];
-
 /** Stable key for a (variation, chosen modifiers) pair. */
 function lineKey(variationId: string, modifierIds: string[]): string {
   return [variationId, ...[...modifierIds].sort()].join("|");
@@ -92,7 +94,10 @@ export function Register({
   const [cart, setCart] = useState<CartLine[]>([]);
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("All");
-  const [tipRate, setTipRate] = useState(0);
+  // Ethical tip selection: No-Tip (default, first-class), an anchored %, or a
+  // custom amount. `customTipDollars` is the raw text of the custom entry.
+  const [tip, setTip] = useState<TipSelection>(NO_TIP);
+  const [customTipDollars, setCustomTipDollars] = useState("");
   const [discountDollars, setDiscountDollars] = useState("");
   const [tendering, setTendering] = useState(false);
   // CASH (numpad + change) vs MANUAL/"Other" (payment taken outside the app).
@@ -121,6 +126,9 @@ export function Register({
   const [cartOpen, setCartOpen] = useState(false);
   const { online, pending: queuedCount, syncing, submit } = useOfflineCheckout();
   const { toast } = useToast();
+  // Multi-sensory tap confirmation (haptic + optional click) for item taps and
+  // the charge action, so cashiers trust a press without looking.
+  const { tap, soundEnabled, toggleSound } = useTapFeedback();
 
   // Closure feedback when the offline backlog finishes replaying: the sync
   // banner just disappears otherwise. Fires only on the >0 → 0 transition.
@@ -211,9 +219,12 @@ export function Register({
         (l.unitPriceCents + l.modifiers!.reduce((a, m) => a + m.priceDeltaCents, 0)) * l.quantity,
       0,
     );
-    const tipCents = Math.round(Math.max(subtotal - cartDiscountCents, 0) * tipRate);
+    const tipCents = tipCentsFor(tip, Math.max(subtotal - cartDiscountCents, 0));
     return computePricedOrder(lines, { taxRateBps, cartDiscountCents, tipCents, taxInclusive });
-  }, [cart, taxRateBps, cartDiscountCents, tipRate, taxInclusive]);
+  }, [cart, taxRateBps, cartDiscountCents, tip, taxInclusive]);
+
+  // Base the tip percentages are computed against: the discounted subtotal.
+  const tipBaseCents = Math.max(totals.subtotalCents - cartDiscountCents, 0);
 
   /** Add an item to the cart with an (already-chosen) modifier set. */
   function addLine(entry: SellableEntry, modifiers: ChosenModifier[]) {
@@ -279,7 +290,8 @@ export function Register({
 
   function resetSale() {
     setCart([]);
-    setTipRate(0);
+    setTip(NO_TIP);
+    setCustomTipDollars("");
     setDiscountDollars("");
     setTenderDollars("");
     setTenderMethod("CASH");
@@ -493,8 +505,11 @@ export function Register({
       taxInclusive={taxInclusive}
       discountDollars={discountDollars}
       setDiscountDollars={setDiscountDollars}
-      tipRate={tipRate}
-      setTipRate={setTipRate}
+      tip={tip}
+      setTip={setTip}
+      customTipDollars={customTipDollars}
+      setCustomTipDollars={setCustomTipDollars}
+      tipBaseCents={tipBaseCents}
       tendering={tendering}
       setTendering={setTendering}
       tenderMethod={tenderMethod}
@@ -511,6 +526,7 @@ export function Register({
       addCustomModifier={addCustomModifier}
       removeModifier={removeModifier}
       completeSale={completeSale}
+      tap={tap}
     />
   );
 
@@ -564,6 +580,16 @@ export function Register({
             >
               {density === "grid" ? <List size={18} /> : <LayoutGrid size={18} />}
             </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={toggleSound}
+              aria-pressed={soundEnabled}
+              aria-label={soundEnabled ? "Turn tap sound off" : "Turn tap sound on"}
+              title={soundEnabled ? "Tap sound on" : "Tap sound off"}
+            >
+              {soundEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
+            </Button>
           </div>
           {categories.length > 2 && (
             <div className="-mx-1 mb-4 flex gap-2 overflow-x-auto px-1 pb-1" role="tablist" aria-label="Filter by category">
@@ -598,7 +624,10 @@ export function Register({
                     onToggle={() => onToggleFavorite(entry.variationId)}
                   />
                   <button
-                    onClick={() => addToCart(entry)}
+                    onClick={() => {
+                      tap();
+                      addToCart(entry);
+                    }}
                     className="flex flex-1 items-center justify-between gap-3 rounded-md px-2 py-1 text-left transition-colors hover:bg-muted active:scale-[0.99]"
                   >
                     <span className="min-w-0">
@@ -624,7 +653,10 @@ export function Register({
                     className="absolute right-2 top-2"
                   />
                   <button
-                    onClick={() => addToCart(entry)}
+                    onClick={() => {
+                      tap();
+                      addToCart(entry);
+                    }}
                     className="block w-full text-left active:scale-[0.98]"
                   >
                     <div className="mb-6 flex items-center justify-between">
@@ -802,6 +834,101 @@ function LineModAdder({ onAdd }: { onAdd: (name: string, priceDeltaCents: number
   );
 }
 
+/**
+ * Ethical tip screen. Anchored 15/20/25% options, each showing the computed
+ * dollar amount, PLUS a Custom amount entry PLUS a first-class "No tip" button
+ * rendered with identical prominence — never hidden or de-emphasized. All money
+ * stays integer cents (custom entry parses through `dollarsToCents`).
+ */
+function TipSelector({
+  tip,
+  setTip,
+  customTipDollars,
+  setCustomTipDollars,
+  tipBaseCents,
+  money,
+}: {
+  tip: TipSelection;
+  setTip: (v: TipSelection) => void;
+  customTipDollars: string;
+  setCustomTipDollars: (v: string) => void;
+  tipBaseCents: number;
+  money: (c: number) => string;
+}) {
+  const customActive = tip.kind === "custom";
+  const options = [
+    {
+      key: "none",
+      label: "No tip",
+      sub: money(0),
+      selected: tip.kind === "none",
+      onSelect: () => setTip(NO_TIP),
+    },
+    ...TIP_PERCENTS.map((rate) => ({
+      key: String(rate),
+      label: `${Math.round(rate * 100)}%`,
+      sub: money(tipCentsFor({ kind: "percent", rate }, tipBaseCents)),
+      selected: tip.kind === "percent" && tip.rate === rate,
+      onSelect: () => setTip({ kind: "percent", rate }),
+    })),
+  ];
+
+  return (
+    <div>
+      <p className="mb-1.5 text-muted-foreground">Tip</p>
+      <div className="grid grid-cols-4 gap-2">
+        {options.map((o) => (
+          <button
+            key={o.key}
+            type="button"
+            onClick={o.onSelect}
+            aria-pressed={o.selected}
+            className={cn(
+              "flex h-14 flex-col items-center justify-center rounded-md text-sm font-semibold transition-colors active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              o.selected
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-foreground hover:bg-secondary",
+            )}
+          >
+            <span>{o.label}</span>
+            <span className="numeric text-xs font-normal opacity-80">{o.sub}</span>
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={() => setTip({ kind: "custom", cents: dollarsToCents(customTipDollars) })}
+        aria-pressed={customActive}
+        className={cn(
+          "mt-2 flex h-12 w-full items-center justify-center rounded-md text-sm font-semibold transition-colors active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          customActive
+            ? "bg-primary text-primary-foreground"
+            : "bg-muted text-foreground hover:bg-secondary",
+        )}
+      >
+        Custom amount
+      </button>
+      {customActive && (
+        <label className="mt-2 flex items-center justify-between gap-3">
+          <span className="text-muted-foreground">Custom tip ($)</span>
+          <Input
+            inputMode="decimal"
+            value={customTipDollars}
+            onChange={(e) => {
+              setCustomTipDollars(e.target.value);
+              setTip({ kind: "custom", cents: dollarsToCents(e.target.value) });
+            }}
+            placeholder="0.00"
+            aria-label="Custom tip amount"
+            className="numeric h-11 w-28 text-right"
+            autoFocus
+          />
+        </label>
+      )}
+    </div>
+  );
+}
+
 function CartPanel({
   cart,
   money,
@@ -809,8 +936,11 @@ function CartPanel({
   taxInclusive,
   discountDollars,
   setDiscountDollars,
-  tipRate,
-  setTipRate,
+  tip,
+  setTip,
+  customTipDollars,
+  setCustomTipDollars,
+  tipBaseCents,
   tendering,
   setTendering,
   tenderMethod,
@@ -827,6 +957,7 @@ function CartPanel({
   addCustomModifier,
   removeModifier,
   completeSale,
+  tap,
 }: {
   cart: CartLine[];
   money: (c: number) => string;
@@ -834,8 +965,11 @@ function CartPanel({
   taxInclusive: boolean;
   discountDollars: string;
   setDiscountDollars: (v: string) => void;
-  tipRate: number;
-  setTipRate: (v: number) => void;
+  tip: TipSelection;
+  setTip: (v: TipSelection) => void;
+  customTipDollars: string;
+  setCustomTipDollars: (v: string) => void;
+  tipBaseCents: number;
   tendering: boolean;
   setTendering: (v: boolean) => void;
   tenderMethod: TenderMethod;
@@ -852,6 +986,7 @@ function CartPanel({
   addCustomModifier: (key: string, name: string, priceDeltaCents: number) => void;
   removeModifier: (key: string, modId: string) => void;
   completeSale: () => void;
+  tap: () => void;
 }) {
   return (
     <>
@@ -932,25 +1067,14 @@ function CartPanel({
           />
         </label>
         <Row label={taxInclusive ? "Tax (included)" : "Tax"} value={money(totals.taxCents)} />
-        <div>
-          <p className="mb-1.5 text-muted-foreground">Tip</p>
-          <div className="flex gap-2">
-            {TIP_PRESETS.map((rate) => (
-              <button
-                key={rate}
-                onClick={() => setTipRate(rate)}
-                className={cn(
-                  "h-10 flex-1 rounded-md text-sm font-semibold transition-colors",
-                  tipRate === rate
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-foreground hover:bg-secondary",
-                )}
-              >
-                {rate === 0 ? "None" : `${rate * 100}%`}
-              </button>
-            ))}
-          </div>
-        </div>
+        <TipSelector
+          tip={tip}
+          setTip={setTip}
+          customTipDollars={customTipDollars}
+          setCustomTipDollars={setCustomTipDollars}
+          tipBaseCents={tipBaseCents}
+          money={money}
+        />
         <Row label="Tip total" value={money(totals.tipCents)} />
         <div className="flex items-center justify-between pt-3 text-2xl font-black">
           <span>Total</span>
@@ -969,6 +1093,7 @@ function CartPanel({
             size="lg"
             disabled={cart.length === 0}
             onClick={() => {
+              tap();
               setTendering(true);
               // Start empty so the numpad/quick-cash chips fill it cleanly.
               setTenderDollars("");
@@ -1089,7 +1214,10 @@ function CartPanel({
             <Button
               variant="success"
               size="lg"
-              onClick={completeSale}
+              onClick={() => {
+                tap();
+                completeSale();
+              }}
               disabled={
                 pending ||
                 (tenderMethod === "CASH" && dollarsToCents(tenderDollars) < totals.totalCents)
