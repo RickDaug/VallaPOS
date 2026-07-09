@@ -31,6 +31,7 @@ export default async function SettingsPage({
       name: true,
       taxRateBps: true,
       currency: true,
+      timezone: true,
       taxInclusive: true,
       mode: true,
       singleOperatorMode: true,

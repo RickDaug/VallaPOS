@@ -66,3 +66,22 @@ describe("updateSettingsSchema — currency + single-operator mode", () => {
     expect(updateSettingsSchema.parse({ ...base(), singleOperatorMode: true }).singleOperatorMode).toBe(true);
   });
 });
+
+describe("updateSettingsSchema — timezone", () => {
+  it("defaults to America/New_York when omitted (mirrors the DB default)", () => {
+    expect(updateSettingsSchema.parse(base()).timezone).toBe("America/New_York");
+  });
+
+  it("accepts a valid IANA zone from the allow-list (incl. MX/BR)", () => {
+    expect(updateSettingsSchema.parse({ ...base(), timezone: "America/Mexico_City" }).timezone).toBe(
+      "America/Mexico_City",
+    );
+    expect(updateSettingsSchema.parse({ ...base(), timezone: "America/Sao_Paulo" }).timezone).toBe(
+      "America/Sao_Paulo",
+    );
+  });
+
+  it("rejects a zone outside the allow-list", () => {
+    expect(() => updateSettingsSchema.parse({ ...base(), timezone: "Mars/Olympus" })).toThrow();
+  });
+});

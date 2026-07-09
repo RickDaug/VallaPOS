@@ -9,6 +9,10 @@ import {
   buildCategorySalesCsv,
   buildCashierSalesCsv,
   resolveReportRange,
+  timeZoneOffsetMs,
+  zonedDayStartUtc,
+  addDaysToDateStr,
+  todayInTimeZone,
   centsToAmount,
   csvField,
   sanitizeTextCell,
@@ -162,6 +166,64 @@ describe("resolveReportRange", () => {
     const r = resolveReportRange("2026-07-08", "2026-07-01", "2026-07-08");
     expect(r.fromStr).toBe("2026-07-01");
     expect(r.toStr).toBe("2026-07-08");
+  });
+});
+
+describe("timezone-aware day windows", () => {
+  describe("timeZoneOffsetMs", () => {
+    const H = 3_600_000;
+    it("returns the standard-time offset in winter", () => {
+      // 2026-01-15 noon UTC: New York is UTC−5 (EST), São Paulo UTC−3.
+      const jan = new Date("2026-01-15T12:00:00Z");
+      expect(timeZoneOffsetMs(jan, "America/New_York")).toBe(-5 * H);
+      expect(timeZoneOffsetMs(jan, "America/Sao_Paulo")).toBe(-3 * H);
+      expect(timeZoneOffsetMs(jan, "UTC")).toBe(0);
+    });
+    it("tracks DST — New York is UTC−4 in July, Phoenix stays UTC−7", () => {
+      const jul = new Date("2026-07-15T12:00:00Z");
+      expect(timeZoneOffsetMs(jul, "America/New_York")).toBe(-4 * H); // EDT
+      expect(timeZoneOffsetMs(jul, "America/Phoenix")).toBe(-7 * H); // no DST
+    });
+  });
+
+  describe("zonedDayStartUtc", () => {
+    it("maps local midnight to the correct UTC instant (winter, UTC−5)", () => {
+      // 2026-01-15 00:00 in New York (EST, −5) is 05:00 UTC.
+      expect(zonedDayStartUtc("2026-01-15", "America/New_York").toISOString()).toBe(
+        "2026-01-15T05:00:00.000Z",
+      );
+    });
+    it("maps local midnight to the correct UTC instant (summer DST, UTC−4)", () => {
+      // 2026-07-15 00:00 in New York (EDT, −4) is 04:00 UTC.
+      expect(zonedDayStartUtc("2026-07-15", "America/New_York").toISOString()).toBe(
+        "2026-07-15T04:00:00.000Z",
+      );
+    });
+    it("handles a whole-day window that a UTC boundary would misplace", () => {
+      // A sale at 2026-07-16T02:00:00Z is 2026-07-15 22:00 in New York — it must
+      // fall in the LOCAL 07-15 window, not 07-16 as a naive UTC split would.
+      const start = zonedDayStartUtc("2026-07-15", "America/New_York");
+      const end = zonedDayStartUtc(addDaysToDateStr("2026-07-15", 1), "America/New_York");
+      const sale = new Date("2026-07-16T02:00:00Z");
+      expect(sale >= start && sale < end).toBe(true);
+    });
+  });
+
+  describe("addDaysToDateStr", () => {
+    it("advances a day, crossing month and year boundaries", () => {
+      expect(addDaysToDateStr("2026-07-15", 1)).toBe("2026-07-16");
+      expect(addDaysToDateStr("2026-07-31", 1)).toBe("2026-08-01");
+      expect(addDaysToDateStr("2026-12-31", 1)).toBe("2027-01-01");
+    });
+  });
+
+  describe("todayInTimeZone", () => {
+    it("reads the wall-clock calendar day for the zone at a given instant", () => {
+      // 2026-07-16T02:00:00Z is still 07-15 in New York but already 07-16 in UTC.
+      const instant = new Date("2026-07-16T02:00:00Z");
+      expect(todayInTimeZone("America/New_York", instant)).toBe("2026-07-15");
+      expect(todayInTimeZone("UTC", instant)).toBe("2026-07-16");
+    });
   });
 });
 

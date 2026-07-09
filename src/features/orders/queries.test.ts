@@ -9,11 +9,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const orderFindMany = vi.fn();
 const paymentFindMany = vi.fn();
+const businessFindUnique = vi.fn();
 
 vi.mock("@/lib/db", () => ({
   db: {
     order: { findMany: (...a: unknown[]) => orderFindMany(...a) },
     payment: { findMany: (...a: unknown[]) => paymentFindMany(...a) },
+    business: { findUnique: (...a: unknown[]) => businessFindUnique(...a) },
     variation: {},
     membership: {},
   },
@@ -32,6 +34,9 @@ interface FakeOrder {
   taxCents: number;
   tipCents: number;
   totalCents: number;
+  // Payment movements ON the order (positive captures + negative reversals); used
+  // to derive the refunded fraction of a PARTIALLY_REFUNDED order.
+  payments?: { amountCents: number }[];
 }
 interface FakePayment {
   businessId: string;
@@ -62,6 +67,7 @@ function seed(orders: FakeOrder[], payments: FakePayment[]) {
         taxCents: o.taxCents,
         tipCents: o.tipCents,
         totalCents: o.totalCents,
+        payments: o.payments ?? [],
       }));
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -107,6 +113,7 @@ const refundToday: FakePayment = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  businessFindUnique.mockResolvedValue({ taxInclusive: false });
   seed([orderY], [saleY, refundToday]);
 });
 
@@ -139,5 +146,91 @@ describe("getDailyReport — payment-time money window (audit #9)", () => {
     // The window must NOT be nested under the order relation anymore.
     expect(where.order?.createdAt).toBeUndefined();
     expect(where.order?.businessId).toBe(BIZ);
+  });
+});
+
+// audit #2 — inclusive-tax "Net sales" must strip the embedded tax so Net + Tax
+// doesn't double-count. In inclusive pricing the order subtotal already contains
+// the tax; in exclusive pricing it doesn't.
+describe("getDailyReport — Net sales by tax mode (audit #2)", () => {
+  // A $10 item priced tax-INCLUSIVE at 8.25%: subtotal 1083 embeds 83¢ of tax,
+  // total 1083 (tax is inside, not added on top).
+  const inclusiveOrder: FakeOrder = {
+    businessId: BIZ,
+    status: "PAID",
+    createdAt: new Date("2026-07-07T12:00:00Z"),
+    subtotalCents: 1083,
+    discountCents: 0,
+    taxCents: 83,
+    tipCents: 0,
+    totalCents: 1083,
+    payments: [{ amountCents: 1083 }],
+  };
+  // The same economic sale priced tax-EXCLUSIVE: subtotal 1000 pre-tax, tax 83
+  // added on top, total 1083.
+  const exclusiveOrder: FakeOrder = {
+    ...inclusiveOrder,
+    subtotalCents: 1000,
+    totalCents: 1083,
+  };
+
+  it("inclusive: Net = gross − discount − embedded tax, and Net + Tax reconciles to collected", async () => {
+    businessFindUnique.mockResolvedValue({ taxInclusive: true });
+    seed([inclusiveOrder], []);
+    const r = await getDailyReport(BIZ, tStart, tEnd);
+    expect(r.grossSalesCents).toBe(1083);
+    expect(r.taxCents).toBe(83);
+    expect(r.netSalesCents).toBe(1000); // 1083 − 0 − 83, not 1083 (no double-count)
+    expect(r.totalCollectedCents).toBe(1083);
+    expect(r.netSalesCents + r.taxCents).toBe(r.totalCollectedCents); // reconciles
+  });
+
+  it("exclusive: Net = gross − discount (unchanged), Net + Tax reconciles to collected", async () => {
+    businessFindUnique.mockResolvedValue({ taxInclusive: false });
+    seed([exclusiveOrder], []);
+    const r = await getDailyReport(BIZ, tStart, tEnd);
+    expect(r.grossSalesCents).toBe(1000);
+    expect(r.taxCents).toBe(83);
+    expect(r.netSalesCents).toBe(1000);
+    expect(r.totalCollectedCents).toBe(1083);
+    expect(r.netSalesCents + r.taxCents).toBe(r.totalCollectedCents); // reconciles
+  });
+});
+
+// audit #3 — a PARTIALLY_REFUNDED order must back the refunded fraction out of
+// reported sales AND sales tax (proportional approximation, since refund rows
+// carry no tax split), so a merchant remitting off the Z-report doesn't over-remit.
+describe("getDailyReport — partial refund backs out reported tax (audit #3)", () => {
+  // Exclusive order: subtotal 1000, tax 80 (8%), total 1080. Half is refunded
+  // (a -540 reversal), so exactly half the sale and half the tax should remain.
+  const partiallyRefunded: FakeOrder = {
+    businessId: BIZ,
+    status: "PARTIALLY_REFUNDED",
+    createdAt: new Date("2026-07-07T12:00:00Z"),
+    subtotalCents: 1000,
+    discountCents: 0,
+    taxCents: 80,
+    tipCents: 0,
+    totalCents: 1080,
+    payments: [{ amountCents: 1080 }, { amountCents: -540 }],
+  };
+
+  it("halves reported net + tax when half the order was refunded", async () => {
+    seed([partiallyRefunded], []);
+    const r = await getDailyReport(BIZ, tStart, tEnd);
+    expect(r.grossSalesCents).toBe(500);
+    expect(r.taxCents).toBe(40); // 80 backed down to the retained half
+    expect(r.netSalesCents).toBe(500);
+    expect(r.totalCollectedCents).toBe(540);
+    expect(r.orderCount).toBe(1); // the order header still counts as a (reduced) sale
+  });
+
+  it("leaves a fully-PAID order (no reversals) reported in full", async () => {
+    const paid: FakeOrder = { ...partiallyRefunded, status: "PAID", payments: [{ amountCents: 1080 }] };
+    seed([paid], []);
+    const r = await getDailyReport(BIZ, tStart, tEnd);
+    expect(r.grossSalesCents).toBe(1000);
+    expect(r.taxCents).toBe(80);
+    expect(r.totalCollectedCents).toBe(1080);
   });
 });

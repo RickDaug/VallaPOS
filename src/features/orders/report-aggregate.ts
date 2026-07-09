@@ -162,6 +162,84 @@ export function resolveReportRange(
   return { fromStr, toStr, label };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Timezone-aware day windows (dependency-free — Intl + offset math, no tz lib).
+//
+// Report day boundaries and displayed timestamps must follow the MERCHANT's
+// timezone, not the server's UTC clock, or a late-evening sale lands in the
+// wrong Z-report day. These helpers turn a local calendar day (YYYY-MM-DD in an
+// IANA zone) into the exact UTC instants that bound it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Milliseconds `timeZone` is ahead of UTC AT `instant` (positive east of UTC,
+ * negative west). Works by formatting the instant as wall-clock time in the zone
+ * and reading those fields back as if they were UTC, then diffing. Because the
+ * offset is sampled at `instant`, DST is handled correctly.
+ */
+export function timeZoneOffsetMs(instant: Date, timeZone: string): number {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23", // 00–23 (avoids the "24:00" midnight quirk of hour12:false)
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const parts: Record<string, string> = {};
+  for (const p of dtf.formatToParts(instant)) parts[p.type] = p.value;
+  const asUtc = Date.UTC(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    Number(parts.hour),
+    Number(parts.minute),
+    Number(parts.second),
+  );
+  return asUtc - instant.getTime();
+}
+
+/**
+ * The UTC instant of local midnight (00:00:00) on `dateStr` (YYYY-MM-DD) in
+ * `timeZone`. Two-pass so it converges even when the zone's UTC offset at the
+ * naive guess differs from the offset at true local midnight (DST edges).
+ */
+export function zonedDayStartUtc(dateStr: string, timeZone: string): Date {
+  const [ys, ms, ds] = dateStr.split("-");
+  const y = Number(ys);
+  const m = Number(ms);
+  const d = Number(ds);
+  const guess = Date.UTC(y, m - 1, d, 0, 0, 0);
+  const offset1 = timeZoneOffsetMs(new Date(guess), timeZone);
+  let utc = guess - offset1;
+  const offset2 = timeZoneOffsetMs(new Date(utc), timeZone);
+  if (offset2 !== offset1) utc = guess - offset2;
+  return new Date(utc);
+}
+
+/** Add `days` to a YYYY-MM-DD string, returning YYYY-MM-DD (calendar-safe, UTC arithmetic). */
+export function addDaysToDateStr(dateStr: string, days: number): string {
+  const [ys, ms, ds] = dateStr.split("-");
+  const dt = new Date(Date.UTC(Number(ys), Number(ms) - 1, Number(ds)));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
+
+/** Today's calendar date (YYYY-MM-DD) as it reads on the wall clock in `timeZone`. */
+export function todayInTimeZone(timeZone: string, now: Date = new Date()): string {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts: Record<string, string> = {};
+  for (const p of dtf.formatToParts(now)) parts[p.type] = p.value;
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
 const UNCATEGORIZED = "Uncategorized";
 
 /**

@@ -88,7 +88,17 @@ export async function getDailyReport(
   start: Date,
   end: Date,
 ): Promise<DailyReport> {
-  // Revenue orders (the sales lines) — exclude VOIDED / fully REFUNDED.
+  // Tax mode drives how "Net sales" is derived. Business is the tenant ROOT
+  // (keyed by id, not a tenant-scoped model), so a findUnique is the correct read.
+  const business = await db.business.findUnique({
+    where: { id: businessId },
+    select: { taxInclusive: true },
+  });
+  const taxInclusive = business?.taxInclusive ?? false;
+
+  // Revenue orders (the sales lines) — exclude VOIDED / fully REFUNDED. Pull each
+  // order's payments so we can back out the refunded fraction of a
+  // PARTIALLY_REFUNDED order from the reported sales/tax (see the loop below).
   const revenueOrders = await db.order.findMany({
     where: { businessId, status: { in: REVENUE_STATUSES }, createdAt: { gte: start, lt: end } },
     select: {
@@ -97,6 +107,7 @@ export async function getDailyReport(
       taxCents: true,
       tipCents: true,
       totalCents: true,
+      payments: { select: { amountCents: true } },
     },
   });
 
@@ -125,14 +136,38 @@ export async function getDailyReport(
     tenders: { rows: [], verifiedCollectedCents: 0, unverifiedCollectedCents: 0 },
   };
 
+  // Accumulate the RETAINED (net-of-refund) sales per order. A PARTIALLY_REFUNDED
+  // order keeps its header in the sales lines, but the refunded fraction of its
+  // money must be backed out so a merchant remitting off the Z-report doesn't
+  // over-report sales OR sales tax. Refund reversals carry no tax split, so we
+  // approximate PROPORTIONALLY: fraction f = refunded / order total, applied to
+  // every money field. PAID orders have no reversals (f = 0) and count in full.
   for (const o of revenueOrders) {
-    report.grossSalesCents += o.subtotalCents;
-    report.discountCents += o.discountCents;
-    report.taxCents += o.taxCents;
-    report.tipCents += o.tipCents;
-    report.totalCollectedCents += o.totalCents;
+    const refundedCents = -(o.payments ?? []).reduce(
+      (s, p) => (p.amountCents < 0 ? s + p.amountCents : s),
+      0,
+    );
+    const f = o.totalCents > 0 ? Math.min(1, Math.max(0, refundedCents / o.totalCents)) : 0;
+    const keep = (v: number) => v - Math.round(f * v); // retained portion, integer cents
+
+    report.grossSalesCents += keep(o.subtotalCents);
+    report.discountCents += keep(o.discountCents);
+    report.taxCents += keep(o.taxCents);
+    report.tipCents += keep(o.tipCents);
   }
-  report.netSalesCents = report.grossSalesCents - report.discountCents;
+
+  // Net sales = the tax-EXCLUDED base. Exclusive pricing: subtotal is pre-tax, so
+  // net = gross − discount. Inclusive pricing: subtotal already embeds the tax,
+  // so net = gross − discount − tax (stripping the embedded tax). Either way
+  // Net + Tax reconciles to the collected pre-tip base (no double-counting).
+  const preTaxBaseCents = report.grossSalesCents - report.discountCents;
+  report.netSalesCents = taxInclusive ? preTaxBaseCents - report.taxCents : preTaxBaseCents;
+
+  // Total collected, derived from the retained components so the section always
+  // foots (matches how the register priced each order): inclusive tax is already
+  // inside the base; exclusive tax adds on top; tips always add on top.
+  report.totalCollectedCents =
+    preTaxBaseCents + (taxInclusive ? 0 : report.taxCents) + report.tipCents;
 
   const methodTotals = new Map<PaymentMethod, { count: number; amountCents: number }>();
   for (const p of payments) {
@@ -271,6 +306,8 @@ export interface OrderReceipt {
   currency: string;
   taxRateBps: number;
   taxInclusive: boolean;
+  // IANA timezone so the receipt timestamp renders in the merchant's local time.
+  timeZone: string;
   lines: ReceiptLine[];
   payments: ReceiptPayment[];
 }
@@ -302,7 +339,13 @@ export async function getOrderReceipt(
       tipCents: true,
       totalCents: true,
       business: {
-        select: { name: true, currency: true, taxRateBps: true, taxInclusive: true },
+        select: {
+          name: true,
+          currency: true,
+          taxRateBps: true,
+          taxInclusive: true,
+          timezone: true,
+        },
       },
       lines: {
         orderBy: { id: "asc" },
@@ -350,6 +393,7 @@ export async function getOrderReceipt(
     currency: order.business.currency,
     taxRateBps: order.business.taxRateBps,
     taxInclusive: order.business.taxInclusive,
+    timeZone: order.business.timezone,
     lines: order.lines.map((l) => ({
       id: l.id,
       name: l.nameSnapshot,

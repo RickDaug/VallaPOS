@@ -41,6 +41,7 @@ export default async function ReceiptPage({
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZone: receipt.timeZone, // render in the merchant's local time, not UTC
   }).format(new Date(receipt.createdAt));
   const taxPct = (receipt.taxRateBps / 100).toFixed(2);
   const cashPayment = receipt.payments.find((p) => p.method === "CASH");

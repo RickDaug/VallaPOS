@@ -98,6 +98,11 @@ model Business {
   taxRateBps   Int          @default(0) // basis points; 825 = 8.25%
   taxInclusive Boolean      @default(false)
   currency     String       @default("USD")
+  // IANA timezone (e.g. "America/New_York", "America/Mexico_City",
+  // "America/Sao_Paulo"). Drives Z-report day boundaries and every displayed
+  // timestamp (receipts, order history) so a merchant's "today" is their local
+  // day, not the server's UTC day. Defaults to US Eastern for existing rows.
+  timezone     String       @default("America/New_York")
   // Single-operator ("stay unlocked") mode: when true the register does NOT
   // re-lock the terminal after each sale, so a solo owner selling from one phone
   // isn't re-authenticating before every transaction. Default OFF keeps the

@@ -46,6 +46,7 @@ function fakeReceipt(): OrderReceipt {
     currency: "USD",
     taxRateBps: 825,
     taxInclusive: false,
+    timeZone: "America/New_York",
     lines: [],
     payments: [
       { method: "CASH", amountCents: 1083, tenderedCents: 2000, changeCents: 917, manualNote: null },

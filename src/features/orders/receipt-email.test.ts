@@ -18,6 +18,7 @@ function receipt(overrides: Partial<OrderReceipt> = {}): OrderReceipt {
     currency: "USD",
     taxRateBps: 825,
     taxInclusive: false,
+    timeZone: "America/New_York",
     lines: [
       { id: "l1", name: "Taco", quantity: 2, unitPriceCents: 500, discountCents: 0, taxCents: 83, totalCents: 1000, modifiers: [] },
     ],
