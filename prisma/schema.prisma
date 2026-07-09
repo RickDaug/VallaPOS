@@ -98,6 +98,11 @@ model Business {
   taxRateBps   Int          @default(0) // basis points; 825 = 8.25%
   taxInclusive Boolean      @default(false)
   currency     String       @default("USD")
+  // Single-operator ("stay unlocked") mode: when true the register does NOT
+  // re-lock the terminal after each sale, so a solo owner selling from one phone
+  // isn't re-authenticating before every transaction. Default OFF keeps the
+  // secure shared-till behavior for multi-employee businesses. See Register.tsx.
+  singleOperatorMode Boolean @default(false)
   // Merchant-configured QR payment (confirm-based, no PSP): the cashier shows
   // qrPayValue as a QR (a payment handle/link — PIX key, UPI id, Venmo,
   // PayPal.me, a payment-link URL), the customer scans + pays out-of-band, and

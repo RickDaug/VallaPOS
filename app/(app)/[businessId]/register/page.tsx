@@ -18,6 +18,7 @@ export default async function RegisterPage({
       taxRateBps: true,
       currency: true,
       taxInclusive: true,
+      singleOperatorMode: true,
       qrPayEnabled: true,
       qrPayLabel: true,
       qrPayValue: true,
@@ -45,6 +46,7 @@ export default async function RegisterPage({
         taxRateBps={business.taxRateBps}
         currency={business.currency}
         taxInclusive={business.taxInclusive}
+        singleOperatorMode={business.singleOperatorMode}
         qrPay={qrPay}
       />
     </section>
