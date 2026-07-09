@@ -156,6 +156,57 @@ describe("addTabLines", () => {
     expect(totals.taxCents).toBe(165);
     expect(totals.totalCents).toBe(2165); // base + tax + tip(0)
   });
+
+  it("persists a cashier-typed custom modifier and includes its upcharge", async () => {
+    orderFindFirst.mockResolvedValue({ id: "order_1" });
+    businessFindUniqueOrThrow.mockResolvedValue({ taxRateBps: 0, taxInclusive: false });
+    variationFindMany.mockResolvedValue([variationRow({ priceCents: 1000 })]);
+    orderLineCreate.mockResolvedValue({ id: "line_1" });
+    orderLineFindMany.mockResolvedValue([{ totalCents: 1150, discountCents: 0, taxCents: 0 }]);
+    orderFindFirstOrThrow.mockResolvedValue({ tipCents: 0 });
+
+    await addTabLines({
+      businessId: BUSINESS_ID,
+      orderId: "order_1",
+      seat: null,
+      lines: [
+        {
+          variationId: "var_1",
+          quantity: 1,
+          customModifiers: [{ name: "Extra cheese", priceDeltaCents: 150 }],
+        },
+      ],
+    });
+
+    const lineData = orderLineCreate.mock.calls[0]![0].data;
+    // Base $10 + $1.50 upcharge = $11.50; the custom modifier is snapshotted.
+    expect(lineData.totalCents).toBe(1150);
+    expect(lineData.modifiers.create).toEqual([
+      { nameSnapshot: "Extra cheese", priceDeltaCents: 150 },
+    ]);
+  });
+
+  it("rejects a negative custom-modifier upcharge (upcharge only adds)", async () => {
+    orderFindFirst.mockResolvedValue({ id: "order_1" });
+    businessFindUniqueOrThrow.mockResolvedValue({ taxRateBps: 0, taxInclusive: false });
+    variationFindMany.mockResolvedValue([variationRow()]);
+
+    await expect(
+      addTabLines({
+        businessId: BUSINESS_ID,
+        orderId: "order_1",
+        seat: null,
+        lines: [
+          {
+            variationId: "var_1",
+            quantity: 1,
+            customModifiers: [{ name: "Discount hack", priceDeltaCents: -500 }],
+          },
+        ],
+      }),
+    ).rejects.toThrow();
+    expect(orderLineCreate).not.toHaveBeenCalled();
+  });
 });
 
 describe("settleTab", () => {
