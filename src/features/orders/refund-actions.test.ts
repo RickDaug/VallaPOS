@@ -10,6 +10,7 @@ const orderFindFirst = vi.fn();
 const paymentCreateMany = vi.fn();
 const paymentUpdateMany = vi.fn();
 const orderUpdate = vi.fn();
+const drawerFindFirst = vi.fn();
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 // Stub the tenant module (its real impl pulls in auth.ts → env.ts, which throws
@@ -34,6 +35,9 @@ vi.mock("@/lib/db", () => {
     payment: {
       createMany: (...a: unknown[]) => paymentCreateMany(...a),
       updateMany: (...a: unknown[]) => paymentUpdateMany(...a),
+    },
+    cashDrawerSession: {
+      findFirst: (...a: unknown[]) => drawerFindFirst(...a),
     },
   };
   return {
@@ -76,6 +80,8 @@ beforeEach(() => {
   orderUpdate.mockResolvedValue({});
   paymentCreateMany.mockResolvedValue({ count: 1 });
   paymentUpdateMany.mockResolvedValue({ count: 1 });
+  // Default: a drawer IS open, so cash refunds/voids are allowed to proceed.
+  drawerFindFirst.mockResolvedValue({ id: "drawer_1" });
 });
 
 describe("voidOrder — auth + tenant", () => {
@@ -113,7 +119,15 @@ describe("voidOrder — behavior", () => {
       ]),
     );
     const res = await voidOrder({ businessId: BUSINESS_ID, orderId: ORDER_ID });
-    expect(res).toEqual({ ok: true, status: "VOIDED", reversedCents: 1500 });
+    // CASH 1000 leaves the till; the CARD 500 portion has no PSP → manual refund.
+    expect(res).toEqual({
+      ok: true,
+      status: "VOIDED",
+      reversedCents: 1500,
+      cashRefundedCents: 1000,
+      manualRefundCents: 500,
+      manualRefundRequired: true,
+    });
 
     const reversals = createdReversals();
     expect(reversals).toEqual(
@@ -167,7 +181,14 @@ describe("refundOrder — full", () => {
   it("fully refunds, reversing the net collected and marking REFUNDED", async () => {
     orderFindFirst.mockResolvedValue(order("PAID", [{ id: "p1", method: "CASH", amountCents: 1083 }]));
     const res = await refundOrder({ businessId: BUSINESS_ID, orderId: ORDER_ID });
-    expect(res).toEqual({ ok: true, status: "REFUNDED", reversedCents: 1083 });
+    expect(res).toEqual({
+      ok: true,
+      status: "REFUNDED",
+      reversedCents: 1083,
+      cashRefundedCents: 1083,
+      manualRefundCents: 0,
+      manualRefundRequired: false,
+    });
     expect(createdReversals()).toEqual([
       expect.objectContaining({ method: "CASH", amountCents: -1083, status: "REFUNDED" }),
     ]);
@@ -200,7 +221,14 @@ describe("refundOrder — partial", () => {
   it("refunds a specific amount and leaves the order PARTIALLY_REFUNDED", async () => {
     orderFindFirst.mockResolvedValue(order("PAID", [{ id: "p1", method: "CASH", amountCents: 1000 }]));
     const res = await refundOrder({ businessId: BUSINESS_ID, orderId: ORDER_ID, amountCents: 300 });
-    expect(res).toEqual({ ok: true, status: "PARTIALLY_REFUNDED", reversedCents: 300 });
+    expect(res).toEqual({
+      ok: true,
+      status: "PARTIALLY_REFUNDED",
+      reversedCents: 300,
+      cashRefundedCents: 300,
+      manualRefundCents: 0,
+      manualRefundRequired: false,
+    });
     expect(createdReversals()).toEqual([
       expect.objectContaining({ method: "CASH", amountCents: -300 }),
     ]);
@@ -211,7 +239,14 @@ describe("refundOrder — partial", () => {
   it("promotes a partial that drains the balance to a full REFUNDED", async () => {
     orderFindFirst.mockResolvedValue(order("PAID", [{ id: "p1", method: "CASH", amountCents: 1000 }]));
     const res = await refundOrder({ businessId: BUSINESS_ID, orderId: ORDER_ID, amountCents: 1000 });
-    expect(res).toEqual({ ok: true, status: "REFUNDED", reversedCents: 1000 });
+    expect(res).toEqual({
+      ok: true,
+      status: "REFUNDED",
+      reversedCents: 1000,
+      cashRefundedCents: 1000,
+      manualRefundCents: 0,
+      manualRefundRequired: false,
+    });
     expect(paymentUpdateMany).toHaveBeenCalled(); // captures flipped on a full settle
   });
 
@@ -235,7 +270,14 @@ describe("refundOrder — partial", () => {
       await refundOrder({ businessId: BUSINESS_ID, orderId: ORDER_ID, amountCents: 700 }),
     ).toEqual({ ok: false, reason: "exceeds_net_collected" });
     const res = await refundOrder({ businessId: BUSINESS_ID, orderId: ORDER_ID, amountCents: 600 });
-    expect(res).toEqual({ ok: true, status: "REFUNDED", reversedCents: 600 });
+    expect(res).toEqual({
+      ok: true,
+      status: "REFUNDED",
+      reversedCents: 600,
+      cashRefundedCents: 600,
+      manualRefundCents: 0,
+      manualRefundRequired: false,
+    });
   });
 
   it("rejects a non-positive partial amount via zod (negative) or guard (zero coerced)", async () => {
@@ -243,5 +285,54 @@ describe("refundOrder — partial", () => {
     await expect(
       refundOrder({ businessId: BUSINESS_ID, orderId: ORDER_ID, amountCents: -5 }),
     ).rejects.toThrow(); // zod: positive
+  });
+});
+
+describe("cash-drawer guard on cash refunds/voids", () => {
+  it("throws (rolls back) a cash refund when no drawer session is open", async () => {
+    orderFindFirst.mockResolvedValue(order("PAID", [{ id: "p1", method: "CASH", amountCents: 1000 }]));
+    drawerFindFirst.mockResolvedValue(null); // no open drawer
+    await expect(refundOrder({ businessId: BUSINESS_ID, orderId: ORDER_ID })).rejects.toThrow(
+      "NO_OPEN_DRAWER_FOR_CASH_REFUND",
+    );
+    // Nothing written when the guard trips.
+    expect(paymentCreateMany).not.toHaveBeenCalled();
+    expect(orderUpdate).not.toHaveBeenCalled();
+  });
+
+  it("throws a cash VOID when no drawer session is open", async () => {
+    orderFindFirst.mockResolvedValue(order("PAID", [{ id: "p1", method: "CASH", amountCents: 500 }]));
+    drawerFindFirst.mockResolvedValue(null);
+    await expect(voidOrder({ businessId: BUSINESS_ID, orderId: ORDER_ID })).rejects.toThrow(
+      "NO_OPEN_DRAWER_FOR_CASH_REFUND",
+    );
+    expect(paymentCreateMany).not.toHaveBeenCalled();
+  });
+
+  it("scopes the open-drawer lookup by businessId", async () => {
+    orderFindFirst.mockResolvedValue(order("PAID", [{ id: "p1", method: "CASH", amountCents: 500 }]));
+    await refundOrder({ businessId: BUSINESS_ID, orderId: ORDER_ID });
+    expect(drawerFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ businessId: BUSINESS_ID, closedAt: null }),
+      }),
+    );
+  });
+
+  it("does NOT require an open drawer for a QR-only refund (no cash leaves the till)", async () => {
+    orderFindFirst.mockResolvedValue(order("PAID", [{ id: "p1", method: "QR", amountCents: 1000 }]));
+    drawerFindFirst.mockResolvedValue(null); // no drawer open, but no cash either
+    const res = await refundOrder({ businessId: BUSINESS_ID, orderId: ORDER_ID });
+    // A QR reversal is RECORDED but has no PSP → manual refund required, and the
+    // drawer guard never fires because no cash moves.
+    expect(res).toEqual({
+      ok: true,
+      status: "REFUNDED",
+      reversedCents: 1000,
+      cashRefundedCents: 0,
+      manualRefundCents: 1000,
+      manualRefundRequired: true,
+    });
+    expect(drawerFindFirst).not.toHaveBeenCalled();
   });
 });

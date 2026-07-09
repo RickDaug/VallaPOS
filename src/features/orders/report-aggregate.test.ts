@@ -267,9 +267,23 @@ describe("sanitizeTextCell", () => {
     expect(sanitizeTextCell("\rcarriage")).toBe("'\rcarriage");
   });
 
+  it("neutralizes a leading newline (a spreadsheet strips it, so \\n=1+1 still runs)", () => {
+    // The bug: /^[=+\-@\t\r]/ missed \n, so "\n=1+1" survived. RFC-4180 quoting
+    // for the newline does NOT stop formula evaluation — the leading control
+    // char is stripped before parsing — so it must be neutralized here.
+    expect(sanitizeTextCell("\n=1+1")).toBe("'\n=1+1");
+    expect(sanitizeTextCell("\r\n=1+1")).toBe("'\r\n=1+1");
+    // Other leading C0 control chars (vertical tab, form feed, NUL) too.
+    expect(sanitizeTextCell("\v=1+1")).toBe("'\v=1+1");
+    expect(sanitizeTextCell("\f=1+1")).toBe("'\f=1+1");
+    expect(sanitizeTextCell("\x00=1+1")).toBe("'\x00=1+1");
+  });
+
   it("leaves a normal name unchanged", () => {
     expect(sanitizeTextCell("Burger")).toBe("Burger");
     expect(sanitizeTextCell("Iced Tea")).toBe("Iced Tea");
+    // An interior newline is fine (only a LEADING control char is dangerous).
+    expect(sanitizeTextCell("Iced\nTea")).toBe("Iced\nTea");
   });
 });
 

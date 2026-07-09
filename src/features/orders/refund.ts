@@ -73,11 +73,15 @@ export type PartialRefundPlan =
 /**
  * Partial refund of `amountCents` against the order's net-collected payments.
  *
- * Allocation policy (documented & deterministic): drain method balances in
- * DESCENDING balance order, largest first, ties broken by method name. This
- * keeps refunds on the fewest methods (and prefers refunding the method the
- * customer paid the most on) without needing the caller to pick a method. The
- * sum of the reversals is exactly -amountCents.
+ * Allocation policy (documented & deterministic): PROPORTIONAL across the
+ * order's ACTUAL tenders — each method is refunded in proportion to what is
+ * still collected on it (`amount * balance / total`), integer cents, with the
+ * leftover cents from flooring handed out by largest fractional part (ties
+ * broken by method name). This is the SAFE allocation: on a mixed cash+QR order
+ * it never refunds cash the customer paid by QR (the old "drain the largest
+ * balance first" policy could return the whole refund as cash on a split-tender
+ * order). By construction each method's share is <= its balance, so we never
+ * over-refund a method, and the reversals sum to exactly -amountCents.
  *
  * Guards: amount must be > 0 and <= total net-collected (never refund more than
  * was actually taken, accounting for prior partial refunds).
@@ -97,15 +101,29 @@ export function planPartialRefund(
   // Largest balance first; stable tie-break on method name for determinism.
   const ordered = [...byMethod.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 
-  const reversals: ReversingPayment[] = [];
-  let remaining = amountCents;
-  for (const [method, balance] of ordered) {
-    if (remaining <= 0) break;
-    const take = Math.min(balance, remaining);
-    if (take > 0) {
-      reversals.push({ method, amountCents: -take });
-      remaining -= take;
+  // Floor each method's proportional share, tracking the fractional remainder.
+  const shares = ordered.map(([method, balance]) => {
+    const exact = (amountCents * balance) / total;
+    const base = Math.floor(exact);
+    return { method, balance, amount: base, frac: exact - base };
+  });
+  const allocated = shares.reduce((s, x) => s + x.amount, 0);
+
+  // Hand out the leftover cents (amount - Σ floors) one at a time, largest
+  // fractional part first. Every method with a positive fraction still has
+  // headroom (base < exact <= balance), so this never exceeds a method's balance.
+  let leftover = amountCents - allocated;
+  const byFrac = [...shares].sort((a, b) => b.frac - a.frac || a.method.localeCompare(b.method));
+  for (const share of byFrac) {
+    if (leftover <= 0) break;
+    if (share.amount < share.balance) {
+      share.amount += 1;
+      leftover -= 1;
     }
   }
+
+  const reversals: ReversingPayment[] = shares
+    .filter((x) => x.amount > 0)
+    .map((x) => ({ method: x.method, amountCents: -x.amount }));
   return { ok: true, reversals };
 }

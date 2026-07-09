@@ -100,11 +100,14 @@ export async function getDailyReport(
     },
   });
 
-  // Payment movements (the money lines) — ALL payments on orders created in the
-  // window, status-agnostic, so negative refund reversals are included and a
-  // cash refund nets out of cash collected.
+  // Payment movements (the money lines) — ALL payments whose OWN createdAt falls
+  // in the window, status-agnostic, so negative refund reversals are included
+  // and a cash refund nets out of cash collected. Keyed on PAYMENT time (not the
+  // order's), so a cash refund taken today against an older order lands in
+  // today's Z-report — making a closed day's report immutable — and a tab
+  // settled today counts today even if it was opened earlier.
   const payments = await db.payment.findMany({
-    where: { businessId, order: { businessId, createdAt: { gte: start, lt: end } } },
+    where: { businessId, createdAt: { gte: start, lt: end }, order: { businessId } },
     select: { method: true, amountCents: true },
   });
 
