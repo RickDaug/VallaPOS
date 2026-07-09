@@ -53,10 +53,53 @@ export interface ResolvedLine {
   nameSnapshot: string;
 }
 
+/**
+ * OFFLINE PRICE-SNAPSHOT FORGERY FLOOR (Round-3 #5).
+ *
+ * The offline `priceOverride` is a bounded trust relaxation: a queued sale
+ * carries the price the customer was QUOTED, and the device is the only witness.
+ * That snapshot is forgeable on a tampered device, so a thief could queue a $10
+ * item as $0.01. A full fix (a manager-signed snapshot token) needs device key
+ * provisioning + a schema field and isn't possible offline here, so this is the
+ * pragmatic mitigation: an overridden unit/modifier price that is IMPLAUSIBLY
+ * below the CURRENT catalog price is clamped UP to catalog and the line is
+ * flagged (the caller records an auditable marker on the payment). The floor is a
+ * FRACTION of catalog rather than an equality check so a LEGITIMATE catalog price
+ * RISE (quoted price now below catalog, but within the floor) still replays at
+ * the honest quoted price — we only distrust an override that dropped below half.
+ *
+ * RESIDUAL (documented, accepted): a forger can still underprice DOWN TO the
+ * floor (here, to 50% of catalog) undetected, and a genuine sale where the
+ * catalog MORE THAN DOUBLED after the sale is clamped up + flagged (rare, and it
+ * fails safe toward the merchant). The real fix remains the signed snapshot.
+ */
+const MIN_SNAPSHOT_FRACTION_OF_CATALOG = 0.5;
+
+/** The trusted amount for a snapshot override: the quoted amount, unless it is
+ *  implausibly below the catalog floor, in which case clamp up to catalog. */
+function floorTrust(
+  quoted: number,
+  catalog: number,
+): { value: number; clamped: boolean } {
+  // A zero/negative catalog reference has no meaningful floor — trust the quote.
+  if (catalog <= 0) return { value: quoted, clamped: false };
+  const floor = Math.floor(catalog * MIN_SNAPSHOT_FRACTION_OF_CATALOG);
+  if (quoted < floor) return { value: catalog, clamped: true };
+  return { value: quoted, clamped: false };
+}
+
 export async function resolveOrderLines(
   businessId: string,
   lines: LineInput[],
-): Promise<{ moneyLines: PricedLineInput[]; lineRecords: ResolvedLine[] }> {
+): Promise<{
+  moneyLines: PricedLineInput[];
+  lineRecords: ResolvedLine[];
+  // True when any offline snapshot price was clamped up to catalog because it
+  // fell below the forgery floor (see MIN_SNAPSHOT_FRACTION_OF_CATALOG). The
+  // register folds this into an auditable marker on the payment reference. Always
+  // false for online checkout and the tab flow (no priceOverride is ever set).
+  snapshotClamped: boolean;
+}> {
   const variations = await db.variation.findMany({
     where: { businessId, id: { in: lines.map((l) => l.variationId) } },
     include: {
@@ -81,15 +124,21 @@ export async function resolveOrderLines(
   });
   const byId = new Map(variations.map((v) => [v.id, v]));
 
+  let snapshotClamped = false;
   const moneyLines: PricedLineInput[] = [];
   const lineRecords: ResolvedLine[] = lines.map((line) => {
     const variation = byId.get(line.variationId);
     if (!variation) throw new Error(`Unknown item: ${line.variationId}`);
     // OFFLINE PRICE SNAPSHOT: trust the quoted base unit price when replaying an
-    // offline sale; otherwise the catalog price is authoritative.
-    const unitPriceCents = line.priceOverride
-      ? line.priceOverride.unitPriceCents
-      : variation.priceCents;
+    // offline sale; otherwise the catalog price is authoritative. A quoted price
+    // implausibly below the current catalog is clamped up + flagged (forgery
+    // floor — see MIN_SNAPSHOT_FRACTION_OF_CATALOG).
+    let unitPriceCents = variation.priceCents;
+    if (line.priceOverride) {
+      const trust = floorTrust(line.priceOverride.unitPriceCents, variation.priceCents);
+      unitPriceCents = trust.value;
+      snapshotClamped ||= trust.clamped;
+    }
 
     const chosenIds = line.modifierIds ?? [];
     const groups = variation.item.modifierLinks.map((l) => l.group);
@@ -97,13 +146,20 @@ export async function resolveOrderLines(
     for (const g of groups) {
       for (const m of g.modifiers) {
         // OFFLINE PRICE SNAPSHOT: when replaying an offline sale, trust the quoted
-        // per-modifier delta (the catalog price may have moved since). The
-        // modifier itself is still validated as existing + linked below.
+        // per-modifier delta (the catalog price may have moved since), subject to
+        // the same forgery floor. The modifier itself is still validated as
+        // existing + linked below.
         const overriddenDelta = line.priceOverride?.modifierDeltas?.[m.id];
+        let priceDeltaCents = m.priceDeltaCents;
+        if (overriddenDelta !== undefined) {
+          const trust = floorTrust(overriddenDelta, m.priceDeltaCents);
+          priceDeltaCents = trust.value;
+          snapshotClamped ||= trust.clamped;
+        }
         modifierById.set(m.id, {
           id: m.id,
           nameSnapshot: m.name,
-          priceDeltaCents: overriddenDelta ?? m.priceDeltaCents,
+          priceDeltaCents,
         });
       }
     }
@@ -159,5 +215,5 @@ export async function resolveOrderLines(
     };
   });
 
-  return { moneyLines, lineRecords };
+  return { moneyLines, lineRecords, snapshotClamped };
 }

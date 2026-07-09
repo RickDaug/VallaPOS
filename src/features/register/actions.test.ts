@@ -12,6 +12,7 @@ const businessFindUniqueOrThrow = vi.fn();
 const variationFindMany = vi.fn();
 const orderCounterUpsert = vi.fn();
 const orderCreate = vi.fn();
+const membershipFindFirst = vi.fn();
 
 // checkout now gates on the active operator's capability; the operator's
 // membershipId is the cashierId. Mock the gate to return a fixed operator.
@@ -40,6 +41,7 @@ vi.mock("@/lib/db", () => {
       order: { findUnique: (...a: unknown[]) => orderFindUnique(...a) },
       business: { findUniqueOrThrow: (...a: unknown[]) => businessFindUniqueOrThrow(...a) },
       variation: { findMany: (...a: unknown[]) => variationFindMany(...a) },
+      membership: { findFirst: (...a: unknown[]) => membershipFindFirst(...a) },
       $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx),
     },
   };
@@ -131,6 +133,8 @@ beforeEach(() => {
   businessFindUniqueOrThrow.mockResolvedValue({ taxRateBps: 825, taxInclusive: false });
   variationFindMany.mockResolvedValue([variation()]);
   orderCounterUpsert.mockResolvedValue({ lastNumber: 7 });
+  // By default the captured offline cashier resolves to a valid active member.
+  membershipFindFirst.mockResolvedValue({ id: "mem_ringer" });
   // order.create echoes back the persisted totals so toReceipt reflects them.
   orderCreate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
     id: "order_1",
@@ -637,6 +641,94 @@ describe("checkout — offline price snapshot (bounded trust relaxation)", () =>
       ),
     ).rejects.toThrow();
     expect(requireCapability).not.toHaveBeenCalled();
+  });
+});
+
+describe("checkout — offline-replay attribution (Round-3 #3)", () => {
+  const snap = { quoted: true as const, lines: [{ unitPriceCents: 1000 }] };
+
+  it("attributes a replayed offline sale to the RINGING operator, not the replaying one", async () => {
+    // Replaying operator is mem_1 (the beforeEach default); the sale was rung by
+    // mem_ringer, captured on-device at enqueue and validated as an active member.
+    membershipFindFirst.mockResolvedValue({ id: "mem_ringer" });
+    await checkoutReceipt(
+      input({ priceSnapshot: snap, offlineCashierId: "mem_ringer", cashTenderedCents: 2000 }),
+    );
+    expect(createdOrderData().cashierId).toBe("mem_ringer");
+    // The captured id is validated scoped to THIS business + active.
+    expect(membershipFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: "mem_ringer", businessId: BUSINESS_ID, active: true }),
+      }),
+    );
+  });
+
+  it("falls back to the replaying operator when the captured id isn't an active member", async () => {
+    membershipFindFirst.mockResolvedValue(null); // deactivated / unknown
+    await checkoutReceipt(
+      input({ priceSnapshot: snap, offlineCashierId: "mem_gone", cashTenderedCents: 2000 }),
+    );
+    expect(createdOrderData().cashierId).toBe("mem_1");
+  });
+
+  it("ignores offlineCashierId on an ONLINE sale (no snapshot) — no membership lookup", async () => {
+    await checkoutReceipt(input({ offlineCashierId: "mem_ringer" }));
+    expect(createdOrderData().cashierId).toBe("mem_1");
+    expect(membershipFindFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe("checkout — offline-replay dating (Round-3 #4)", () => {
+  const snap = { quoted: true as const, lines: [{ unitPriceCents: 1000 }] };
+
+  it("dates the order to when it was RUNG (offlineQueuedAt), not when it replayed", async () => {
+    const rungAt = Date.now() - 3 * 60 * 60 * 1000; // 3h ago
+    await checkoutReceipt(
+      input({ priceSnapshot: snap, offlineQueuedAt: rungAt, cashTenderedCents: 2000 }),
+    );
+    expect(createdOrderData().createdAt).toEqual(new Date(rungAt));
+  });
+
+  it("ignores a FUTURE offlineQueuedAt (falls back to the DB default now())", async () => {
+    const future = Date.now() + 60 * 60 * 1000;
+    await checkoutReceipt(
+      input({ priceSnapshot: snap, offlineQueuedAt: future, cashTenderedCents: 2000 }),
+    );
+    expect(createdOrderData().createdAt).toBeUndefined();
+  });
+
+  it("never sets createdAt on an ONLINE sale even if offlineQueuedAt is present", async () => {
+    await checkoutReceipt(input({ offlineQueuedAt: Date.now() - 1000 }));
+    expect(createdOrderData().createdAt).toBeUndefined();
+  });
+});
+
+describe("checkout — offline snapshot forgery floor (Round-3 #5)", () => {
+  it("clamps a forged below-floor snapshot up to catalog and flags the payment", async () => {
+    // Catalog $10; forged quote $0.01 (far below the 50% floor) → clamp + flag.
+    variationFindMany.mockResolvedValue([variation({ priceCents: 1000 })]);
+    const receipt = await checkoutReceipt(
+      input({
+        priceSnapshot: { quoted: true, lines: [{ unitPriceCents: 1 }] },
+        cashTenderedCents: 2000,
+      }),
+    );
+    expect(receipt.subtotalCents).toBe(1000); // recorded at catalog, not $0.01
+    expect(createdOrderData().payments.create.processorRef).toContain(
+      "price snapshot below catalog floor — clamped (offline replay)",
+    );
+  });
+
+  it("does NOT flag a legitimate quoted price above the floor (catalog rose)", async () => {
+    variationFindMany.mockResolvedValue([variation({ priceCents: 1500 })]);
+    const receipt = await checkoutReceipt(
+      input({
+        priceSnapshot: { quoted: true, lines: [{ unitPriceCents: 800 }] }, // 53% of catalog
+        cashTenderedCents: 2000,
+      }),
+    );
+    expect(receipt.subtotalCents).toBe(800); // honored as quoted
+    expect(createdOrderData().payments.create.processorRef).toBeNull();
   });
 });
 

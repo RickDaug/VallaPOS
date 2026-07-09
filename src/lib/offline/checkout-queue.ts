@@ -37,6 +37,7 @@ import { isNetworkError, runReplay, type ReplayDeps, type ReplaySummary } from "
 export type { QueuedCheckout } from "./db";
 export {
   isNetworkError,
+  isOperatorLocked,
   runReplay,
   MAX_REPLAY_ATTEMPTS,
   type ReplayDeps,

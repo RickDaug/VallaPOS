@@ -16,10 +16,16 @@ const IDLE_MS = 90_000; // auto-lock after this much inactivity
 export function OperatorBar({
   businessId,
   operatorName,
+  singleOperatorMode = false,
   className,
 }: {
   businessId: string;
   operatorName: string;
+  // Single-operator "stay unlocked" mode (Business.singleOperatorMode): a solo
+  // owner isn't re-authenticating before every sale, so the idle auto-lock is
+  // disabled for them (the manual Lock button below still works). Off (default)
+  // keeps the secure shared-till behavior: auto-lock after inactivity.
+  singleOperatorMode?: boolean;
   className?: string;
 }) {
   const router = useRouter();
@@ -38,7 +44,10 @@ export function OperatorBar({
   };
 
   // Idle auto-lock: reset a timer on user activity; fire lock when it elapses.
+  // Skipped entirely in single-operator mode — a solo owner opted out of the
+  // re-lock gate, and auto-locking there would unmount the register mid-order.
   useEffect(() => {
+    if (singleOperatorMode) return;
     let timer: ReturnType<typeof setTimeout>;
     const reset = () => {
       clearTimeout(timer);
@@ -51,7 +60,7 @@ export function OperatorBar({
       clearTimeout(timer);
       for (const e of events) window.removeEventListener(e, reset);
     };
-  }, []);
+  }, [singleOperatorMode]);
 
   return (
     <button
