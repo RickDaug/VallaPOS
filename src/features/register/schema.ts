@@ -79,15 +79,22 @@ export const checkoutSchema = z.object({
           .optional(),
       }),
     )
-    .min(1, "Cart is empty"),
-  tipCents: z.number().int().min(0).default(0),
+    .min(1, "Cart is empty")
+    // Upper bound: a single sale can't realistically carry hundreds of distinct
+    // lines; the cap keeps a malformed/abusive payload from ballooning the
+    // per-line DB work (each line triggers modifier validation + a nested write).
+    .max(300, "Too many lines"),
+  // Bounded so a fat-finger tip can't inflate the recorded total; reuses the
+  // same generous $1M ceiling as a snapshot price.
+  tipCents: z.number().int().min(0).max(MAX_SNAPSHOT_PRICE_CENTS).default(0),
   cartDiscountCents: z.number().int().min(0).default(0),
   // How the sale was tendered. Defaults to CASH so existing/offline payloads
   // (queued before this field existed) replay unchanged.
   method: z.enum(TENDER_METHODS).default("CASH"),
   // Cash given by the customer. Required-in-spirit for CASH (the action rejects
   // a tender below the server total); irrelevant for MANUAL, hence defaulted.
-  cashTenderedCents: z.number().int().min(0).default(0),
+  // Upper-bounded so a fat-finger tender can't record an absurd amount/change.
+  cashTenderedCents: z.number().int().min(0).max(MAX_SNAPSHOT_PRICE_CENTS).default(0),
   // Optional free-text reference for a MANUAL tender (e.g. "Check #1234",
   // "Zelle", "external card"). Ignored for CASH.
   manualNote: z.string().trim().max(120).optional(),
