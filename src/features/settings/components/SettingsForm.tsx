@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateBusinessSettings } from "@/features/settings/actions";
+import { TIMEZONE_OPTIONS, type TimezoneValue } from "@/features/settings/schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -22,6 +23,7 @@ export function SettingsForm({
     name: string;
     taxRateBps: number;
     currency: string;
+    timezone: string;
     taxInclusive: boolean;
     mode: Mode;
     singleOperatorMode: boolean;
@@ -37,6 +39,11 @@ export function SettingsForm({
   const [taxPercent, setTaxPercent] = useState((initial.taxRateBps / 100).toString());
   const [currency, setCurrency] = useState<Currency>(
     (CURRENCIES as readonly string[]).includes(initial.currency) ? (initial.currency as Currency) : "USD",
+  );
+  const [timezone, setTimezone] = useState<TimezoneValue>(
+    TIMEZONE_OPTIONS.some((t) => t.value === initial.timezone)
+      ? (initial.timezone as TimezoneValue)
+      : "America/New_York",
   );
   const [taxInclusive, setTaxInclusive] = useState(initial.taxInclusive);
   const [mode, setMode] = useState<Mode>(initial.mode);
@@ -63,6 +70,7 @@ export function SettingsForm({
           name: name.trim(),
           taxRateBps,
           currency,
+          timezone,
           taxInclusive,
           mode,
           singleOperatorMode,
@@ -155,6 +163,25 @@ export function SettingsForm({
                 ))}
               </select>
             </div>
+          </div>
+
+          <div>
+            <Label htmlFor="timezone">Timezone</Label>
+            <select
+              id="timezone"
+              value={timezone}
+              onChange={(e) => setTimezone(e.target.value as TimezoneValue)}
+              className="h-12 w-full rounded-md border border-input bg-card px-4 text-base text-foreground shadow-sm focus-visible:border-ring"
+            >
+              {TIMEZONE_OPTIONS.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Sets your business day for reports and the time shown on receipts and order history.
+            </p>
           </div>
 
           <label className="flex items-center justify-between gap-3 rounded-lg bg-muted px-4 py-3">

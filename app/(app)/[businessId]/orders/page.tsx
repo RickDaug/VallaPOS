@@ -23,7 +23,7 @@ export default async function OrdersPage({ params }: { params: Promise<{ busines
 
   const business = await db.business.findUnique({
     where: { id: businessId },
-    select: { currency: true },
+    select: { currency: true, timezone: true },
   });
   if (!business) notFound();
 
@@ -33,6 +33,7 @@ export default async function OrdersPage({ params }: { params: Promise<{ busines
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZone: business.timezone, // show each order's time in the merchant's local zone
   });
 
   return (

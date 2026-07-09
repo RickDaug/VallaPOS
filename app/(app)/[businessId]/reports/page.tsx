@@ -2,7 +2,12 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireMembership } from "@/lib/tenant";
 import { getDailyReport, getItemSalesReport, getCashierSalesReport } from "@/features/orders/queries";
-import { resolveReportRange } from "@/features/orders/report-aggregate";
+import {
+  resolveReportRange,
+  zonedDayStartUtc,
+  addDaysToDateStr,
+  todayInTimeZone,
+} from "@/features/orders/report-aggregate";
 import { paymentMethodLabel } from "@/features/orders/payment-method";
 import { pageHasCapability } from "@/lib/operator-guard";
 import { NoAccess } from "@/components/no-access";
@@ -11,13 +16,6 @@ import { formatMoney } from "@/lib/money";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button, buttonVariants } from "@/components/ui/button";
-
-function toDateInput(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
 
 export default async function ReportsPage({
   params,
@@ -33,16 +31,22 @@ export default async function ReportsPage({
 
   const business = await db.business.findUnique({
     where: { id: businessId },
-    select: { currency: true },
+    select: { currency: true, timezone: true },
   });
   if (!business) notFound();
 
-  // Resolve the [from, to] day range (both default to today; `?date=` is a
-  // legacy single-day shorthand). `end` is exclusive = the day after `to`.
-  const range = resolveReportRange(from ?? date, to ?? date, toDateInput(new Date()));
-  const start = new Date(`${range.fromStr}T00:00:00`);
-  const end = new Date(`${range.toStr}T00:00:00`);
-  end.setDate(end.getDate() + 1);
+  // Resolve the [from, to] day range in the BUSINESS timezone (both default to
+  // the merchant's local "today"; `?date=` is a legacy single-day shorthand).
+  // The window is [local-midnight(from), local-midnight(to + 1 day)) expressed
+  // as UTC instants, so a late-evening sale lands in the merchant's day — not
+  // the server's UTC day.
+  const range = resolveReportRange(
+    from ?? date,
+    to ?? date,
+    todayInTimeZone(business.timezone),
+  );
+  const start = zonedDayStartUtc(range.fromStr, business.timezone);
+  const end = zonedDayStartUtc(addDaysToDateStr(range.toStr, 1), business.timezone);
 
   const report = await getDailyReport(businessId, start, end);
   const drawer = await getDrawerDaySummary(businessId, start, end);

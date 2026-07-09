@@ -15,6 +15,7 @@ export async function updateBusinessSettings(input: UpdateSettingsInput) {
       name: data.name,
       taxRateBps: data.taxRateBps,
       currency: data.currency,
+      timezone: data.timezone,
       taxInclusive: data.taxInclusive,
       mode: data.mode,
       singleOperatorMode: data.singleOperatorMode,
