@@ -8,7 +8,13 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "VallaPOS",
     short_name: "VallaPOS",
     description: "Browser-based point of sale for mobile and local businesses.",
-    start_url: "/",
+    // Land on the TILL when the installed app is launched (audit R4 #3). The
+    // start_url can't be business-specific at manifest-gen time, but "/" now
+    // resolves a signed-in owner's primary business server-side and redirects to
+    // its register in one hop (see app/page.tsx) — so an installed home-screen
+    // icon opens straight onto the register instead of the marketing page. The
+    // `?source=pwa` marks launches that came from the installed app.
+    start_url: "/?source=pwa",
     scope: "/",
     // Launch chrome-less when installed; "minimal-ui" is the graceful fallback
     // where fullscreen isn't honored. A floor plan + register want all the

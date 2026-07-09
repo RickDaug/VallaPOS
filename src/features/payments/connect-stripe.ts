@@ -31,9 +31,18 @@ export const STRIPE_API_VERSION = "2026-06-24.dahlia";
 
 const API_BASE = "https://api.stripe.com";
 
-/** True when integrated payments are configured; false = feature dormant. */
+/**
+ * True when integrated payments are FULLY configured; false = feature dormant.
+ *
+ * Requires BOTH the secret key AND the webhook signing secret (audit R4 #4): a
+ * Connect account whose onboarding/charge state we can't receive via a verified
+ * webhook is a half-configured, misleading setup. Env-level shape validation
+ * (src/lib/env.ts) already guarantees these look like real Stripe keys, so this
+ * gate is "both present" — activate Connect only when we can both call Stripe
+ * AND trust its webhooks.
+ */
 export function isPaymentsConfigured(): boolean {
-  return Boolean(env.STRIPE_SECRET_KEY);
+  return Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET);
 }
 
 export class StripeGatewayError extends Error {

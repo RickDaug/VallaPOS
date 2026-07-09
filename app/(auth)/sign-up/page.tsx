@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "../_components/PasswordInput";
 
 /**
  * Map a Better Auth sign-up error to a user-facing message WITHOUT confirming
@@ -38,6 +39,7 @@ export default function SignUpPage() {
   const [mode, setMode] = useState<BusinessMode>("STORE");
   const [country, setCountry] = useState<string>(DEFAULT_REGION.country);
   const [email, setEmail] = useState("");
+  const [confirmEmail, setConfirmEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -45,6 +47,13 @@ export default function SignUpPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    // Confirm the email matches before we create the account (audit R4 #6): a
+    // typo'd address locks a merchant out of receipts AND password reset, so
+    // catch it here rather than after the account exists.
+    if (email.trim().toLowerCase() !== confirmEmail.trim().toLowerCase()) {
+      setError("The email addresses don't match.");
+      return;
+    }
     setPending(true);
     try {
       const signUp = await authClient.signUp.email({ email, password, name });
@@ -101,10 +110,22 @@ export default function SignUpPage() {
               />
             </div>
             <div>
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="confirm-email">Confirm email</Label>
               <Input
+                id="confirm-email"
+                type="email"
+                value={confirmEmail}
+                autoComplete="email"
+                required
+                // Block the native paste-past-a-typo: re-typing is the point.
+                onPaste={(e) => e.preventDefault()}
+                onChange={(e) => setConfirmEmail(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="password">Password</Label>
+              <PasswordInput
                 id="password"
-                type="password"
                 value={password}
                 autoComplete="new-password"
                 minLength={8}

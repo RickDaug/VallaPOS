@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
+import { PwaInstall } from "@/components/pwa-install";
 
 /**
  * Authenticated area guard. Any unauthenticated request to the POS is bounced
@@ -10,5 +11,13 @@ import { auth } from "@/lib/auth";
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) redirect("/sign-in");
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      {/* PWA "Add to Home Screen" affordance (audit R4 #5). Mounted at the app
+          shell so it rides along on every authenticated screen and self-hides
+          when already installed / dismissed. */}
+      <PwaInstall />
+    </>
+  );
 }

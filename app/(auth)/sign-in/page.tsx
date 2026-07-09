@@ -1,21 +1,38 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { authClient } from "@/lib/auth-client";
+import { authClient, useSession } from "@/lib/auth-client";
 import { getPrimaryBusinessId } from "@/features/auth/actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "../_components/PasswordInput";
 
 export default function SignInPage() {
   const router = useRouter();
+  const { data: session, isPending: sessionPending } = useSession();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+
+  // Session-aware routing (audit R4 #3): a returning, already-authenticated owner
+  // should never sit on the sign-in form. Bounce them straight to their register
+  // (their primary business) — or /start if they have no business yet.
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    (async () => {
+      const businessId = await getPrimaryBusinessId();
+      if (!cancelled) router.replace(businessId ? `/${businessId}/register` : "/start");
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session, router]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -39,6 +56,16 @@ export default function SignInPage() {
     }
   }
 
+  // While we know a session exists and are resolving the redirect, don't flash
+  // the form.
+  if (session && !sessionPending) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-background p-6">
+        <p className="text-sm text-muted-foreground">Taking you to your register…</p>
+      </main>
+    );
+  }
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-background p-6">
       <Card className="w-full max-w-sm">
@@ -60,10 +87,17 @@ export default function SignInPage() {
               />
             </div>
             <div>
-              <Label htmlFor="password">Password</Label>
-              <Input
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Password</Label>
+                <Link
+                  href="/forgot-password"
+                  className="text-sm font-medium text-primary underline"
+                >
+                  Forgot password?
+                </Link>
+              </div>
+              <PasswordInput
                 id="password"
-                type="password"
                 value={password}
                 autoComplete="current-password"
                 required

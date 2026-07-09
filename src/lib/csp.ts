@@ -1,5 +1,11 @@
 /**
- * Content-Security-Policy builder (R-5 — ENFORCED, nonce-based).
+ * Content-Security-Policy builder (R-5 — nonce-based).
+ *
+ * NOTE: the SAME policy string this builds is shipped either as the enforcing
+ * `Content-Security-Policy` header or, until the policy is live-verified against
+ * the register PWA, as `Content-Security-Policy-Report-Only` — that choice is
+ * made by the `CSP_ENFORCE` flag in middleware.ts (audit R4 #1). This builder is
+ * mode-agnostic: it only produces the directive string.
  *
  * This is the single source of truth for the CSP directives. It lives in a
  * pure, dependency-free module so it can be unit-tested without pulling in
