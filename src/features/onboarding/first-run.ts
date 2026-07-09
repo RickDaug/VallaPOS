@@ -22,6 +22,16 @@ export interface OnboardingCaps {
   canManageProducts: boolean;
 }
 
+/** Optional per-device signals the pure logic can't derive from the DB. */
+export interface OnboardingSignals {
+  /**
+   * The merchant explicitly acknowledged they charge no tax (0%). A valid,
+   * completeable config — so the tax step counts as done even though
+   * taxRateBps is 0 (audit R2 #4). Sourced from a per-device dismiss.
+   */
+  taxAcknowledged?: boolean;
+}
+
 /**
  * Which onboarding surface to render:
  *  - "checklist"  — brand-new merchant, no sale yet: the full get-started list.
@@ -52,24 +62,19 @@ export interface ChecklistStep {
 }
 
 /**
- * The ordered get-started steps. Steps the operator can't act on (no capability)
- * are omitted so a cashier never sees an owner-only task. The "make a sale" step
- * is always present (anyone at the till can ring up) and is the finish line — it
- * only ever renders while `hasSale` is false, so it's shown as not-done.
+ * The ordered get-started steps. Item-first — adding something to sell is the
+ * concrete activation move; tax is optional and comes after (audit R2 #5). Steps
+ * the operator can't act on (no capability) are omitted so a cashier never sees
+ * an owner-only task. The "make a sale" step is always present (anyone at the
+ * till can ring up) and is the finish line — it only ever renders while
+ * `hasSale` is false, so it's shown as not-done.
  */
-export function checklistSteps(state: FirstRunState, caps: OnboardingCaps): ChecklistStep[] {
+export function checklistSteps(
+  state: FirstRunState,
+  caps: OnboardingCaps,
+  signals: OnboardingSignals = {},
+): ChecklistStep[] {
   const steps: ChecklistStep[] = [];
-
-  if (caps.canManageSettings) {
-    steps.push({
-      key: "tax",
-      title: "Set your tax & currency",
-      description: "Confirm your tax rate and currency so totals are right from the first sale.",
-      href: "settings",
-      cta: state.taxConfigured ? "Review" : "Set tax",
-      done: state.taxConfigured,
-    });
-  }
 
   if (caps.canManageProducts) {
     steps.push({
@@ -79,6 +84,20 @@ export function checklistSteps(state: FirstRunState, caps: OnboardingCaps): Chec
       href: "products",
       cta: state.hasItems ? "Add more" : "Add item",
       done: state.hasItems,
+    });
+  }
+
+  if (caps.canManageSettings) {
+    // 0% tax is a valid setup, so an explicit "no tax" acknowledgement completes
+    // this step just like a configured rate (audit R2 #4) — no perpetual nudge.
+    const taxDone = state.taxConfigured || !!signals.taxAcknowledged;
+    steps.push({
+      key: "tax",
+      title: "Set your tax & currency",
+      description: "Confirm your tax rate and currency so totals are right from the first sale.",
+      href: "settings",
+      cta: taxDone ? "Review" : "Set tax",
+      done: taxDone,
     });
   }
 
