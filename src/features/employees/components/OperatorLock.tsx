@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Lock, Delete, ArrowLeft } from "lucide-react";
+import { Lock, Delete, ArrowLeft, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { enterOperatorPin, becomeSelfOperator } from "@/features/employees/actions";
 import { PIN_MAX_LENGTH, PIN_MIN_LENGTH } from "@/features/employees/schema";
@@ -32,11 +32,13 @@ export function OperatorLock({
   businessName,
   members,
   selfMembershipId,
+  firstRun = false,
 }: {
   businessId: string;
   businessName: string;
   members: LockScreenMember[];
   selfMembershipId: string;
+  firstRun?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -48,6 +50,11 @@ export function OperatorLock({
 
   const self = members.find((m) => m.membershipId === selfMembershipId);
   const canBootstrap = self && !self.hasPin; // owner/manager without a PIN yet
+  // A brand-new solo owner who has never sold: this ISN'T a "did signup fail?"
+  // lock — it's the first "start selling" tap. Show welcoming framing instead of
+  // the padlock + "sign in" language (audit #16), but keep the normal lock UX for
+  // returning/multi-staff use (a PIN was set, or someone's mid-PIN-entry).
+  const welcome = firstRun && canBootstrap && !picked;
 
   function press(key: string) {
     setError(null);
@@ -95,11 +102,15 @@ export function OperatorLock({
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
           <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-primary/15 text-primary">
-            <Lock size={22} />
+            {welcome ? <Sparkles size={22} /> : <Lock size={22} />}
           </div>
-          <h1 className="text-xl font-black">{businessName}</h1>
+          <h1 className="text-xl font-black">{welcome ? "You're all set!" : businessName}</h1>
           <p className="text-sm text-muted-foreground">
-            {picked ? `Enter ${picked.name}'s PIN` : "Tap your name to sign in"}
+            {picked
+              ? `Enter ${picked.name}'s PIN`
+              : welcome
+                ? `Welcome to ${businessName} — tap below to start selling.`
+                : "Tap your name to sign in"}
           </p>
         </div>
 
@@ -126,8 +137,12 @@ export function OperatorLock({
               </p>
             )}
             {canBootstrap && (
-              <Button className="w-full" disabled={pending} onClick={continueAsSelf}>
-                Continue as {self!.name}
+              <Button
+                className={welcome ? "h-14 w-full text-base font-bold" : "w-full"}
+                disabled={pending}
+                onClick={continueAsSelf}
+              >
+                {welcome ? `Start selling as ${self!.name}` : `Continue as ${self!.name}`}
               </Button>
             )}
           </div>

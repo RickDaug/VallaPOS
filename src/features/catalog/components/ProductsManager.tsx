@@ -34,6 +34,9 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
+/** DOM id of the add-item name field (targeted by the empty-state CTA). */
+const ADD_ITEM_NAME_ID = "add-item-name";
+
 /** Options for the shared {@link run} action runner. */
 type RunOpts = { success?: string };
 
@@ -60,6 +63,13 @@ export function ProductsManager({
   const [confirm, confirmDialog] = useConfirm();
 
   const [name, setName] = useState("");
+  // Scroll to + focus the add-item name field wherever it sits (below the list on
+  // mobile, to the right on xl+) so the empty-state CTA always lands somewhere.
+  function focusAddItem() {
+    const el = document.getElementById(ADD_ITEM_NAME_ID) as HTMLInputElement | null;
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    el?.focus({ preventScroll: true });
+  }
   const [type, setType] = useState<"PRODUCT" | "SERVICE">("PRODUCT");
   const [categoryId, setCategoryId] = useState("");
   const [price, setPrice] = useState("");
@@ -230,13 +240,19 @@ export function ProductsManager({
             )}
           </div>
           {activeItems.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 rounded-lg bg-muted/60 p-8 text-center">
+            <div className="flex flex-col items-center gap-3 rounded-lg bg-muted/60 p-8 text-center">
               <PackageOpen className="text-muted-foreground" size={32} aria-hidden />
               <p className="font-semibold">No active items yet</p>
               <p className="max-w-xs text-sm text-muted-foreground">
-                Add your first product or service with the{" "}
-                <span className="font-medium text-foreground">Add item</span> form on the right.
+                Add your first product or service in the{" "}
+                <span className="font-medium text-foreground">Add item</span> form
+                <span className="xl:hidden"> below</span>
+                <span className="hidden xl:inline"> on the right</span>.
               </p>
+              <Button type="button" onClick={focusAddItem} className="mt-1">
+                <Plus size={16} className="mr-1" />
+                Add your first item
+              </Button>
             </div>
           ) : (
             <ul className="divide-y divide-border">
@@ -293,7 +309,12 @@ export function ProductsManager({
           <CardContent className="space-y-3 p-4 md:p-5">
             <h2 className="text-lg font-bold">Add item</h2>
             <form onSubmit={onAddItem} className="space-y-3">
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Item name" />
+              <Input
+                id={ADD_ITEM_NAME_ID}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Item name"
+              />
               <div className="flex gap-2">
                 {(["PRODUCT", "SERVICE"] as const).map((t) => (
                   <button

@@ -6,9 +6,13 @@ import { SideNav, BottomNav } from "@/components/app-nav";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { FullscreenToggle } from "@/components/fullscreen-toggle";
 import { getActiveOperator } from "@/lib/operator";
+import { can } from "@/lib/capabilities";
 import { listActiveMembers } from "@/features/employees/queries";
 import { OperatorLock } from "@/features/employees/components/OperatorLock";
 import { OperatorBar } from "@/features/employees/components/OperatorBar";
+import { getFirstRunState } from "@/features/onboarding/queries";
+import { isFirstRun, onboardingView } from "@/features/onboarding/first-run";
+import { FirstRunChecklist } from "@/features/onboarding/components/FirstRunChecklist";
 
 export default async function BusinessLayout({
   children,
@@ -35,6 +39,12 @@ export default async function BusinessLayout({
   });
   if (!business) notFound();
 
+  // First-run activation state (derived from data — no completed sale yet), used
+  // to soften the lock framing, show the get-started checklist, and emphasize the
+  // build-catalog→sell path in the nav.
+  const firstRun = await getFirstRunState(businessId);
+  const brandNew = isFirstRun(firstRun);
+
   // Shared-terminal gate: the device is signed in, but nothing is reachable until
   // a worker identifies themselves via PIN (the active operator). When locked, we
   // render the lock screen INSTEAD of the app shell.
@@ -47,9 +57,20 @@ export default async function BusinessLayout({
         businessName={business.name}
         members={members}
         selfMembershipId={deviceMembershipId}
+        firstRun={brandNew}
       />
     );
   }
+
+  const onboardingCaps = {
+    canManageSettings: can(operator.role, operator.permissions, "manage_settings"),
+    canManageProducts: can(operator.role, operator.permissions, "manage_products"),
+  };
+  // Only owners/managers (who can set up the catalog/settings) see onboarding
+  // surfaces, and only while there's something to prompt.
+  const showOnboarding =
+    onboardingView(firstRun) !== "none" &&
+    (onboardingCaps.canManageSettings || onboardingCaps.canManageProducts);
 
   return (
     <div className="flex min-h-screen bg-background text-foreground">
@@ -59,7 +80,7 @@ export default async function BusinessLayout({
           <div className="text-xl font-black tracking-tight">VallaPOS</div>
           <p className="mt-0.5 truncate text-sm text-sidebar-muted">{business.name}</p>
         </div>
-        <SideNav businessId={businessId} mode={business.mode} operator={operator} />
+        <SideNav businessId={businessId} mode={business.mode} operator={operator} firstRun={brandNew} />
         <div className="mt-auto flex items-center gap-2 pt-6">
           <div className="flex-1">
             <SignOutButton />
@@ -90,9 +111,14 @@ export default async function BusinessLayout({
       </header>
 
       {/* Content (offset for mobile top bar + bottom nav) */}
-      <main className="flex-1 px-4 pb-24 pt-20 md:px-6 lg:p-6">{children}</main>
+      <main className="flex-1 px-4 pb-24 pt-20 md:px-6 lg:p-6">
+        {showOnboarding && (
+          <FirstRunChecklist businessId={businessId} state={firstRun} caps={onboardingCaps} />
+        )}
+        {children}
+      </main>
 
-      <BottomNav businessId={businessId} mode={business.mode} operator={operator} />
+      <BottomNav businessId={businessId} mode={business.mode} operator={operator} firstRun={brandNew} />
     </div>
   );
 }

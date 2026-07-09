@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { authClient } from "@/lib/auth-client";
 import { createBusiness } from "@/features/auth/actions";
+import { regionForCountry, DEFAULT_REGION } from "@/features/onboarding/regions";
+import { RegionSelect } from "@/features/onboarding/components/RegionSelect";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -32,6 +34,7 @@ export default function SignUpPage() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [businessName, setBusinessName] = useState("");
+  const [country, setCountry] = useState<string>(DEFAULT_REGION.country);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -47,8 +50,11 @@ export default function SignUpPage() {
         setError(signUpErrorMessage(signUp.error));
         return;
       }
-      const { businessId } = await createBusiness({ name: businessName });
-      router.push(`/${businessId}/register`);
+      const { currency } = regionForCountry(country);
+      const { businessId } = await createBusiness({ name: businessName, country, currency });
+      // Route a brand-new merchant to catalog setup (they have no items yet), not
+      // the empty register (audit #3). The first-run checklist guides from there.
+      router.push(`/${businessId}/products`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
@@ -78,6 +84,7 @@ export default function SignUpPage() {
                 onChange={(e) => setBusinessName(e.target.value)}
               />
             </div>
+            <RegionSelect country={country} onChange={setCountry} />
             <div>
               <Label htmlFor="email">Email</Label>
               <Input

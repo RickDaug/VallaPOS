@@ -28,7 +28,10 @@ export default function SignInPage() {
         return;
       }
       const businessId = await getPrimaryBusinessId();
-      router.push(businessId ? `/${businessId}/register` : "/");
+      // A signed-in user with no business (e.g. a sign-up that failed after the
+      // auth account was created) goes to the create-business recovery page
+      // instead of the dead-end marketing "/" (audit #13).
+      router.push(businessId ? `/${businessId}/register` : "/start");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {

@@ -49,15 +49,25 @@ function useActive(businessId: string) {
   return (slug: string) => pathname.startsWith(`/${businessId}/${slug}`);
 }
 
+// During first run (before the first sale) we steer the owner down the
+// build-catalog → sell path: Products and Register stay full-strength while the
+// other tabs are dimmed (still tapped/reachable — just de-emphasized). Audit #24.
+const FIRST_RUN_PRIMARY = new Set(["register", "products"]);
+function isMuted(slug: string, firstRun: boolean, active: boolean): boolean {
+  return firstRun && !active && !FIRST_RUN_PRIMARY.has(slug);
+}
+
 /** Desktop sidebar nav (vertical). */
 export function SideNav({
   businessId,
   mode,
   operator,
+  firstRun = false,
 }: {
   businessId: string;
   mode: BusinessMode;
   operator: NavOperator;
+  firstRun?: boolean;
 }) {
   const isActive = useActive(businessId);
   return (
@@ -72,6 +82,7 @@ export function SideNav({
             isActive(slug)
               ? "bg-sidebar-accent text-sidebar-foreground"
               : "text-sidebar-muted hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+            isMuted(slug, firstRun, isActive(slug)) && "opacity-50",
           )}
         >
           <Icon size={18} />
@@ -87,10 +98,12 @@ export function BottomNav({
   businessId,
   mode,
   operator,
+  firstRun = false,
 }: {
   businessId: string;
   mode: BusinessMode;
   operator: NavOperator;
+  firstRun?: boolean;
 }) {
   const isActive = useActive(businessId);
   const items = navFor(mode, operator);
@@ -110,6 +123,7 @@ export function BottomNav({
           className={cn(
             "flex flex-col items-center justify-center gap-1 py-2 text-[11px] font-medium",
             isActive(slug) ? "text-primary" : "text-muted-foreground",
+            isMuted(slug, firstRun, isActive(slug)) && "opacity-50",
           )}
         >
           <Icon size={20} />
