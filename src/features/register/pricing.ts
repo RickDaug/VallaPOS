@@ -14,7 +14,7 @@
  * and is verified against — `computeTotals` in `@/lib/money`.
  */
 
-import { taxOf, embeddedTaxOf } from "@/lib/money";
+import { taxOf, embeddedTaxOf, allocateCartDiscount } from "@/lib/money";
 
 /** A modifier as resolved from the DB (or chosen in the UI). */
 export interface ResolvedModifier {
@@ -46,8 +46,8 @@ export interface PricedLine {
   /** Σ of chosen modifier deltas (per single unit). */
   modifierDeltaCents: number;
   discountCents: number; // line discount, capped at gross
-  taxableBaseCents: number; // (unit + modifiers) * qty - discount
-  taxCents: number; // per-line tax (exclusive added on top / inclusive embedded)
+  taxableBaseCents: number; // (unit + modifiers) * qty - discount (line discount only)
+  taxCents: number; // per-line tax, on the base after its share of any cart discount
   totalCents: number; // (unit + modifiers) * qty - discount  (excludes tax)
   modifiers: ResolvedModifier[];
 }
@@ -117,23 +117,40 @@ export function computePricedOrder(
 
   let subtotalCents = 0;
   let lineDiscountTotal = 0;
-  let taxCents = 0;
   for (const p of priced) {
     subtotalCents += (p.unitPriceCents + p.modifierDeltaCents) * p.quantity;
     lineDiscountTotal += p.discountCents;
-    taxCents += p.taxCents; // derive order tax by summing line taxes
   }
 
   const cartDiscount = Math.min(
     opts.cartDiscountCents ?? 0,
     Math.max(subtotalCents - lineDiscountTotal, 0),
   );
+
+  // Allocate the cart discount across lines (proportional to each line's
+  // post-line-discount taxable base) and RE-derive each line's tax on the
+  // reduced base, so a cart discount lowers tax exactly like a line discount.
+  // Order tax stays the SUM of per-line taxes, keeping
+  // Order.taxCents == Σ OrderLine.taxCents by construction. When there is no
+  // cart discount every allocation is 0 and each line's tax is unchanged.
+  const allocation = allocateCartDiscount(
+    priced.map((p) => p.taxableBaseCents),
+    cartDiscount,
+  );
+  let taxCents = 0;
+  const lines2 = priced.map((p, i) => {
+    const net = p.taxableBaseCents - allocation[i]!;
+    const lineTax = inclusive ? embeddedTaxOf(net, opts.taxRateBps) : taxOf(net, opts.taxRateBps);
+    taxCents += lineTax;
+    return { ...p, taxCents: lineTax };
+  });
+
   const discountCents = lineDiscountTotal + cartDiscount;
   const tipCents = opts.tipCents ?? 0;
   const totalCents =
     Math.max(subtotalCents - discountCents, 0) + (inclusive ? 0 : taxCents) + tipCents;
 
-  return { lines: priced, subtotalCents, discountCents, taxCents, tipCents, totalCents };
+  return { lines: lines2, subtotalCents, discountCents, taxCents, tipCents, totalCents };
 }
 
 export class ModifierSelectionError extends Error {}

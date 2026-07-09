@@ -763,6 +763,55 @@ describe("checkout — manager-approval gate for unverified tenders", () => {
       expect(verifyManagerApproval).not.toHaveBeenCalled();
       expect(orderCreate).toHaveBeenCalledTimes(1);
     });
+
+    it("stamps an audit marker on the payment when a cashier's unverified tender bypasses the gate (MEDIUM #4)", async () => {
+      asCashier();
+      await checkout(
+        input({
+          method: "QR",
+          cashTenderedCents: 0,
+          priceSnapshot: { quoted: true, lines: [{ unitPriceCents: 1000 }] },
+        }),
+      );
+      expect(createdOrderData().payments.create.processorRef).toBe(
+        "approval bypassed (offline replay)",
+      );
+    });
+
+    it("appends the audit marker to an existing manual note (MEDIUM #4)", async () => {
+      asCashier();
+      await checkout(
+        input({
+          method: "MANUAL",
+          manualNote: "Zelle",
+          cashTenderedCents: 0,
+          priceSnapshot: { quoted: true, lines: [{ unitPriceCents: 1000 }] },
+        }),
+      );
+      expect(createdOrderData().payments.create.processorRef).toBe(
+        "Zelle — approval bypassed (offline replay)",
+      );
+    });
+
+    it("does NOT mark a self-approving operator's offline replay (no gate to bypass)", async () => {
+      asManager(); // holds approve_unverified_tender
+      await checkout(
+        input({
+          method: "QR",
+          manualNote: "txn-1",
+          cashTenderedCents: 0,
+          priceSnapshot: { quoted: true, lines: [{ unitPriceCents: 1000 }] },
+        }),
+      );
+      // The note is preserved verbatim — no bypass marker for a capability holder.
+      expect(createdOrderData().payments.create.processorRef).toBe("txn-1");
+    });
+
+    it("does NOT mark an online (non-replay) cash sale", async () => {
+      asCashier();
+      await checkout(input({ method: "CASH", cashTenderedCents: 5000 }));
+      expect(createdOrderData().payments.create.processorRef).toBeNull();
+    });
   });
 
   describe("idempotency wins before the gate", () => {

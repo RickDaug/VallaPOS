@@ -20,6 +20,12 @@ import {
 // order so checkout stays idempotent (mirrors catalog's isUniqueViolation).
 const PRISMA_UNIQUE_VIOLATION = "P2002";
 
+// Audit marker stamped onto a payment's reference when an unverified (QR/MANUAL)
+// tender completes via the offline-replay exemption without a manager approval —
+// so the Z-report/audit surfaces "approval bypassed (offline replay)" instead of
+// silently skipping the gate. See the AUDIT note in `checkout`.
+const APPROVAL_BYPASSED_OFFLINE_NOTE = "approval bypassed (offline replay)";
+
 function isUniqueViolation(err: unknown): boolean {
   return (
     typeof err === "object" &&
@@ -109,8 +115,8 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   // checkout sends no snapshot and is fully gated.
   const isUnverifiedTender = data.method === "QR" || data.method === "MANUAL";
   const isOfflineReplay = Boolean(data.priceSnapshot?.quoted);
+  const operatorCanApprove = can(operator.role, operator.permissions, APPROVE_UNVERIFIED_TENDER);
   if (isUnverifiedTender && !isOfflineReplay) {
-    const operatorCanApprove = can(operator.role, operator.permissions, APPROVE_UNVERIFIED_TENDER);
     if (!operatorCanApprove) {
       if (!data.managerPin) {
         return { error: "manager_approval_required" };
@@ -123,6 +129,22 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       // the approving manager.
     }
   }
+
+  // AUDIT: an unverified tender that reaches here via the OFFLINE-REPLAY exemption
+  // skipped the live manager-approval gate — there was no operator at the keyboard
+  // to re-prompt and the money is already in hand, so the sale legitimately still
+  // completes. But an operator who could NOT self-approve (a cashier) having an
+  // unverified tender complete with no manager PIN is exactly what the gate exists
+  // to catch, so we record an explicit, auditable marker on the payment reference
+  // (processorRef, which surfaces on the Z-report/audit) rather than silently
+  // skipping it. Cash (verified in-drawer) and self-approving operators are exempt.
+  //
+  // FOLLOW-UP (deeper fix, not built here): sign the offline price snapshot on the
+  // device with a manager-held key at ring time, so replay can cryptographically
+  // prove a manager authorized the unverified tender instead of after-the-fact
+  // flagging it. That needs device key provisioning + a schema field, out of scope.
+  const approvalBypassedOffline =
+    isUnverifiedTender && isOfflineReplay && !operatorCanApprove && !data.managerPin;
 
   const business = await db.business.findUniqueOrThrow({
     where: { id: businessId },
@@ -171,7 +193,14 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   }
   const tenderedCents = isCash ? data.cashTenderedCents : null;
   const changeCents = isCash ? data.cashTenderedCents - totals.totalCents : null;
-  const reference = isCash ? null : data.manualNote?.trim() || null;
+  const note = isCash ? null : data.manualNote?.trim() || null;
+  // Fold the offline-replay approval-bypass marker into the payment reference so
+  // the audit trail carries it (see the AUDIT note above).
+  const reference = approvalBypassedOffline
+    ? note
+      ? `${note} — ${APPROVAL_BYPASSED_OFFLINE_NOTE}`
+      : APPROVAL_BYPASSED_OFFLINE_NOTE
+    : note;
 
   let order;
   try {

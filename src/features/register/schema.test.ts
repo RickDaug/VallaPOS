@@ -38,6 +38,25 @@ describe("checkoutSchema", () => {
     expect(() => checkoutSchema.parse({ ...base(), cashTenderedCents: -5 })).toThrow();
   });
 
+  it("rejects an over-long cart (LOW #20)", () => {
+    const lines = Array.from({ length: 301 }, () => ({ variationId: "v", quantity: 1 }));
+    expect(() => checkoutSchema.parse({ ...base(), lines })).toThrow();
+    // 300 lines is still accepted (the cap is inclusive).
+    expect(() =>
+      checkoutSchema.parse({
+        ...base(),
+        lines: Array.from({ length: 300 }, () => ({ variationId: "v", quantity: 1 })),
+      }),
+    ).not.toThrow();
+  });
+
+  it("caps an absurd tip / cash tender (LOW #21)", () => {
+    expect(() => checkoutSchema.parse({ ...base(), tipCents: 100_000_001 })).toThrow();
+    expect(() => checkoutSchema.parse({ ...base(), cashTenderedCents: 100_000_001 })).toThrow();
+    // The generous $1M ceiling itself is fine.
+    expect(checkoutSchema.parse({ ...base(), tipCents: 100_000_000 }).tipCents).toBe(100_000_000);
+  });
+
   it("defaults the tender method to CASH and cashTenderedCents to 0", () => {
     const { cashTenderedCents, ...noTender } = base();
     void cashTenderedCents;

@@ -97,6 +97,39 @@ describe("computePricedOrder — reconciliation: order tax == Σ line tax", () =
     expect(order.totalCents).toBe(order.subtotalCents - order.discountCents + order.tipCents);
   });
 
+  it("reduces tax for a cart discount and keeps order tax == Σ line tax (HIGH #1)", () => {
+    // Two lines, $30 + $10 base; an $8 cart discount at 10% tax.
+    const order = computePricedOrder(
+      [
+        { unitPriceCents: 3000, quantity: 1 },
+        { unitPriceCents: 1000, quantity: 1 },
+      ],
+      { taxRateBps: 1000, cartDiscountCents: 800 },
+    );
+    const sumLineTax = order.lines.reduce((s, l) => s + l.taxCents, 0);
+    expect(order.taxCents).toBe(sumLineTax);
+    // Net base 3200 @ 10% => 320 (line1 net 2400 -> 240, line2 net 800 -> 80).
+    expect(order.lines[0]!.taxCents).toBe(240);
+    expect(order.lines[1]!.taxCents).toBe(80);
+    expect(order.taxCents).toBe(320);
+    expect(order.discountCents).toBe(800);
+    expect(order.totalCents).toBe(3520);
+  });
+
+  it("a cart discount lowers tax identically to an equal line discount", () => {
+    const line = computePricedOrder(
+      [{ unitPriceCents: 10000, quantity: 1, lineDiscountCents: 1000 }],
+      { taxRateBps: 1000 },
+    );
+    const cart = computePricedOrder([{ unitPriceCents: 10000, quantity: 1 }], {
+      taxRateBps: 1000,
+      cartDiscountCents: 1000,
+    });
+    expect(cart.taxCents).toBe(900);
+    expect(cart.taxCents).toBe(line.taxCents);
+    expect(cart.lines[0]!.taxCents).toBe(line.lines[0]!.taxCents);
+  });
+
   it("matches computeTotals from @/lib/money for the same inputs", () => {
     const lines = [
       { unitPriceCents: 1000, modifierDeltaCents: 75, quantity: 2 },
