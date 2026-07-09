@@ -65,4 +65,14 @@ describe("buildCsp", () => {
     expect(csp).toContain("font-src 'self'");
     expect(csp).toContain("worker-src 'self' blob:");
   });
+
+  it("tightens connect-src to 'self' (no blanket https:; browser only calls same-origin)", () => {
+    const csp = buildCsp(NONCE, false);
+    const connectDirective = csp
+      .split(";")
+      .map((d) => d.trim())
+      .find((d) => d.startsWith("connect-src"))!;
+    expect(connectDirective).toBe("connect-src 'self'");
+    expect(connectDirective).not.toContain("https:");
+  });
 });

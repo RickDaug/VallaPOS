@@ -105,19 +105,53 @@ export function isGuardedOp(operation: string): boolean {
 }
 
 /**
- * Pragmatic deep search for a `businessId` constraint anywhere in a Prisma
- * `where`. Mirrors how the static guard just looks for the literal `businessId`
- * token in the call's argument text: it returns true if ANY object key contains
- * "businessId" — covering the top-level `where: { businessId }`, a compound
- * unique key (`businessId_clientUuid`), and nested boolean combinators
- * (`AND` / `OR` / `NOT`, which are arrays or objects) — by recursing through
- * plain objects and arrays.
+ * True when `value` carries at least one MEANINGFUL leaf — a non-empty string,
+ * a number/boolean/bigint, or (recursively) an object/array that contains one.
+ * `undefined`, `null`, and `""` are NOT meaningful. This is what distinguishes a
+ * real `businessId` constraint from a no-op like `businessId: undefined` (which
+ * Prisma treats as "filter absent") or an empty compound-key object `{}`.
+ */
+function hasMeaningfulValue(value: unknown): boolean {
+  if (value == null) return false; // undefined | null
+  const t = typeof value;
+  if (t === "string") return (value as string).trim().length > 0;
+  if (t === "number" || t === "boolean" || t === "bigint") return true;
+  if (Array.isArray(value)) return value.some((v) => hasMeaningfulValue(v));
+  if (t === "object") {
+    return Object.values(value as Record<string, unknown>).some((v) => hasMeaningfulValue(v));
+  }
+  return false;
+}
+
+/**
+ * Pragmatic deep search for a MEANINGFUL `businessId` constraint anywhere in a
+ * Prisma `where`. Returns true only when some object key mentions "businessId"
+ * AND is bound to a meaningful value — covering the top-level
+ * `where: { businessId }`, a populated compound unique key
+ * (`businessId_clientUuid: { businessId, clientUuid }`), a relation/list filter
+ * (`businessId: { in: [...] }`), and nested boolean combinators (`AND`/`OR`/`NOT`,
+ * arrays or objects) — by recursing through plain objects and arrays.
  *
- * Deliberately conservative: it favors false-NEGATIVES over false-POSITIVES
- * (better to occasionally miss a leak than to break a legitimate query). A
- * developer could still defeat it by building a `where` that mentions
- * businessId without actually filtering by it — this is a safety net, not a
- * proof of isolation.
+ * ── Why the value check matters (finding #12) ────────────────────────────────
+ * A bare key-name test used to accept `where: { businessId: undefinedVar }` and
+ * `{ AND: [{ businessId: undefined }] }` as "scoped" while Prisma, seeing an
+ * `undefined` value, filters by NOTHING — a silent cross-tenant leak that looked
+ * scoped. We now require the `businessId` constraint to actually carry a value
+ * (non-undefined, non-null, non-empty-string); `businessId: undefined/null/""`
+ * counts as NOT scoped, exactly as Prisma treats it at query time.
+ *
+ * Deliberately conservative otherwise: it favors false-NEGATIVES over
+ * false-POSITIVES (better to occasionally miss a leak than to break a legitimate
+ * query). A developer could still defeat it by binding businessId to an
+ * unrelated literal — this is a safety net, not a proof of isolation.
+ *
+ * ── Known limitation (by design) ─────────────────────────────────────────────
+ * This detector, and the backstop as a whole, only guards FILTER/BULK ops (see
+ * GUARDED_OPS). Single-row id-keyed ops — findUnique/update/delete/upsert — are
+ * intentionally OUT OF SCOPE: they target one row by a unique key and are the
+ * same boundary the static guard draws to avoid false positives. Scoping those
+ * remains the caller's responsibility (via the compound `businessId_*` unique or
+ * a post-read businessId check).
  */
 export function whereMentionsBusinessId(where: unknown): boolean {
   if (where == null || typeof where !== "object") return false;
@@ -127,8 +161,11 @@ export function whereMentionsBusinessId(where: unknown): boolean {
   }
 
   for (const [key, value] of Object.entries(where as Record<string, unknown>)) {
-    // Any key mentioning businessId counts (top-level or compound-key form).
-    if (key.includes("businessId")) return true;
+    // A businessId-mentioning key counts ONLY when it carries a meaningful value
+    // (top-level `businessId`, or a populated compound `businessId_*` key). A
+    // valueless `businessId: undefined/null/""` is treated as absent — keep
+    // scanning the rest of the `where` in case a real scope lives elsewhere.
+    if (key.includes("businessId") && hasMeaningfulValue(value)) return true;
     // Recurse into nested objects/arrays (AND/OR/NOT, relation filters, …).
     if (whereMentionsBusinessId(value)) return true;
   }

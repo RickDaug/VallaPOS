@@ -1,4 +1,13 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+
+// The CloudPRNT store now reads Upstash config from `@/lib/env` (to pick a
+// durable Redis store when configured). Mock env with Upstash UNSET so the store
+// uses the in-memory fallback here — and so importing it doesn't trip env.ts's
+// startup validation (there are no real env vars under Vitest).
+vi.mock("@/lib/env", () => ({
+  env: { UPSTASH_REDIS_REST_URL: undefined, UPSTASH_REDIS_REST_TOKEN: undefined },
+}));
+
 import { GET, POST, DELETE } from "./route";
 import { getCloudPrntStore } from "@/features/peripherals/cloudprnt-store";
 import {

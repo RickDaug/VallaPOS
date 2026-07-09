@@ -65,9 +65,16 @@ export function buildCsp(nonce: string, isDev: boolean): string {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self'",
-    // Browser may talk to same-origin + any https (server-side origins like
-    // Neon/Better-Auth/Upstash never appear in the browser, so no host pins).
-    "connect-src 'self' https:",
+    // The browser only ever talks back to its OWN origin: Better Auth is
+    // same-origin, all data mutations go through same-origin server actions /
+    // route handlers, and the offline queue re-POSTs to same-origin routes. The
+    // external services (Neon / Upstash / Stripe's REST API) are called ONLY
+    // server-side (Stripe.js is not loaded in the client; there are no WebSocket
+    // or analytics beacons), so they never appear as a browser `connect` target.
+    // Hence `'self'` — not the blanket `https:` — is the correct, tight policy.
+    // If a client-side external call is ever added (e.g. Stripe.js →
+    // js.stripe.com / api.stripe.com), allowlist those exact origins here.
+    "connect-src 'self'",
     "worker-src 'self' blob:",
     "manifest-src 'self'",
     "frame-ancestors 'none'",

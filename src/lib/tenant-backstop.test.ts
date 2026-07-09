@@ -43,10 +43,14 @@ describe("whereMentionsBusinessId", () => {
     expect(whereMentionsBusinessId({ id: "x1", active: true })).toBe(false);
   });
 
-  it("detects a compound-unique key that embeds businessId", () => {
+  it("detects a compound-unique key that embeds a real businessId value", () => {
     expect(whereMentionsBusinessId({ businessId_clientUuid: { businessId: "b1", clientUuid: "c" } })).toBe(true);
-    // even if the nested object were opaque, the key name alone is enough:
-    expect(whereMentionsBusinessId({ businessId_number: {} })).toBe(true);
+    expect(whereMentionsBusinessId({ businessId_number: { businessId: "b1", number: 7 } })).toBe(true);
+  });
+
+  it("detects a businessId list/relation filter (in / equals)", () => {
+    expect(whereMentionsBusinessId({ businessId: { in: ["b1", "b2"] } })).toBe(true);
+    expect(whereMentionsBusinessId({ businessId: { equals: "b1" } })).toBe(true);
   });
 
   it("detects businessId nested inside AND / OR / NOT combinators", () => {
@@ -59,6 +63,25 @@ describe("whereMentionsBusinessId", () => {
   it("returns false for a nested where that never mentions businessId", () => {
     expect(whereMentionsBusinessId({ AND: [{ active: true }, { role: "OWNER" }] })).toBe(false);
     expect(whereMentionsBusinessId({ order: { is: { status: "PAID" } } })).toBe(false);
+  });
+
+  // Finding #12: a businessId key bound to a valueless value filters NOTHING at
+  // query time (Prisma drops `undefined`), so it must NOT count as scoped.
+  it("returns false when businessId is undefined / null / empty (no real filter)", () => {
+    expect(whereMentionsBusinessId({ businessId: undefined })).toBe(false);
+    expect(whereMentionsBusinessId({ businessId: null })).toBe(false);
+    expect(whereMentionsBusinessId({ businessId: "" })).toBe(false);
+    expect(whereMentionsBusinessId({ businessId: "   " })).toBe(false); // whitespace-only
+  });
+
+  it("returns false for a valueless businessId nested in AND / OR / an empty compound key", () => {
+    expect(whereMentionsBusinessId({ AND: [{ businessId: undefined }] })).toBe(false);
+    expect(whereMentionsBusinessId({ OR: [{ businessId: null }, { active: true }] })).toBe(false);
+    expect(whereMentionsBusinessId({ businessId_number: {} })).toBe(false); // empty compound key
+  });
+
+  it("still passes when a valueless businessId coexists with a real one", () => {
+    expect(whereMentionsBusinessId({ AND: [{ businessId: undefined }, { businessId: "b1" }] })).toBe(true);
   });
 });
 
@@ -91,6 +114,9 @@ describe("isUnscopedTenantQuery", () => {
     expect(isUnscopedTenantQuery("Order", "findMany", { where: { status: "PAID" } })).toBe(true);
     expect(isUnscopedTenantQuery("Membership", "findFirst", { where: { userId: "u1" } })).toBe(true);
     expect(isUnscopedTenantQuery("Item", "findMany", {})).toBe(true); // no where at all
+    // Finding #12: businessId present but valueless still filters nothing → flagged.
+    expect(isUnscopedTenantQuery("Order", "findMany", { where: { businessId: undefined } })).toBe(true);
+    expect(isUnscopedTenantQuery("Order", "updateMany", { where: { businessId: "" }, data: {} })).toBe(true);
   });
 
   it("passes a guarded tenant op that IS scoped by businessId", () => {
