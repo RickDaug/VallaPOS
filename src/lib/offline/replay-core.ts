@@ -54,6 +54,25 @@ export function isNetworkError(err: unknown): boolean {
 }
 
 /**
+ * An OperatorLockedError thrown by the checkout action because the replaying
+ * DEVICE is locked (no active operator) — NOT the queued sale's fault (Round-3
+ * #3). It's device-wide and transient: like a network stop, we halt the pass
+ * WITHOUT consuming a replay attempt, so the queue retries intact once someone
+ * unlocks. Detected by the error name/message the guard throws (`LOCKED`).
+ *
+ * RESIDUAL (documented, accepted): a Next.js server action redacts a thrown
+ * error's message in PRODUCTION, so a locked-device replay error may not be
+ * recognizable here and would then be treated as an ordinary transient rejection
+ * — bumping the attempt count and, after MAX_REPLAY_ATTEMPTS, dead-lettering
+ * (never deleting — the cash stays reconcilable). A robust fix would return a
+ * typed "locked" result from checkout instead of throwing across the boundary.
+ */
+export function isOperatorLocked(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return err.name === "OperatorLockedError" || err.message === "LOCKED";
+}
+
+/**
  * Injectable dependencies for {@link runReplay}. Extracting them keeps the
  * durability logic (never-delete, retry-then-dead-letter, count committed vs
  * needs-reconciliation) unit-testable with an in-memory store — no IndexedDB.
@@ -101,11 +120,18 @@ export async function runReplay(deps: ReplayDeps): Promise<ReplaySummary> {
         continue;
       }
       try {
-        await deps.send(payload);
+        // Thread the queue entry's ring-up time onto the replayed payload so the
+        // server dates the order to when it was RUNG, not when it replayed
+        // (Round-3 #4). `queuedAt` lives on the (clear-text) envelope, not the
+        // encrypted payload, so it's injected here rather than at enqueue.
+        await deps.send({ ...payload, offlineQueuedAt: entry.queuedAt });
         await deps.remove(entry.clientUuid);
         committed += 1;
       } catch (err) {
         if (deps.isNetworkError(err)) break; // still offline — stop, keep FIFO, retry later
+        // Device locked mid-replay — halt the pass without consuming an attempt;
+        // the whole queue is intact and retries once someone unlocks (Round-3 #3).
+        if (isOperatorLocked(err)) break;
         const attempts = (entry.attempts ?? 0) + 1;
         if (attempts >= maxAttempts) {
           // Retries exhausted — park it, DO NOT delete a cash-collected sale.

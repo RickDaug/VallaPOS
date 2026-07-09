@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { PIN_MIN_LENGTH, PIN_MAX_LENGTH } from "@/features/employees/schema";
 import { formatMoney } from "@/lib/money";
-import { lockOperator } from "@/features/employees/actions";
+import { lockOperator, getActiveOperatorId } from "@/features/employees/actions";
 import { computePricedOrder, type PricedLineInput } from "@/features/register/pricing";
 import type { SellableEntry, SellableModifierGroup } from "@/features/catalog/queries";
 import { QRCodeSVG } from "qrcode.react";
@@ -78,6 +78,62 @@ function lineKey(variationId: string, modifierIds: string[]): string {
   return [variationId, ...[...modifierIds].sort()].join("|");
 }
 
+// IN-PROGRESS CART PERSISTENCE (Round-3 #1). A half-built cart is client-only
+// state; an idle auto-lock (which unmounts the register), a lock/switch, or a
+// plain refresh would otherwise discard it. We mirror the cart to localStorage
+// keyed per business, restore it on mount, and clear it the moment a sale
+// completes / resets — so no lock or reload ever loses a work-in-progress order.
+const CART_STORAGE_PREFIX = "vp_cart_";
+// Last-known active operator id (captured while ONLINE) so an OFFLINE sale can be
+// attributed to the operator who RANG it at replay time (Round-3 #3).
+const OPERATOR_ID_STORAGE_PREFIX = "vp_op_id_";
+
+function cartStorageKey(businessId: string): string {
+  return `${CART_STORAGE_PREFIX}${businessId}`;
+}
+
+function loadStoredCart(businessId: string): CartLine[] | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(cartStorageKey(businessId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    // Shape-check defensively — a corrupt/foreign value must never crash the till.
+    if (!Array.isArray(parsed)) return null;
+    return parsed as CartLine[];
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredCart(businessId: string, cart: CartLine[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (cart.length === 0) window.localStorage.removeItem(cartStorageKey(businessId));
+    else window.localStorage.setItem(cartStorageKey(businessId), JSON.stringify(cart));
+  } catch {
+    /* storage full / unavailable (private mode) — degrade to non-persistent */
+  }
+}
+
+function loadStoredOperatorId(businessId: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(`${OPERATOR_ID_STORAGE_PREFIX}${businessId}`);
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredOperatorId(businessId: string, membershipId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(`${OPERATOR_ID_STORAGE_PREFIX}${businessId}`, membershipId);
+  } catch {
+    /* best effort */
+  }
+}
+
 export function Register({
   businessId,
   catalog,
@@ -122,6 +178,16 @@ export function Register({
   // REUSED across a manager-PIN retry so a sale that committed on the first send
   // (then got re-sent with a PIN) is reconciled by clientUuid, not duplicated.
   const clientUuidRef = useRef<string | null>(null);
+  // Re-entrancy guard: a fast double-tap of "Complete sale" must not fire two
+  // checkouts (each would otherwise mint its own order). A ref (not `pending`
+  // state) so the guard is effective within the same synchronous tick (Round-3 #2).
+  const inFlightRef = useRef(false);
+  // The active operator's membershipId, captured while online, stamped onto an
+  // offline-queued sale so replay attributes it to who rang it (Round-3 #3).
+  const cashierMembershipIdRef = useRef<string | null>(null);
+  // Gates cart persistence until after the first hydrate, so the initial empty
+  // cart never overwrites a stored work-in-progress order before we restore it.
+  const cartHydratedRef = useRef(false);
   // Item awaiting modifier selection (null = picker closed).
   const [picking, setPicking] = useState<SellableEntry | null>(null);
   // Per-device, per-business favorites (variation ids) + grid/list density.
@@ -169,7 +235,34 @@ export function Register({
   useEffect(() => {
     setFavorites(loadFavorites(businessId));
     setDensity(loadDensity());
+    // Restore any in-progress cart left by a lock / refresh (Round-3 #1).
+    const storedCart = loadStoredCart(businessId);
+    if (storedCart && storedCart.length > 0) setCart(storedCart);
+    cartHydratedRef.current = true;
+    // Seed the ringing-operator id from the last online capture, then refresh it
+    // from the server when online (best effort — offline keeps the cached value).
+    cashierMembershipIdRef.current = loadStoredOperatorId(businessId);
+    if (typeof navigator === "undefined" || navigator.onLine) {
+      getActiveOperatorId({ businessId })
+        .then(({ membershipId }) => {
+          if (membershipId) {
+            cashierMembershipIdRef.current = membershipId;
+            saveStoredOperatorId(businessId, membershipId);
+          }
+        })
+        .catch(() => {
+          /* offline / transient — keep the cached id */
+        });
+    }
   }, [businessId]);
+
+  // Mirror the in-progress cart to localStorage so a lock/refresh can restore it
+  // (Round-3 #1). Gated on `cartHydratedRef` so the pre-hydrate empty cart never
+  // clobbers a stored order; cleared to nothing when the cart empties.
+  useEffect(() => {
+    if (!cartHydratedRef.current) return;
+    saveStoredCart(businessId, cart);
+  }, [businessId, cart]);
 
   function onToggleFavorite(variationId: string) {
     setFavorites((cur) => {
@@ -309,6 +402,9 @@ export function Register({
 
   function resetSale() {
     setCart([]);
+    // Drop the persisted work-in-progress immediately (finishAndLock refreshes the
+    // route right after, which can unmount before the cart-mirror effect runs).
+    saveStoredCart(businessId, []);
     setTip(NO_TIP);
     setCustomTipDollars("");
     setDiscountDollars("");
@@ -351,6 +447,9 @@ export function Register({
     return submit({
       businessId,
       clientUuid: clientUuidRef.current,
+      // Attribute an OFFLINE-replayed sale to the operator who RANG it, captured
+      // while online (Round-3 #3). Ignored by online checkout (server-side).
+      offlineCashierId: cashierMembershipIdRef.current ?? undefined,
       lines: cart.map((l) => {
         const custom = l.modifiers.filter((m) => m.id.startsWith("custom:"));
         return {
@@ -391,6 +490,10 @@ export function Register({
   }
 
   async function completeSale() {
+    // Re-entrancy guard (Round-3 #2): a fast double-tap must not fire two
+    // checkouts. Checked via a ref so it holds within the same synchronous tick,
+    // before React commits `pending`.
+    if (inFlightRef.current) return;
     setError(null);
     const nonCash = tenderMethod !== "CASH";
     const cashTenderedCents = nonCash ? 0 : Math.round(parseFloat(tenderDollars || "0") * 100);
@@ -398,8 +501,10 @@ export function Register({
       setError("Cash tendered is less than the total.");
       return;
     }
-    // New attempt → fresh idempotency key.
-    clientUuidRef.current = crypto.randomUUID();
+    // ONE idempotency key per sale: generated lazily (in runCheckout) and REUSED
+    // across retries until the sale resolves, so a double-send is reconciled by
+    // clientUuid rather than minting a second order. resetSale() clears it.
+    inFlightRef.current = true;
     setPending(true);
     try {
       const result = await runCheckout();
@@ -418,6 +523,7 @@ export function Register({
       setError(err instanceof Error ? err.message : "Checkout failed.");
     } finally {
       setPending(false);
+      inFlightRef.current = false;
     }
   }
 

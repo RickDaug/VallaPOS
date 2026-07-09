@@ -26,6 +26,12 @@ const PRISMA_UNIQUE_VIOLATION = "P2002";
 // silently skipping the gate. See the AUDIT note in `checkout`.
 const APPROVAL_BYPASSED_OFFLINE_NOTE = "approval bypassed (offline replay)";
 
+// Audit marker stamped when a replayed OFFLINE sale carried a price snapshot that
+// fell below the catalog forgery floor and was clamped up to catalog (Round-3
+// #5) — so a tampered-device underprice surfaces on the Z-report/audit instead of
+// silently recording the forged amount. See resolveOrderLines' floor logic.
+const PRICE_CLAMPED_OFFLINE_NOTE = "price snapshot below catalog floor — clamped (offline replay)";
+
 function isUniqueViolation(err: unknown): boolean {
   return (
     typeof err === "object" &&
@@ -90,7 +96,23 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   // The active operator (PIN-identified) must be allowed to take orders; the sale
   // is attributed to them.
   const operator = await requireCapability(data.businessId, "take_orders");
-  const { businessId, membershipId } = operator;
+  const { businessId } = operator;
+  // ATTRIBUTION. Online: the sale is the active operator's. Offline replay: it is
+  // attributed to whoever RANG it (captured on-device at enqueue as
+  // `offlineCashierId`), NOT to whoever is the active operator when the queue
+  // drains (Round-3 #3). The captured id is validated as an active member of THIS
+  // business before it's trusted; anything missing/invalid falls back to the
+  // replaying operator. `requireCapability` above still gates the replaying device
+  // (a locked device throws OperatorLockedError → the queue retries later).
+  const isOfflineReplay = Boolean(data.priceSnapshot?.quoted);
+  let cashierId = operator.membershipId;
+  if (isOfflineReplay && data.offlineCashierId) {
+    const ringing = await db.membership.findFirst({
+      where: { id: data.offlineCashierId, businessId, active: true },
+      select: { id: true },
+    });
+    if (ringing) cashierId = ringing.id;
+  }
 
   // Idempotency: if this clientUuid already produced an order, return it.
   const existing = await db.order.findUnique({
@@ -114,7 +136,6 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   // the gate is skipped (mirrors the offline price-trust relaxation). Online
   // checkout sends no snapshot and is fully gated.
   const isUnverifiedTender = data.method === "QR" || data.method === "MANUAL";
-  const isOfflineReplay = Boolean(data.priceSnapshot?.quoted);
   const operatorCanApprove = can(operator.role, operator.permissions, APPROVE_UNVERIFIED_TENDER);
   if (isUnverifiedTender && !isOfflineReplay) {
     if (!operatorCanApprove) {
@@ -172,7 +193,10 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       },
     };
   });
-  const { moneyLines, lineRecords } = await resolveOrderLines(businessId, resolveInput);
+  const { moneyLines, lineRecords, snapshotClamped } = await resolveOrderLines(
+    businessId,
+    resolveInput,
+  );
 
   // Per-line tax is computed once; the order tax is the SUM of line taxes, so
   // Order.taxCents == Σ OrderLine.taxCents by construction (no second compute).
@@ -194,13 +218,28 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   const tenderedCents = isCash ? data.cashTenderedCents : null;
   const changeCents = isCash ? data.cashTenderedCents - totals.totalCents : null;
   const note = isCash ? null : data.manualNote?.trim() || null;
-  // Fold the offline-replay approval-bypass marker into the payment reference so
-  // the audit trail carries it (see the AUDIT note above).
-  const reference = approvalBypassedOffline
+  // Fold any offline-replay audit markers into the payment reference so the audit
+  // trail carries them (see the AUDIT note above + Round-3 #5). The clamp marker
+  // is recorded even on a CASH sale (a forged snapshot can ride any tender), so it
+  // may annotate an otherwise-null cash reference. With no markers the reference
+  // is byte-for-byte the plain note.
+  const markers: string[] = [];
+  if (approvalBypassedOffline) markers.push(APPROVAL_BYPASSED_OFFLINE_NOTE);
+  if (snapshotClamped) markers.push(PRICE_CLAMPED_OFFLINE_NOTE);
+  const reference = markers.length
     ? note
-      ? `${note} — ${APPROVAL_BYPASSED_OFFLINE_NOTE}`
-      : APPROVAL_BYPASSED_OFFLINE_NOTE
+      ? `${note} — ${markers.join(" — ")}`
+      : markers.join(" — ")
     : note;
+
+  // OFFLINE REPLAY DATING (Round-3 #4): date the order when it was RUNG, not when
+  // it replayed, so reports/Z-totals fall on the real sale day. Only trusted on
+  // the offline-replay path and only for a real PAST timestamp (a future/absent
+  // value falls back to the DB default now()).
+  const ringUpAt =
+    isOfflineReplay && data.offlineQueuedAt && data.offlineQueuedAt <= Date.now()
+      ? new Date(data.offlineQueuedAt)
+      : undefined;
 
   let order;
   try {
@@ -224,7 +263,9 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           clientUuid: data.clientUuid,
           number,
           status: "PAID",
-          cashierId: membershipId, // who rang the sale (matches the tab flow)
+          cashierId, // who rang the sale (offline replay → the ringing operator)
+          // Offline replays date to the ring-up time; online omits this (default now()).
+          ...(ringUpAt ? { createdAt: ringUpAt } : {}),
           customerName: data.customerName,
           subtotalCents: totals.subtotalCents,
           discountCents: totals.discountCents,

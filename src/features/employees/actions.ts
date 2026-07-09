@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { requireMembership, assertRole } from "@/lib/tenant";
 import { assertNotLocked, recordFailure, recordSuccess } from "@/lib/pin-throttle";
 import { defaultCapabilitiesFor, sanitizeCapabilities } from "@/lib/capabilities";
-import { setActiveOperator, clearActiveOperator } from "@/lib/operator";
+import { setActiveOperator, clearActiveOperator, getActiveOperator } from "@/lib/operator";
 import { hashPin, verifyPin } from "./pin";
 import {
   addMemberSchema,
@@ -324,6 +324,25 @@ export async function becomeSelfOperator(input: BusinessScopeInput): Promise<{ o
   if (me.pinHash) return { ok: false, needsPin: true };
   await setActiveOperator(ctx.businessId, ctx.membershipId);
   return { ok: true };
+}
+
+/**
+ * The active operator's membershipId on this device (or null when locked).
+ *
+ * The register calls this WHILE ONLINE and caches it so a sale rung up OFFLINE
+ * can stamp the RINGING operator onto its queued payload (`offlineCashierId`).
+ * That way a later replay attributes the sale to whoever actually rang it, not to
+ * whoever happens to be the active operator when the queue drains (Round-3 #3).
+ * It only exposes the caller's own device operator id — never a PIN, hash, or any
+ * other member — and is tenant-scoped via requireMembership.
+ */
+export async function getActiveOperatorId(
+  input: BusinessScopeInput,
+): Promise<{ membershipId: string | null }> {
+  const data = businessScopeSchema.parse(input);
+  const ctx = await requireMembership(data.businessId);
+  const operator = await getActiveOperator(ctx.businessId);
+  return { membershipId: operator?.membershipId ?? null };
 }
 
 /** Lock the device (clear the active operator). */

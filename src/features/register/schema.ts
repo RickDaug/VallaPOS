@@ -116,6 +116,17 @@ export const checkoutSchema = z.object({
   // instead of the current catalog. Absent on every ONLINE checkout, which stays
   // fully server-authoritative. See priceSnapshotSchema + actions.ts.
   priceSnapshot: priceSnapshotSchema.optional(),
+  // The membership that RANG this sale, captured on-device at enqueue time. Used
+  // ONLY on the offline-replay path to attribute the order to who actually rang
+  // it (not whoever is the active operator when the queue drains). The server
+  // still validates it is an active member of THIS business and falls back to the
+  // replaying operator otherwise. Ignored for online checkout (Round-3 #3).
+  offlineCashierId: z.string().min(1).optional(),
+  // When this offline sale was RUNG (epoch ms), threaded from the queue entry at
+  // replay time. Used ONLY on the offline-replay path to date Order.createdAt to
+  // the ring-up moment rather than the replay moment (Round-3 #4). Bounded to a
+  // real past timestamp server-side; ignored for online checkout.
+  offlineQueuedAt: z.number().int().positive().optional(),
 });
 
 export type CheckoutInput = z.infer<typeof checkoutSchema>;

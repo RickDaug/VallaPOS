@@ -35,7 +35,7 @@ export default async function BusinessLayout({
 
   const business = await db.business.findUnique({
     where: { id: businessId },
-    select: { name: true, mode: true },
+    select: { name: true, mode: true, singleOperatorMode: true },
   });
   if (!business) notFound();
 
@@ -89,7 +89,12 @@ export default async function BusinessLayout({
           <ThemeToggle />
         </div>
         <div className="mt-2 border-t border-sidebar-accent/40 pt-2">
-          <OperatorBar businessId={businessId} operatorName={operator.name} className="w-full justify-start" />
+          <OperatorBar
+            businessId={businessId}
+            operatorName={operator.name}
+            singleOperatorMode={business.singleOperatorMode}
+            className="w-full justify-start"
+          />
         </div>
       </aside>
 
@@ -103,6 +108,7 @@ export default async function BusinessLayout({
           <OperatorBar
             businessId={businessId}
             operatorName={operator.name}
+            singleOperatorMode={business.singleOperatorMode}
             className="text-muted-foreground hover:bg-muted hover:text-foreground"
           />
           <FullscreenToggle className="text-muted-foreground hover:bg-muted hover:text-foreground" />

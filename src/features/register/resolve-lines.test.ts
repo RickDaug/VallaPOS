@@ -59,6 +59,14 @@ describe("resolveOrderLines — custom modifiers", () => {
     ).rejects.toThrow(/Unknown modifier/);
   });
 
+  it("reports snapshotClamped=false for a normal (no-override) resolve", async () => {
+    variationFindMany.mockResolvedValue([variation()]);
+    const { snapshotClamped } = await resolveOrderLines(BIZ, [
+      { variationId: "var_1", quantity: 1 },
+    ]);
+    expect(snapshotClamped).toBe(false);
+  });
+
   it("combines a catalog modifier and a custom one on the same line", async () => {
     variationFindMany.mockResolvedValue([
       variation({
@@ -89,5 +97,60 @@ describe("resolveOrderLines — custom modifiers", () => {
 
     const names = lineRecords[0]!.modifiers.map((m) => m.nameSnapshot);
     expect(names).toEqual(["Bacon", "No pickles"]);
+  });
+});
+
+describe("resolveOrderLines — offline snapshot forgery floor (Round-3 #5)", () => {
+  it("trusts a quoted unit price at/above 50% of catalog (legit price rise)", async () => {
+    // Catalog rose to $15 after a $8 sale — $8 is 53% of catalog, above the floor.
+    variationFindMany.mockResolvedValue([variation({ priceCents: 1500 })]);
+    const { lineRecords, snapshotClamped } = await resolveOrderLines(BIZ, [
+      { variationId: "var_1", quantity: 1, priceOverride: { unitPriceCents: 800 } },
+    ]);
+    expect(lineRecords[0]!.unitPriceCents).toBe(800); // honored as quoted
+    expect(snapshotClamped).toBe(false);
+  });
+
+  it("clamps an implausibly-low quoted unit price UP to catalog and flags it", async () => {
+    // A forged $0.01 on a $10 item is far below the floor → clamp + flag.
+    variationFindMany.mockResolvedValue([variation({ priceCents: 1000 })]);
+    const { lineRecords, snapshotClamped } = await resolveOrderLines(BIZ, [
+      { variationId: "var_1", quantity: 1, priceOverride: { unitPriceCents: 1 } },
+    ]);
+    expect(lineRecords[0]!.unitPriceCents).toBe(1000); // clamped up to catalog
+    expect(snapshotClamped).toBe(true);
+  });
+
+  it("clamps an implausibly-low quoted MODIFIER delta and flags it", async () => {
+    variationFindMany.mockResolvedValue([
+      variation({
+        priceCents: 1000,
+        item: {
+          name: "Coffee",
+          modifierLinks: [
+            {
+              group: {
+                id: "g1",
+                minSelect: 0,
+                maxSelect: 2,
+                modifiers: [{ id: "m1", name: "Oat", priceDeltaCents: 200 }],
+              },
+            },
+          ],
+        },
+      }),
+    ]);
+    const { lineRecords, snapshotClamped } = await resolveOrderLines(BIZ, [
+      {
+        variationId: "var_1",
+        quantity: 1,
+        modifierIds: ["m1"],
+        // Base is honest, but the oat delta is forged from $2.00 down to $0.01.
+        priceOverride: { unitPriceCents: 1000, modifierDeltas: { m1: 1 } },
+      },
+    ]);
+    const oat = lineRecords[0]!.modifiers.find((m) => m.nameSnapshot === "Oat")!;
+    expect(oat.priceDeltaCents).toBe(200); // clamped up to catalog delta
+    expect(snapshotClamped).toBe(true);
   });
 });

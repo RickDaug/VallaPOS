@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   isNetworkError,
+  isOperatorLocked,
   runReplay,
   MAX_REPLAY_ATTEMPTS,
   type ReplayDeps,
@@ -203,6 +204,76 @@ describe("runReplay — offline short-circuit", () => {
     expect(s.deadLettered).toBe(0);
     expect(s.pending).toBe(1);
     expect(h.sent).toEqual([]);
+  });
+});
+
+describe("runReplay — offline-replay dating (Round-3 #4)", () => {
+  it("threads the entry's queuedAt onto the replayed payload as offlineQueuedAt", async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    const entry = makeEntry("a");
+    const h = harness({
+      entries: [entry],
+      send: async (p) => {
+        seen.push(p as Record<string, unknown>);
+        return {};
+      },
+    });
+    await runReplay(h.deps);
+    expect(seen).toHaveLength(1);
+    // The order is dated to when it was RUNG (the queue entry's queuedAt), not
+    // when it replayed — the server reads this onto Order.createdAt.
+    expect(seen[0]!.offlineQueuedAt).toBe(entry.queuedAt);
+  });
+});
+
+describe("runReplay — a locked device is non-terminal (Round-3 #3)", () => {
+  const lockedError = () =>
+    Object.assign(new Error("LOCKED"), { name: "OperatorLockedError" });
+
+  it("halts the pass WITHOUT consuming an attempt or dead-lettering", async () => {
+    const h = harness({
+      entries: [makeEntry("a", 0), makeEntry("b", 0)],
+      send: async () => {
+        throw lockedError();
+      },
+    });
+    const s = await runReplay(h.deps);
+    expect(s.committed).toBe(0);
+    expect(s.deadLettered).toBe(0);
+    expect(s.pending).toBe(2); // both still queued, intact
+    expect(h.dead.size).toBe(0); // NOT dead-lettered
+    expect(h.queue.get("a")?.attempts).toBe(0); // attempt NOT consumed
+    expect(h.sent).toEqual(["a"]); // stopped after the first lock, like a network stop
+  });
+
+  it("never dead-letters even at the attempt threshold (a lock isn't the sale's fault)", async () => {
+    const h = harness({
+      entries: [makeEntry("a", MAX_REPLAY_ATTEMPTS - 1)],
+      send: async () => {
+        throw lockedError();
+      },
+    });
+    const s = await runReplay(h.deps);
+    expect(s.deadLettered).toBe(0);
+    expect(h.dead.has("a")).toBe(false);
+    expect(h.queue.has("a")).toBe(true);
+    expect(h.queue.get("a")?.attempts).toBe(MAX_REPLAY_ATTEMPTS - 1); // unchanged
+  });
+});
+
+describe("isOperatorLocked classification", () => {
+  it("recognizes the guard's OperatorLockedError by name or LOCKED message", () => {
+    expect(isOperatorLocked(Object.assign(new Error("x"), { name: "OperatorLockedError" }))).toBe(
+      true,
+    );
+    expect(isOperatorLocked(new Error("LOCKED"))).toBe(true);
+  });
+
+  it("does not misclassify ordinary errors as a lock", () => {
+    expect(isOperatorLocked(new Error("Variation not found"))).toBe(false);
+    expect(isOperatorLocked(new TypeError("Failed to fetch"))).toBe(false);
+    expect(isOperatorLocked("LOCKED")).toBe(false); // non-Error value
+    expect(isOperatorLocked(undefined)).toBe(false);
   });
 });
 
