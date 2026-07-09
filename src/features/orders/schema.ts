@@ -17,6 +17,9 @@ const MAX_CENTS = 10_000_000;
 export const voidOrderSchema = z.object({
   businessId: z.string().min(1),
   orderId: z.string().min(1),
+  // Idempotency key for this void request. The client sends one per user action
+  // and reuses it on retry, so a double-tap / re-send is applied at most once.
+  clientUuid: z.string().uuid().optional(),
 });
 export type VoidOrderInput = z.infer<typeof voidOrderSchema>;
 
@@ -30,5 +33,8 @@ export const refundOrderSchema = z.object({
   businessId: z.string().min(1),
   orderId: z.string().min(1),
   amountCents: z.number().int().positive().max(MAX_CENTS).nullish(),
+  // Idempotency key for this refund request (see voidOrderSchema). Reused across
+  // a retry so a double-tapped or re-sent refund is applied at most once.
+  clientUuid: z.string().uuid().optional(),
 });
 export type RefundOrderInput = z.infer<typeof refundOrderSchema>;

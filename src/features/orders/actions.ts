@@ -138,16 +138,63 @@ const SETTLED: ReadonlySet<OrderStatus> = new Set<OrderStatus>(["VOIDED", "REFUN
  * REFUNDED), and flips the original captures to REFUNDED — all in one
  * transaction. MANAGER+ only; strictly businessId-scoped.
  */
+// Idempotency tag stamped on reversing payments for a keyed refund/void request.
+const refTag = (clientUuid?: string): string | undefined =>
+  clientUuid ? `refund:${clientUuid}` : undefined;
+
+/**
+ * Take a row lock (`FOR UPDATE`) on the order so two concurrent refund/void
+ * requests on the same order serialize — without it both could read the
+ * pre-reversal state and each write a full set of reversing payments (double
+ * refund). The lock is held until the transaction commits.
+ */
+async function lockOrderRow(tx: Tx, businessId: string, orderId: string): Promise<void> {
+  await tx.$queryRaw`SELECT id FROM "Order" WHERE id = ${orderId} AND "businessId" = ${businessId} FOR UPDATE`;
+}
+
+/**
+ * Idempotent-replay check: if a reversing payment already carries this request's
+ * clientUuid tag, the refund/void was already applied — return a success result
+ * that reverses nothing, so a retry/double-tap is a safe no-op. null otherwise.
+ */
+async function priorReversalResult(
+  tx: Tx,
+  businessId: string,
+  orderId: string,
+  status: OrderStatus,
+  clientUuid?: string,
+): Promise<RefundVoidResult | null> {
+  const tag = refTag(clientUuid);
+  if (!tag) return null;
+  const prior = await tx.payment.findFirst({
+    where: { businessId, orderId, processorRef: tag },
+    select: { id: true },
+  });
+  if (!prior) return null;
+  return {
+    ok: true,
+    status,
+    reversedCents: 0,
+    cashRefundedCents: 0,
+    manualRefundCents: 0,
+    manualRefundRequired: false,
+  };
+}
+
 export async function voidOrder(input: VoidOrderInput): Promise<RefundVoidResult> {
   const data = voidOrderSchema.parse(input);
   const ctx = await requireCapability(data.businessId, "refund_void");
 
   return db.$transaction(async (tx) => {
+    await lockOrderRow(tx, ctx.businessId, data.orderId);
     const order = await tx.order.findFirst({
       where: { id: data.orderId, businessId: ctx.businessId },
       select: { id: true, status: true, payments: { select: { id: true, method: true, amountCents: true } } },
     });
     if (!order) return { ok: false, reason: "order_not_found" };
+    // Idempotent replay of the same keyed request → apply nothing again.
+    const replay = await priorReversalResult(tx, ctx.businessId, order.id, order.status, data.clientUuid);
+    if (replay) return replay;
     if (SETTLED.has(order.status)) return { ok: false, reason: "already_settled" };
     if (order.status !== "PAID") return { ok: false, reason: "not_paid" };
 
@@ -161,7 +208,7 @@ export async function voidOrder(input: VoidOrderInput): Promise<RefundVoidResult
     // A cash reversal takes money out of the till, so it must land in an OPEN
     // drawer session (throws when none is open — see assertOpenDrawerForCash).
     await assertOpenDrawerForCash(tx, ctx.businessId, reversals);
-    await applyReversal(tx, ctx.businessId, order.id, order.payments, reversals, "VOIDED");
+    await applyReversal(tx, ctx.businessId, order.id, order.payments, reversals, "VOIDED", refTag(data.clientUuid));
 
     revalidatePaths(ctx.businessId, order.id);
     return { ok: true, status: "VOIDED", reversedCents, ...classifyRefund(reversals) };
@@ -183,11 +230,17 @@ export async function refundOrder(input: RefundOrderInput): Promise<RefundVoidRe
   const ctx = await requireCapability(data.businessId, "refund_void");
 
   return db.$transaction(async (tx) => {
+    await lockOrderRow(tx, ctx.businessId, data.orderId);
     const order = await tx.order.findFirst({
       where: { id: data.orderId, businessId: ctx.businessId },
       select: { id: true, status: true, payments: { select: { id: true, method: true, amountCents: true } } },
     });
     if (!order) return { ok: false, reason: "order_not_found" };
+    // Idempotent replay of the same keyed request → apply nothing again. This is
+    // the guard that makes a double-tapped or re-sent PARTIAL refund safe: the
+    // SETTLED check below only rejects a second FULL refund, never a repeated partial.
+    const replay = await priorReversalResult(tx, ctx.businessId, order.id, order.status, data.clientUuid);
+    if (replay) return replay;
     // A fully REFUNDED or VOIDED order has nothing left to give back.
     if (SETTLED.has(order.status)) return { ok: false, reason: "already_settled" };
 
@@ -203,7 +256,7 @@ export async function refundOrder(input: RefundOrderInput): Promise<RefundVoidRe
       if (reversals.length === 0) return { ok: false, reason: "nothing_collected" };
       const reversedCents = -reversals.reduce((s, r) => s + r.amountCents, 0);
       await assertOpenDrawerForCash(tx, ctx.businessId, reversals);
-      await applyReversal(tx, ctx.businessId, order.id, order.payments, reversals, "REFUNDED");
+      await applyReversal(tx, ctx.businessId, order.id, order.payments, reversals, "REFUNDED", refTag(data.clientUuid));
       revalidatePaths(ctx.businessId, order.id);
       return { ok: true, status: "REFUNDED", reversedCents, ...classifyRefund(reversals) };
     }
@@ -232,6 +285,7 @@ export async function refundOrder(input: RefundOrderInput): Promise<RefundVoidRe
       nextStatus === "REFUNDED" ? order.payments : [],
       plan.reversals,
       nextStatus,
+      refTag(data.clientUuid),
     );
     revalidatePaths(ctx.businessId, order.id);
     return { ok: true, status: nextStatus, reversedCents, ...classifyRefund(plan.reversals) };
@@ -274,6 +328,10 @@ async function applyReversal(
   capturesToRefund: { id: string }[],
   reversals: { method: string; amountCents: number }[],
   status: OrderStatus,
+  // Idempotency tag stamped onto every reversing Payment (`refund:<clientUuid>`),
+  // so a retried request can be recognized as already-applied. null when the
+  // caller sent no clientUuid.
+  idempotencyRef?: string,
 ): Promise<void> {
   if (reversals.length > 0) {
     await tx.payment.createMany({
@@ -286,6 +344,7 @@ async function applyReversal(
         method: r.method as PaymentMethod,
         status: "REFUNDED" as const,
         amountCents: r.amountCents, // negative
+        processorRef: idempotencyRef ?? null,
       })),
     });
   }
