@@ -9,8 +9,10 @@ const requireCapability = vi.fn();
 const orderFindFirst = vi.fn();
 const paymentCreateMany = vi.fn();
 const paymentUpdateMany = vi.fn();
+const paymentFindFirst = vi.fn();
 const orderUpdate = vi.fn();
 const drawerFindFirst = vi.fn();
+const queryRaw = vi.fn();
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 // Stub the tenant module (its real impl pulls in auth.ts → env.ts, which throws
@@ -28,6 +30,8 @@ vi.mock("@/lib/operator-guard", () => ({
 vi.mock("./email", () => ({ isEmailConfigured: vi.fn(), sendReceiptEmail: vi.fn() }));
 vi.mock("@/lib/db", () => {
   const tx = {
+    // The refund/void transactions take a FOR UPDATE row lock via $queryRaw.
+    $queryRaw: (...a: unknown[]) => queryRaw(...a),
     order: {
       findFirst: (...a: unknown[]) => orderFindFirst(...a),
       update: (...a: unknown[]) => orderUpdate(...a),
@@ -35,6 +39,7 @@ vi.mock("@/lib/db", () => {
     payment: {
       createMany: (...a: unknown[]) => paymentCreateMany(...a),
       updateMany: (...a: unknown[]) => paymentUpdateMany(...a),
+      findFirst: (...a: unknown[]) => paymentFindFirst(...a),
     },
     cashDrawerSession: {
       findFirst: (...a: unknown[]) => drawerFindFirst(...a),
@@ -80,6 +85,9 @@ beforeEach(() => {
   orderUpdate.mockResolvedValue({});
   paymentCreateMany.mockResolvedValue({ count: 1 });
   paymentUpdateMany.mockResolvedValue({ count: 1 });
+  // Default: the row-lock query is a no-op and no prior reversal exists.
+  queryRaw.mockResolvedValue([]);
+  paymentFindFirst.mockResolvedValue(null);
   // Default: a drawer IS open, so cash refunds/voids are allowed to proceed.
   drawerFindFirst.mockResolvedValue({ id: "drawer_1" });
 });
@@ -334,5 +342,70 @@ describe("cash-drawer guard on cash refunds/voids", () => {
       manualRefundRequired: true,
     });
     expect(drawerFindFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe("refund/void idempotency (clientUuid)", () => {
+  const KEY = "11111111-1111-1111-1111-111111111111";
+
+  it("takes a FOR UPDATE row lock on the order before reading it", async () => {
+    orderFindFirst.mockResolvedValue(order("PAID", [{ id: "p1", method: "CASH", amountCents: 1000 }]));
+    await refundOrder({ businessId: BUSINESS_ID, orderId: ORDER_ID, clientUuid: KEY });
+    expect(queryRaw).toHaveBeenCalled();
+  });
+
+  it("stamps the clientUuid tag onto the reversing payments", async () => {
+    orderFindFirst.mockResolvedValue(order("PAID", [{ id: "p1", method: "CASH", amountCents: 1000 }]));
+    await refundOrder({ businessId: BUSINESS_ID, orderId: ORDER_ID, amountCents: 300, clientUuid: KEY });
+    expect(createdReversals()[0]).toMatchObject({ processorRef: `refund:${KEY}` });
+  });
+
+  it("looks up a prior reversal scoped by businessId + orderId + the tag", async () => {
+    orderFindFirst.mockResolvedValue(order("PAID", [{ id: "p1", method: "CASH", amountCents: 1000 }]));
+    await refundOrder({ businessId: BUSINESS_ID, orderId: ORDER_ID, clientUuid: KEY });
+    expect(paymentFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          businessId: BUSINESS_ID,
+          orderId: ORDER_ID,
+          processorRef: `refund:${KEY}`,
+        }),
+      }),
+    );
+  });
+
+  it("makes a repeated PARTIAL refund a no-op (the double-tap the status guard misses)", async () => {
+    orderFindFirst.mockResolvedValue(
+      order("PARTIALLY_REFUNDED", [
+        { id: "p1", method: "CASH", amountCents: 1000 },
+        { id: "p2", method: "CASH", amountCents: -300 },
+      ]),
+    );
+    paymentFindFirst.mockResolvedValue({ id: "prev_reversal" }); // this exact request already applied
+    const res = await refundOrder({ businessId: BUSINESS_ID, orderId: ORDER_ID, amountCents: 300, clientUuid: KEY });
+    expect(res).toEqual({
+      ok: true,
+      status: "PARTIALLY_REFUNDED",
+      reversedCents: 0,
+      cashRefundedCents: 0,
+      manualRefundCents: 0,
+      manualRefundRequired: false,
+    });
+    // Critically: no SECOND reversing payment is written.
+    expect(paymentCreateMany).not.toHaveBeenCalled();
+  });
+
+  it("makes a repeated void a no-op instead of writing a second reversal", async () => {
+    orderFindFirst.mockResolvedValue(order("VOIDED", []));
+    paymentFindFirst.mockResolvedValue({ id: "prev_reversal" });
+    const res = await voidOrder({ businessId: BUSINESS_ID, orderId: ORDER_ID, clientUuid: KEY });
+    expect(res).toMatchObject({ ok: true, status: "VOIDED", reversedCents: 0 });
+    expect(paymentCreateMany).not.toHaveBeenCalled();
+  });
+
+  it("without a clientUuid, no dedup lookup happens (back-compat)", async () => {
+    orderFindFirst.mockResolvedValue(order("PAID", [{ id: "p1", method: "CASH", amountCents: 1000 }]));
+    await refundOrder({ businessId: BUSINESS_ID, orderId: ORDER_ID });
+    expect(paymentFindFirst).not.toHaveBeenCalled();
   });
 });

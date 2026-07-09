@@ -230,11 +230,17 @@ export async function refundOrder(input: RefundOrderInput): Promise<RefundVoidRe
   const ctx = await requireCapability(data.businessId, "refund_void");
 
   return db.$transaction(async (tx) => {
+    await lockOrderRow(tx, ctx.businessId, data.orderId);
     const order = await tx.order.findFirst({
       where: { id: data.orderId, businessId: ctx.businessId },
       select: { id: true, status: true, payments: { select: { id: true, method: true, amountCents: true } } },
     });
     if (!order) return { ok: false, reason: "order_not_found" };
+    // Idempotent replay of the same keyed request → apply nothing again. This is
+    // the guard that makes a double-tapped or re-sent PARTIAL refund safe: the
+    // SETTLED check below only rejects a second FULL refund, never a repeated partial.
+    const replay = await priorReversalResult(tx, ctx.businessId, order.id, order.status, data.clientUuid);
+    if (replay) return replay;
     // A fully REFUNDED or VOIDED order has nothing left to give back.
     if (SETTLED.has(order.status)) return { ok: false, reason: "already_settled" };
 
@@ -250,7 +256,7 @@ export async function refundOrder(input: RefundOrderInput): Promise<RefundVoidRe
       if (reversals.length === 0) return { ok: false, reason: "nothing_collected" };
       const reversedCents = -reversals.reduce((s, r) => s + r.amountCents, 0);
       await assertOpenDrawerForCash(tx, ctx.businessId, reversals);
-      await applyReversal(tx, ctx.businessId, order.id, order.payments, reversals, "REFUNDED");
+      await applyReversal(tx, ctx.businessId, order.id, order.payments, reversals, "REFUNDED", refTag(data.clientUuid));
       revalidatePaths(ctx.businessId, order.id);
       return { ok: true, status: "REFUNDED", reversedCents, ...classifyRefund(reversals) };
     }
@@ -279,6 +285,7 @@ export async function refundOrder(input: RefundOrderInput): Promise<RefundVoidRe
       nextStatus === "REFUNDED" ? order.payments : [],
       plan.reversals,
       nextStatus,
+      refTag(data.clientUuid),
     );
     revalidatePaths(ctx.businessId, order.id);
     return { ok: true, status: nextStatus, reversedCents, ...classifyRefund(plan.reversals) };

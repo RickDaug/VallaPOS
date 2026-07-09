@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Undo2, Ban } from "lucide-react";
 import type { OrderStatus } from "@prisma/client";
@@ -36,6 +36,10 @@ export function OrderActions({
   const [pending, setPending] = useState(false);
   const [partialOpen, setPartialOpen] = useState(false);
   const [partialAmount, setPartialAmount] = useState("");
+  // Synchronous re-entrancy guard: `disabled={pending}` only takes effect after a
+  // re-render, so a fast double-tap could fire two requests before then. This ref
+  // blocks the second one immediately.
+  const inFlight = useRef(false);
 
   // Nothing to do on a terminal order. PARTIALLY_REFUNDED can still be refunded
   // further (until the balance is exhausted) but can't be voided.
@@ -44,10 +48,15 @@ export function OrderActions({
 
   const money = (c: number) => formatMoney(c, currency);
 
-  async function run(action: () => Promise<RefundVoidResult>) {
+  async function run(action: (clientUuid: string) => Promise<RefundVoidResult>) {
+    if (inFlight.current) return; // ignore a re-tap while a refund/void is in flight
+    inFlight.current = true;
     setPending(true);
+    // One idempotency key per user action; the server applies it at most once even
+    // if this request is retried or somehow sent twice.
+    const clientUuid = crypto.randomUUID();
     try {
-      const res = await action();
+      const res = await action(clientUuid);
       toast(describeRefundVoidResult(res, money));
       if (res.ok) {
         setPartialOpen(false);
@@ -61,6 +70,7 @@ export function OrderActions({
         variant: "error",
       });
     } finally {
+      inFlight.current = false;
       setPending(false);
     }
   }
@@ -71,7 +81,7 @@ export function OrderActions({
       description: `This fully reverses the sale of ${money(totalCents)}. Cash reversals reduce the expected drawer total.`,
       confirmLabel: "Void order",
     });
-    if (ok) await run(() => voidOrder({ businessId, orderId }));
+    if (ok) await run((clientUuid) => voidOrder({ businessId, orderId, clientUuid }));
   }
 
   async function onFullRefund() {
@@ -80,7 +90,7 @@ export function OrderActions({
       description: `This reverses the full amount collected and marks the order refunded.`,
       confirmLabel: "Refund in full",
     });
-    if (ok) await run(() => refundOrder({ businessId, orderId }));
+    if (ok) await run((clientUuid) => refundOrder({ businessId, orderId, clientUuid }));
   }
 
   async function onPartialRefund() {
@@ -98,7 +108,7 @@ export function OrderActions({
       description: "This reverses the entered amount; the order stays partially refunded.",
       confirmLabel: `Refund ${money(cents)}`,
     });
-    if (ok) await run(() => refundOrder({ businessId, orderId, amountCents: cents }));
+    if (ok) await run((clientUuid) => refundOrder({ businessId, orderId, amountCents: cents, clientUuid }));
   }
 
   // Void is only meaningful on a clean PAID order.
