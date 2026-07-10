@@ -54,7 +54,14 @@ const optionalStripeWebhookSecret = z
   .catch(undefined);
 
 const schema = z.object({
+  // App runtime connection — use the POOLED Neon endpoint (pgbouncer=true).
   DATABASE_URL: z.string().url(),
+  // Direct (non-pooled) connection used ONLY by the Prisma CLI for migrations
+  // (schema.prisma `directUrl`). Not read by the client at runtime, so it is
+  // optional here — an unset value must never fail the boot/build on Vercel,
+  // where only the pooled DATABASE_URL is present. Required wherever `prisma
+  // migrate`/`db:seed` runs (local .env, CI).
+  DIRECT_URL: z.string().url().optional(),
   BETTER_AUTH_SECRET: z.string().min(16),
   BETTER_AUTH_URL: z.string().url(),
   NEXT_PUBLIC_APP_URL: z.string().url(),
