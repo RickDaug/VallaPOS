@@ -245,20 +245,32 @@ the swap happens where the local shell is built (Stage 5, edition-gated), avoidi
 risk on the live cloud write path now. The seam **contract** (this PR) is what Stage 3's
 `SqliteDataStore` implements.
 
-### Stage 3 — Local schema + SQLite store
+### Stage 3 — Local schema + SQLite store (hand-written SQL)
 
-- CREATE `prisma/schema.local.prisma` (or provider-swapped variant) — SQLite provider, cash
-  subset only: `Business` (settings row), `OrderCounter`, `Category`, `Item`, `Variation`,
-  `ModifierGroup`, `Modifier`, `ItemModifierGroup`, `Order`, `OrderLine`, `OrderLineModifier`,
-  `Payment` (CASH-only in code), `CashDrawerSession`, plus a new small `Operator`
-  (id, name, `pinHash`, active) replacing `User`/`Membership`. Drop `User`/`Session`/`Account`/
-  `Verification`/`Membership`/`TimeEntry`, all Stripe/QR fields, and `FloorRoom`/`FloorTable`/
-  `OrderTable`. Remove `Membership.permissions String[]` (no SQLite scalar lists).
-- CREATE `src/lib/data-store/sqlite-store.ts` — `SqliteDataStore implements DataStore` over
-  `@tauri-apps/plugin-sql`; ~20 hand-written SQL statements, `commitSale` under `BEGIN IMMEDIATE`.
-- CREATE migration `.sql` files shipped with the app; seed one `Business` + one `Operator` at
-  first run and pin the `businessId` constant.
-- MODIFY `src/lib/data-store/index.ts` — return `SqliteDataStore` when `isLocal`.
+**Stage 3a — schema + driver port + flagship read (SHIPPED, PR `feat/editions-sqlite-store`).**
+Additive/inert (nothing constructs the store yet — it needs the Tauri driver, Stage 5). tsc +
+lint clean; 808 tests green (+3), real SQLite exercised via `node:sqlite` (zero new deps).
+- CREATE `src/lib/data-store/sqlite/schema.ts` — `SCHEMA_SQL`: the cash subset as SQLite DDL
+  (`business` settings row, a new tiny `operator` table replacing User/Membership,
+  `order_counter`, catalog tables, `"order"`/`order_line`/`order_line_modifier`/`payment`,
+  `cash_drawer_session`). Money = INTEGER cents, tax = INTEGER bps; enums→TEXT, bools→0/1,
+  timestamps→ISO TEXT. Dropped: Better Auth tables, Membership/TimeEntry, Stripe/QR fields,
+  floor/tabs, and `Membership.permissions String[]` (no SQLite scalar lists).
+- CREATE `src/lib/data-store/sqlite/driver.ts` — the `SqlDriver` port (`select`/`execute`),
+  which `@tauri-apps/plugin-sql`'s `Database` already matches. Keeps `SqliteDataStore` driver-
+  agnostic → unit-testable now, Tauri-wired later.
+- CREATE `src/lib/data-store/sqlite/sqlite-store.ts` — `SqliteDataStore implements DataStore`:
+  `migrate()` + a real `getRegisterCatalog` (hand-written SQL → the exact `SellableEntry[]`
+  shape the cloud query returns). Remaining methods are typed `notYet()` stubs (fail loudly).
+- CREATE `src/lib/data-store/sqlite/sqlite-store.test.ts` — a `node:sqlite`-backed test driver;
+  seeds a catalog and asserts shape/sort/scoping against real SQL.
+
+**Stage 3b — the rest of the store.** Implement the remaining reads (`getManagedCatalog`, orders,
+reports, drawer reads) and the writes — `checkout` (allocate order number + insert
+Order/OrderLine[]/OrderLineModifier[]/Payment under `BEGIN IMMEDIATE`), `openDrawer`/`closeDrawer`
+— plus the local operator/PIN reads and a first-run seed (one `business` + `operator`, pinned
+`businessId`). `index.ts` starts returning `SqliteDataStore` when `isLocal` **once the Tauri
+driver exists (Stage 5)** — it can't be constructed before then.
 
 ### Stage 4 — Local auth + env branch
 
