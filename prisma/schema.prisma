@@ -14,7 +14,15 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  // App runtime uses the POOLED Neon endpoint (host contains "-pooler",
+  // query has pgbouncer=true) so serverless functions share a small pool of
+  // Postgres connections via PgBouncer instead of each holding direct ones.
+  url = env("DATABASE_URL")
+  // The Prisma CLI (migrate/db/introspect) needs a DIRECT, non-pooled
+  // connection — PgBouncer's transaction pooling can't run DDL/advisory-lock
+  // migrations. Only evaluated by CLI commands, never by the client at runtime,
+  // so it need not be present in the Vercel runtime (see src/lib/env.ts).
+  directUrl = env("DIRECT_URL")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
