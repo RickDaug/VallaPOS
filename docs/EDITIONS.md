@@ -299,17 +299,34 @@ active-operator context is wired at the local shell auth boundary (Stage 4/5, PI
 starts returning `SqliteDataStore` when `isLocal` **once the Tauri driver exists (Stage 5)** — it
 can't be constructed before then.
 
-### Stage 4 — Local auth + env branch
+### Stage 4 — Local auth + env branch (SHIPPED, PR `feat/editions-local-auth-env`)
 
-- MODIFY `src/lib/env.ts` — branch schema on `isLocal`: `DATABASE_URL` becomes a SQLite path,
-  `BETTER_AUTH_*`/Upstash optional, skip the production Upstash fail-fast block when local.
-- MODIFY `src/lib/tenant.ts` — when `authMode === "pin-only"`, `requireSession`/
-  `requireMembership` return the single fixed local `TenantContext` without calling
-  `auth.api.getSession`.
-- MODIFY `src/lib/operator.ts` — source the HMAC secret from the local device secret when local.
-- REUSE `src/features/employees/pin.ts` (scrypt) verbatim for `verifyOperatorPin`.
-- Ensure `src/lib/auth.ts`, `src/lib/auth-client.ts`, `src/lib/redis.ts`, and `/api/auth/*` do
-  not load in the local build.
+Runtime edition-branch of the auth/env seam. All gated on `isLocal` (default cloud), so the cloud
+build is byte-for-byte unchanged; 837 tests green, tsc + lint clean.
+
+- **`src/lib/edition.ts`** — added the fixed single-tenant identifiers `LOCAL_BUSINESS_ID` (`"local"`)
+  and `LOCAL_USER_ID` (`"local-user"`) as plain constants (a tiny pure module both the SQLite store
+  and `tenant.ts` share without heavy deps). `sqlite-store.ts` now re-exports `LOCAL_BUSINESS_ID`
+  from here (single source of truth).
+- **`src/lib/env.ts`** — schema branches on `isLocal`: the cloud-required vars (`DATABASE_URL`,
+  `BETTER_AUTH_SECRET`/`BETTER_AUTH_URL`, `NEXT_PUBLIC_APP_URL`) collapse to harmless `.default()`
+  placeholders in local (so a machine that never set them boots) while their inferred TYPE stays
+  `string` — the cloud consumers (`auth.ts` etc.) compile + behave identically. Added the optional
+  `VALLA_LOCAL_DEVICE_SECRET` (local operator-PIN HMAC). The production Upstash fail-fast is gated
+  `!isLocal` (a cloud/serverless brute-force concern that must never trip the desktop app).
+- **`src/lib/tenant.ts`** — when `authMode === "pin-only"`, `requireMembership`/`requireSession`
+  return the fixed single-operator OWNER `TenantContext` (scoped to the caller's `businessId`)
+  WITHOUT calling `auth`/`db` (proven by tests that stub both to throw). Cloud path unchanged.
+- **`src/lib/operator.ts`** — the cookie-HMAC key comes from `VALLA_LOCAL_DEVICE_SECRET` (dev
+  fallback) in local, `BETTER_AUTH_SECRET` in cloud.
+- `src/features/employees/pin.ts` (scrypt) is already reused verbatim by the store's
+  `verifyOperatorPin` (Stage 3c).
+
+**Deferred to Stage 5 (bundling, not runtime):** tree-shaking `auth.ts`/`auth-client.ts`/`redis.ts`
+and `/api/auth/*` OUT of the local build — that needs the `output: 'export'` + edition-gated
+(dynamic) imports machinery Stage 5 builds. Here those modules simply aren't *called* when local.
+The client-side operator PIN lock (the local shell can't use `next/headers` cookies) is likewise a
+Stage 5 concern; `operator.ts`'s edition-aware secret is the defensive groundwork.
 
 ### Stage 5 — Tauri shell + native printer transport
 

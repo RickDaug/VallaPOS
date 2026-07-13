@@ -130,6 +130,36 @@ describe("env — production fails fast on a broken security config (audit R4 #4
   });
 });
 
+describe("env — local edition boots without cloud config (docs/EDITIONS.md §4)", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("uses placeholder defaults when Neon / Better Auth vars are absent", async () => {
+    // beforeEach already deleted every cloud-required var; only flip the edition.
+    vi.stubEnv("NEXT_PUBLIC_VALLA_EDITION", "local");
+    const env = await loadEnv();
+    expect(env.DATABASE_URL).toBe("file:vallapos.db");
+    expect(env.BETTER_AUTH_SECRET).toBe("local-edition-better-auth-secret-unused");
+    expect(env.BETTER_AUTH_URL).toBe("http://localhost");
+    expect(env.NEXT_PUBLIC_APP_URL).toBe("http://localhost");
+  });
+
+  it("does NOT fail-fast on missing Upstash in production (cloud-only concern)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_VALLA_EDITION", "local");
+    vi.stubEnv("NODE_ENV", "production");
+    const env = await loadEnv(); // must not throw
+    expect(env.UPSTASH_REDIS_REST_URL).toBeUndefined();
+  });
+
+  it("accepts the on-device operator secret when provided", async () => {
+    vi.stubEnv("NEXT_PUBLIC_VALLA_EDITION", "local");
+    vi.stubEnv("VALLA_LOCAL_DEVICE_SECRET", "device-secret-abcdef0123");
+    const env = await loadEnv();
+    expect(env.VALLA_LOCAL_DEVICE_SECRET).toBe("device-secret-abcdef0123");
+  });
+});
+
 describe("env — Stripe key shape validation (audit R4 #4)", () => {
   it("keeps well-formed Stripe keys", async () => {
     Object.assign(process.env, VALID_REQUIRED, {

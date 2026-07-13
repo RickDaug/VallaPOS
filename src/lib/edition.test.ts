@@ -47,7 +47,17 @@ describe("edition switch", () => {
     expect(e.isMultiTenant).toBe(false);
     expect(e.paymentsEnabled).toBe(false);
     expect(e.peripheralsEnabled).toBe(true);
-    expect(e.usesCloudSession).toBe(false);
+    expect(e.usesCloudSession).toBe(false); // usesCloudSession = isCloud
     expect(e.requiresLicenseKey).toBe(true);
+  });
+
+  it("exposes the fixed single-tenant local identifiers (edition-independent)", async () => {
+    const cloud = await loadEdition();
+    const local = await loadEdition("local");
+    // These are plain constants — the same in both builds; local just collapses to them.
+    expect(cloud.LOCAL_BUSINESS_ID).toBe("local");
+    expect(cloud.LOCAL_USER_ID).toBe("local-user");
+    expect(local.LOCAL_BUSINESS_ID).toBe("local");
+    expect(local.LOCAL_USER_ID).toBe("local-user");
   });
 });

@@ -4,6 +4,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
+import { isLocal } from "@/lib/edition";
 
 /**
  * The "active operator" on a shared device. The device holds an owner/manager
@@ -19,6 +20,21 @@ import { env } from "@/lib/env";
  */
 
 const TTL_MS = 30 * 60 * 1000; // hard cap; the UI also re-locks after each sale + idle
+
+// Dev fallback for the LOCAL edition's operator-HMAC secret when the desktop shell
+// hasn't injected a per-install one yet (Stage 5). ≥16 chars; never used in cloud.
+const LOCAL_DEV_OPERATOR_SECRET = "vallapos-local-operator-dev-secret";
+
+/**
+ * HMAC key for the operator cookie. Cloud signs with `BETTER_AUTH_SECRET`; the
+ * LOCAL edition has no Better Auth, so it uses the on-device
+ * `VALLA_LOCAL_DEVICE_SECRET` (generated per-install by the Tauri shell, Stage 5),
+ * falling back to a dev constant when unset. The cloud path is unchanged.
+ */
+function operatorSecret(): string {
+  if (isLocal) return env.VALLA_LOCAL_DEVICE_SECRET ?? LOCAL_DEV_OPERATOR_SECRET;
+  return env.BETTER_AUTH_SECRET;
+}
 
 export interface ActiveOperator {
   membershipId: string;
@@ -36,7 +52,7 @@ function b64url(buf: Buffer): string {
 }
 
 function sign(payloadB64: string): string {
-  return b64url(createHmac("sha256", env.BETTER_AUTH_SECRET).update(payloadB64).digest());
+  return b64url(createHmac("sha256", operatorSecret()).update(payloadB64).digest());
 }
 
 function makeToken(membershipId: string, exp: number): string {

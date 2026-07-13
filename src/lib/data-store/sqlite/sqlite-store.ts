@@ -39,6 +39,7 @@ import {
 } from "@/features/register/pricing";
 import { reconcile } from "@/features/cash-drawer/reconcile";
 import { hashPin, verifyPin } from "@/features/employees/pin";
+import { LOCAL_BUSINESS_ID } from "@/lib/edition";
 import type { ItemType, OrderStatus, PaymentMethod } from "@prisma/client";
 import type { DataStore } from "../types";
 import type { SqlDriver } from "./driver";
@@ -46,13 +47,10 @@ import { SCHEMA_SQL } from "./schema";
 
 const UNCATEGORIZED = "Uncategorized";
 
-/**
- * The single-tenant business id every local install collapses to (docs/EDITIONS.md
- * §2/§5). The offline edition has exactly one business, so `businessId` stays in
- * every seam signature (cloud unchanged, tenant CI guard intact) but resolves to
- * this fixed constant on the desktop app.
- */
-export const LOCAL_BUSINESS_ID = "local";
+// The single-tenant business id every local install collapses to lives in the
+// pure `edition.ts` module (shared with `tenant.ts`); re-exported here so the
+// store's callers keep a single import site.
+export { LOCAL_BUSINESS_ID };
 
 /** A local operator (cloud: backed by Membership; local: the `operator` table). */
 export interface OperatorRow {
