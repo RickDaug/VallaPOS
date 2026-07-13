@@ -227,13 +227,23 @@ consumes it yet, so cloud behavior is unchanged. `npm run typecheck` clean; 805 
 - CREATE `src/lib/data-store/index.ts` — composition root `getDataStore()` (single cloud impl
   for now; Stage 3 branches on `isLocal`).
 
-**Stage 2b — WRITE path (next).** Extend `DataStore` with the atomic commit + drawer writes,
-sourcing the existing action input/result types: `checkout(input: CheckoutInput)` (the
-allocate-number-and-insert commit — keep atomic), `openDrawer(input: OpenDrawerInput)`,
-`closeDrawer(input: CloseDrawerInput)`, plus the local operator/PIN reads. Then MODIFY the
-cash-path callers (`src/lib/offline/use-offline-checkout.ts` and the register/drawer/report
-pages) to route through `getDataStore()` instead of importing the action/`db` directly. Verify
-the full cloud register/drawer/report flow is unchanged.
+**Stage 2b — WRITE path (SHIPPED, PR `feat/editions-datastore-writes`).** Additive; still
+inert. `npm run typecheck` clean; 805 tests green.
+- EXTEND `DataStore` + `prismaDataStore` with the write path, mirroring the real signatures:
+  `checkout(input: CheckoutInput): CheckoutResult` (the atomic allocate-number-and-insert
+  commit — `CheckoutInput`/`CheckoutResult` from `register/schema.ts`), and
+  `openDrawer(input: OpenDrawerInput)` / `closeDrawer(input: CloseDrawerInput)` (inputs from
+  `cash-drawer/schema.ts`, results from `cash-drawer/actions.ts`). Local operator/PIN reads
+  land with Stage 3.
+
+**Caller-rewiring is deliberately deferred to Stage 5, not done here.** Reason: the write
+boundary (`checkout`, `openDrawer`, `closeDrawer`) is a **server action invoked from the
+client**, so "route callers through `getDataStore()`" is not a cloud refactor — it's an
+edition-build concern. In the cloud build the server action already *is* the seam boundary; in
+the local build (static export, no server) that same call must resolve to a local function. So
+the swap happens where the local shell is built (Stage 5, edition-gated), avoiding churn +
+risk on the live cloud write path now. The seam **contract** (this PR) is what Stage 3's
+`SqliteDataStore` implements.
 
 ### Stage 3 — Local schema + SQLite store
 

@@ -14,15 +14,19 @@
  * fixed single-tenant constant, which keeps the cloud impl and the tenant CI
  * guard unchanged.
  *
- * SCOPE: this is the READ seam (Stage 2a). The write path — `checkout` (the
- * atomic commit), `openDrawer`/`closeDrawer`, and the local operator/PIN methods
- * — extends this interface in the next slice (Stage 2b), so the shape here is
- * intentionally partial.
+ * SCOPE: reads + the write path (`checkout` and drawer open/close). The local
+ * operator/PIN methods arrive with the local edition (Stage 3). Note that callers
+ * still import the query fns / server actions directly today — routing them
+ * through `getDataStore()` is an edition-build concern (Stage 5), because the
+ * write boundary is a server action invoked from the client, not a plain call.
  */
 import type { SellableEntry, ManagedCatalog } from "@/features/catalog/queries";
 import type { OrderRow, DailyReport, OrderReceipt } from "@/features/orders/queries";
 import type { ItemSalesReport, CashierSalesRow } from "@/features/orders/report-aggregate";
 import type { DrawerSessionRow, DrawerDaySummary } from "@/features/cash-drawer/queries";
+import type { CheckoutInput, CheckoutResult } from "@/features/register/schema";
+import type { OpenDrawerInput, CloseDrawerInput } from "@/features/cash-drawer/schema";
+import type { OpenDrawerResult, CloseDrawerResult } from "@/features/cash-drawer/actions";
 
 export interface DataStore {
   // ── Catalog (read) — src/features/catalog/queries.ts ──
@@ -44,6 +48,15 @@ export interface DataStore {
   getCashCollectedSince(businessId: string, openedAt: Date, end?: Date): Promise<number>;
   getDrawerDaySummary(businessId: string, start: Date, end: Date): Promise<DrawerDaySummary>;
 
-  // ── Write path (checkout/commit, drawer open/close) + local operator PIN ──
-  //    lands in Stage 2b; see docs/EDITIONS.md §2.
+  // ── Write path (server-authoritative) ──
+  // `checkout` is the atomic allocate-order-number-and-insert commit — the
+  // OrderCounter upsert lives inside its `$transaction` (the order-number-race
+  // fix depends on it). Cloud: the existing server action. Local (Stage 3): a
+  // local fn doing the same under SQLite `BEGIN IMMEDIATE`.
+  checkout(input: CheckoutInput): Promise<CheckoutResult>;
+  openDrawer(input: OpenDrawerInput): Promise<OpenDrawerResult>;
+  closeDrawer(input: CloseDrawerInput): Promise<CloseDrawerResult>;
+
+  // Local operator/PIN reads (cloud: Membership; local: Operator table) arrive
+  // with the local edition in Stage 3.
 }
