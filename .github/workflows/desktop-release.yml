@@ -1,0 +1,76 @@
+name: Desktop Release
+
+# Builds the OFFLINE desktop edition (Tauri) for Windows + macOS and drafts a
+# GitHub Release with the installers. See docs/RELEASING.md.
+#
+# INDEPENDENT of the `quality` CI that gates PRs: this NEVER runs on pull_request,
+# so it cannot block a merge. It fires on a version tag or a manual dispatch.
+#
+# ⚠ Prerequisites (Stage 5b/6b/7 — see docs/RELEASING.md before the first real run):
+#   - The static-export local build must succeed (`npm run build:local` → `out/`),
+#     which needs the cash-path page shells converted to client-fetch.
+#   - Add the JS deps + `@tauri-apps/cli`, and generate `src-tauri/icons/`.
+#   - Set the code-signing secrets below in the repo's Actions secrets.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            args: ""
+            rust-targets: ""
+          - platform: macos-latest # Apple Silicon
+            args: "--target aarch64-apple-darwin"
+            rust-targets: "aarch64-apple-darwin"
+          - platform: macos-13 # Intel
+            args: "--target x86_64-apple-darwin"
+            rust-targets: "x86_64-apple-darwin"
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - name: Cargo cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - run: npm ci
+
+      - name: Build + bundle the desktop app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          # The edition switch — build the LOCAL (offline) frontend static export.
+          NEXT_PUBLIC_VALLA_EDITION: local
+          # macOS signing + notarization (set in Actions secrets — docs/RELEASING.md).
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          args: ${{ matrix.args }}
+          # On a tag push, publish to a DRAFT release for review before going live.
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: "VallaPOS Desktop ${{ github.ref_name }}"
+          releaseDraft: true
+          prerelease: false
