@@ -47,3 +47,14 @@ export const usesCloudSession = isCloud;
 
 /** Local is unlocked by a one-time signed license key, not a subscription. */
 export const requiresLicenseKey = isLocal;
+
+/**
+ * The single-tenant identifiers the LOCAL edition collapses to (docs/EDITIONS.md
+ * §2/§5). `businessId` stays in every DataStore/tenant signature — in local it
+ * resolves to `LOCAL_BUSINESS_ID`, so the cloud impls and the tenant CI guard are
+ * unchanged. `LOCAL_USER_ID` stands in for the (absent) Better Auth user on the
+ * PIN-only tenant context. Defined here (a tiny pure module) so both the SQLite
+ * store and `tenant.ts` can share them without pulling in heavy dependencies.
+ */
+export const LOCAL_BUSINESS_ID = "local";
+export const LOCAL_USER_ID = "local-user";

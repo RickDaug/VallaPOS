@@ -1,9 +1,25 @@
 import { z } from "zod";
+import { isLocal } from "@/lib/edition";
 
 /**
  * Validated environment. Fails fast at startup if anything is missing or
  * malformed, so we never half-boot a POS with a broken DB or auth config.
+ *
+ * EDITION BRANCH (docs/EDITIONS.md §4): the CLOUD-only vars (Neon `DATABASE_URL`,
+ * Better Auth secret/URL, the app URL) are REQUIRED in the cloud build but not in
+ * the LOCAL (offline desktop) build — it has no Neon, no Better Auth, and no
+ * hosted origin. In the local branch each collapses to a harmless `.default()`
+ * placeholder so (a) the app boots on a machine that never set them and (b) the
+ * inferred `env` TYPE stays `string` for every field — so the cloud consumers
+ * (`auth.ts`, `tenant.ts`, …) compile and behave BYTE-FOR-BYTE unchanged. When
+ * `isLocal` is false (the default) the schema is exactly the strict cloud one.
  */
+
+/** In the cloud build require `strict`; in the local build accept anything and
+ *  fall back to `placeholder` (keeps the field's inferred type = `string`). */
+function cloudRequired(strict: z.ZodType<string>, placeholder: string) {
+  return isLocal ? z.string().default(placeholder) : strict;
+}
 // Optional enhancement vars: a misconfigured value must DEGRADE (auth falls back
 // to per-instance in-memory rate limiting), never crash the whole app at boot.
 // `.catch(undefined)` maps any invalid/blank value (e.g. an empty or malformed
@@ -55,16 +71,27 @@ const optionalStripeWebhookSecret = z
 
 const schema = z.object({
   // App runtime connection — use the POOLED Neon endpoint (pgbouncer=true).
-  DATABASE_URL: z.string().url(),
+  // Cloud-required; in the local build it's a SQLite path the Tauri shell owns,
+  // so it degrades to a placeholder here.
+  DATABASE_URL: cloudRequired(z.string().url(), "file:vallapos.db"),
   // Direct (non-pooled) connection used ONLY by the Prisma CLI for migrations
   // (schema.prisma `directUrl`). Not read by the client at runtime, so it is
   // optional here — an unset value must never fail the boot/build on Vercel,
   // where only the pooled DATABASE_URL is present. Required wherever `prisma
   // migrate`/`db:seed` runs (local .env, CI).
   DIRECT_URL: z.string().url().optional(),
-  BETTER_AUTH_SECRET: z.string().min(16),
-  BETTER_AUTH_URL: z.string().url(),
-  NEXT_PUBLIC_APP_URL: z.string().url(),
+  // Better Auth secret/URL + the hosted app URL: cloud-required, but the local
+  // edition has no Better Auth and no hosted origin, so they degrade to unused
+  // placeholders there. The local operator-PIN HMAC uses VALLA_LOCAL_DEVICE_SECRET
+  // (below) instead of BETTER_AUTH_SECRET (see src/lib/operator.ts).
+  BETTER_AUTH_SECRET: cloudRequired(z.string().min(16), "local-edition-better-auth-secret-unused"),
+  BETTER_AUTH_URL: cloudRequired(z.string().url(), "http://localhost"),
+  NEXT_PUBLIC_APP_URL: cloudRequired(z.string().url(), "http://localhost"),
+  // LOCAL edition only: the on-device secret for the operator-PIN cookie HMAC
+  // (there is no BETTER_AUTH_SECRET in local). Optional — the desktop shell
+  // generates + injects a per-install secret (Stage 5); unset falls back to a
+  // dev default in operator.ts. Ignored by the cloud build.
+  VALLA_LOCAL_DEVICE_SECRET: z.string().min(16).optional(),
   // Optional: Upstash Redis for Better Auth's shared rate-limit/session store.
   // When BOTH are set (and valid), auth uses Redis (persistent + shared across
   // Vercel instances); when unset or invalid, auth falls back to per-instance
@@ -95,7 +122,11 @@ if (!parsed.success) {
 
 export const env = parsed.data;
 
-const isProduction = process.env.NODE_ENV === "production";
+// The Upstash brute-force-lockout guard below is a CLOUD/serverless concern (the
+// hosted app's per-instance in-memory fallback resets on cold starts). The local
+// desktop edition has no Better Auth, no serverless fan-out, and no Upstash, so
+// it must never trip the production fail-fast. Gate the whole block on !isLocal.
+const isProduction = process.env.NODE_ENV === "production" && !isLocal;
 
 /** True when a var was provided in the environment but our schema dropped it to
  * undefined (blank/malformed/wrong-shape) — i.e. a misconfiguration, not an
