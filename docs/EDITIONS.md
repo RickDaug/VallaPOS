@@ -371,13 +371,34 @@ be done/verified on a machine with Rust + Tauri (and are cloud-render-risky, so 
 
 ### Stage 6 — License gate + issuance
 
-- CREATE `src-tauri/src/license.rs` — Ed25519 `verify_license` at boot; gate SQLite open on it.
-- CREATE license entry screen (blocks before the PIN lock) + `$APPCONFIG/license.vlk` load.
-- CREATE vallahub.com issuance: `LICENSE_SIGNING_SK` env, Stripe one-time Checkout + webhook
-  fulfillment (reuse `app/api/payments/webhook` pattern), `License` DB row, Resend delivery,
-  signed blocklist build.
-- MODIFY `app/(app)/layout.tsx` — local branch replaces the `getSession`→`/sign-in` redirect
-  with the license gate, then falls through to the operator PIN lock.
+**Stage 6a — license format + verifier core (SHIPPED, PR `feat/editions-license-core`).** The
+shared, fully-tested Ed25519 license format + the Rust gate scaffold. Additive; cloud unchanged.
+- `src/lib/license/license.ts` — the wire format (`"VLK1" ‖ version ‖ len ‖ payload ‖ sig(64)`,
+  Crockford-Base32), canonical claims encode/decode, `packLicense`/`unpackLicense`, and
+  crypto-INJECTED `signLicense`/`verifyLicense` (structure → signature → claims → version → expiry
+  → revocation, signature checked before the payload is trusted). Payload is canonical JSON (not
+  CBOR) so BOTH the TS signer and the Rust `serde_json` verifier parse identical bytes with no CBOR
+  dep. Perpetual (`ex:null`) + reserved-off device binding (`dev:null`) per §3.
+- `src/lib/license/webcrypto.ts` — WebCrypto Ed25519 injectors: `webcryptoEd25519Verifier`
+  (32-byte raw public key, webview UX gate) + `webcryptoEd25519Signer` / `importEd25519PrivateKey`
+  (vallahub signer). 13 tests: base32 round-trip, pack/unpack, sign→verify, wrong-key/tamper →
+  `bad_signature`, expiry, revocation.
+- `src-tauri/src/license.rs` — `verify_license` via `ed25519-dalek` `verify_strict` (the REAL trust
+  anchor — the JS verify is UX only), byte-compatible with the TS format; wired as the
+  `check_license` Tauri command. `ed25519-dalek = "2"` added to `Cargo.toml`. Embedded `PUBLIC_KEY`
+  is a zero placeholder to replace before shipping. **Not `cargo build`-verified.**
+
+**Stage 6b — the gate wiring + issuance (DEFERRED, needs the running local app + the vallahub
+site).**
+- Gate the SQLite open on `check_license`; a license entry screen before the PIN lock;
+  `$APPCONFIG/license.vlk` load/store; the signed embedded revocation blocklist.
+- `app/(app)/layout.tsx` local branch: replace the `getSession`→`/sign-in` redirect with the
+  license gate → operator PIN lock (gated on `isLocal`).
+- **vallahub.com issuance** (separate site): a `LICENSE_SIGNING_SK` (zod-validated, PKCS#8) →
+  `importEd25519PrivateKey` → `signLicense`, driven by a one-time Stripe Checkout →
+  `checkout.session.completed` webhook (reuse the `app/api/payments/webhook` pattern) → `License`
+  DB row keyed on `session.id` → Resend delivery + success-page download. The shared
+  `src/lib/license/` module above is exactly what the signer calls.
 
 ### Stage 7 — Packaging + signing + release
 

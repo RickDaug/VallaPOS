@@ -13,6 +13,8 @@
 //!      printers the browser can't. Only the transport is native; the byte
 //!      formatter is unchanged.
 
+mod license;
+
 use serde::Deserialize;
 use std::io::Write;
 use std::net::TcpStream;
@@ -74,14 +76,31 @@ fn open_drawer(target: PrintTarget, pin: Option<u8>) -> Result<(), String> {
     print_raw(target, bytes)
 }
 
-/// Build + run the Tauri app: register the SQLite + store plugins and the two
-/// native commands, then hand control to the webview.
+/// Verify a license blob against the embedded Ed25519 public key. Returns the SKU
+/// on success (enough for the webview to render a friendly licensed state) or a
+/// short error code the UI maps to a message. This command is the boot gate hook;
+/// Stage 6b gates the SQLite open + license entry screen on it. `revoked` is the
+/// signed embedded blocklist (empty for now).
+#[tauri::command]
+fn check_license(blob: String, now_ms: u64) -> Result<String, String> {
+    match license::verify_license(&blob, now_ms, &[]) {
+        Ok(claims) => Ok(claims.sku),
+        Err(license::LicenseError::BadSignature) => Err("bad_signature".into()),
+        Err(license::LicenseError::Expired) => Err("expired".into()),
+        Err(license::LicenseError::Revoked) => Err("revoked".into()),
+        Err(license::LicenseError::UnsupportedVersion) => Err("unsupported_version".into()),
+        Err(license::LicenseError::Malformed) => Err("malformed".into()),
+    }
+}
+
+/// Build + run the Tauri app: register the SQLite + store plugins and the native
+/// commands, then hand control to the webview.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![print_raw, open_drawer])
+        .invoke_handler(tauri::generate_handler![print_raw, open_drawer, check_license])
         .run(tauri::generate_context!())
         .expect("error while running the VallaPOS desktop app");
 }
