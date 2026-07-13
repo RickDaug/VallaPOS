@@ -25,8 +25,8 @@ CREATE TABLE IF NOT EXISTS business (
   currency           TEXT NOT NULL DEFAULT 'USD',
   timezone           TEXT NOT NULL DEFAULT 'America/New_York',
   singleOperatorMode INTEGER NOT NULL DEFAULT 0,
-  createdAt          TEXT NOT NULL DEFAULT (datetime('now')),
-  updatedAt          TEXT NOT NULL DEFAULT (datetime('now'))
+  createdAt          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  updatedAt          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
 CREATE TABLE IF NOT EXISTS operator (
@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS operator (
   name       TEXT NOT NULL,
   pinHash    TEXT,
   active     INTEGER NOT NULL DEFAULT 1,
-  createdAt  TEXT NOT NULL DEFAULT (datetime('now'))
+  createdAt  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
 CREATE TABLE IF NOT EXISTS order_counter (
@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS category (
   businessId TEXT NOT NULL REFERENCES business(id) ON DELETE CASCADE,
   name       TEXT NOT NULL,
   sortOrder  INTEGER NOT NULL DEFAULT 0,
-  createdAt  TEXT NOT NULL DEFAULT (datetime('now'))
+  createdAt  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 CREATE INDEX IF NOT EXISTS idx_category_business ON category(businessId);
 
@@ -60,8 +60,8 @@ CREATE TABLE IF NOT EXISTS item (
   type       TEXT NOT NULL DEFAULT 'PRODUCT',
   trackStock INTEGER NOT NULL DEFAULT 0,
   active     INTEGER NOT NULL DEFAULT 1,
-  createdAt  TEXT NOT NULL DEFAULT (datetime('now')),
-  updatedAt  TEXT NOT NULL DEFAULT (datetime('now'))
+  createdAt  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  updatedAt  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 CREATE INDEX IF NOT EXISTS idx_item_business ON item(businessId);
 CREATE INDEX IF NOT EXISTS idx_item_category ON item(categoryId);
@@ -115,8 +115,8 @@ CREATE TABLE IF NOT EXISTS "order" (
   taxCents      INTEGER NOT NULL DEFAULT 0,
   tipCents      INTEGER NOT NULL DEFAULT 0,
   totalCents    INTEGER NOT NULL DEFAULT 0,
-  createdAt     TEXT NOT NULL DEFAULT (datetime('now')),
-  updatedAt     TEXT NOT NULL DEFAULT (datetime('now')),
+  createdAt     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  updatedAt     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   UNIQUE (businessId, clientUuid),
   UNIQUE (businessId, number)
 );
@@ -156,7 +156,7 @@ CREATE TABLE IF NOT EXISTS payment (
   cardBrand     TEXT,
   cardLast4     TEXT,
   processorRef  TEXT,
-  createdAt     TEXT NOT NULL DEFAULT (datetime('now'))
+  createdAt     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 CREATE INDEX IF NOT EXISTS idx_payment_order ON payment(orderId);
 CREATE INDEX IF NOT EXISTS idx_payment_business ON payment(businessId);
@@ -169,7 +169,7 @@ CREATE TABLE IF NOT EXISTS cash_drawer_session (
   expectedCents     INTEGER,
   countedCents      INTEGER,
   varianceCents     INTEGER,
-  openedAt          TEXT NOT NULL DEFAULT (datetime('now')),
+  openedAt          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   closedAt          TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_drawer_business ON cash_drawer_session(businessId);

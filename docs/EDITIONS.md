@@ -270,12 +270,34 @@ lint clean; 808 tests green (+3), real SQLite exercised via `node:sqlite` (zero 
 + business snapshot, strictly tenant-scoped) implemented against the SQLite schema and tested
 end-to-end (seed an order → read it back). tsc + lint clean; 812 tests green.
 
-**Stage 3c — the rest of the store.** Remaining reads (`getManagedCatalog`, the sales reports,
-the drawer reads) and the writes — `checkout` (allocate order number + insert
-Order/OrderLine[]/OrderLineModifier[]/Payment under `BEGIN IMMEDIATE`), `openDrawer`/`closeDrawer`
-— plus the local operator/PIN reads and a first-run seed (one `business` + `operator`, pinned
-`businessId`). `index.ts` starts returning `SqliteDataStore` when `isLocal` **once the Tauri
-driver exists (Stage 5)** — it can't be constructed before then.
+**Stage 3c — the rest of the store (SHIPPED, PR `feat/editions-sqlite-store-rest`).** Completes
+`SqliteDataStore`, all tested end-to-end via `node:sqlite` (zero new deps; 830 tests green, tsc +
+lint clean).
+- Reads: `getManagedCatalog` (categories + active/archived items + variations + modifier groups),
+  `getDailyReport` (Z-report — same reconciliation semantics as cloud: payment-time windows,
+  status-agnostic movements incl. negative refund reversals, proportional refund back-out, tender
+  verified/unverified classification), `getItemSalesReport`, `getCashierSalesReport`, and the four
+  drawer reads (`getOpenSession`, `listDrawerSessions`, `getCashCollectedSince`,
+  `getDrawerDaySummary`).
+- Writes: `checkout` — resolves lines against the local catalog, prices via the SHARED pure engine
+  (`computePricedOrder`/`validateGroupSelection`, so money/tax is byte-for-byte identical to
+  cloud), idempotent on `clientUuid`, and does allocate-order-number + insert
+  Order/OrderLine[]/OrderLineModifier[]/Payment as one atomic unit under `BEGIN IMMEDIATE` (SQLite
+  is single-writer, so the order-number race can't occur). Drops the cloud-only manager-approval
+  gate and offline price-snapshot relaxation (local is cash-only, single-tenant, no replay queue).
+  Plus `openDrawer`/`closeDrawer` (reuses the shared `reconcile`).
+- Local operator/PIN + first-run seed: `listOperators`, `verifyOperatorPin` (reuses the shared
+  scrypt `verifyPin` verbatim), `seedFirstRun` (idempotent — one `business` + `operator` + zeroed
+  `order_counter`, pinned `LOCAL_BUSINESS_ID`). These are `SqliteDataStore`-only methods (NOT on
+  the shared `DataStore` interface — the cloud backs operators with Better Auth + Membership), so
+  the cloud impl + tenant CI guard stay untouched.
+- Schema timestamp DEFAULTs now emit ISO-8601 UTC (`strftime('%Y-%m-%dT%H:%M:%fZ')`) so date-range
+  string comparisons are lexicographically correct even for a default-filled row.
+
+Operator ATTRIBUTION (`Order.cashierId` / drawer `openedById`) is left null in the store — the
+active-operator context is wired at the local shell auth boundary (Stage 4/5, PIN-only). `index.ts`
+starts returning `SqliteDataStore` when `isLocal` **once the Tauri driver exists (Stage 5)** — it
+can't be constructed before then.
 
 ### Stage 4 — Local auth + env branch
 
