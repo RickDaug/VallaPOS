@@ -9,7 +9,7 @@ import type { ItemSalesReport, CashierSalesRow } from "@/features/orders/report-
 import type { DrawerSessionRow, DrawerDaySummary } from "@/features/cash-drawer/queries";
 import type { CheckoutResult } from "@/features/register/schema";
 import type { OpenDrawerResult, CloseDrawerResult } from "@/features/cash-drawer/actions";
-import type { ItemType } from "@prisma/client";
+import type { ItemType, OrderStatus, PaymentMethod } from "@prisma/client";
 import type { DataStore } from "../types";
 import type { SqlDriver } from "./driver";
 import { SCHEMA_SQL } from "./schema";
@@ -155,11 +155,152 @@ export class SqliteDataStore implements DataStore {
   async getManagedCatalog(): Promise<ManagedCatalog> {
     return notYet("getManagedCatalog");
   }
-  async listOrders(): Promise<OrderRow[]> {
-    return notYet("listOrders");
+  /** Recent orders (most recent first), with the first payment's method. */
+  async listOrders(businessId: string, limit = 100): Promise<OrderRow[]> {
+    const rows = await this.sql.select<{
+      id: string;
+      number: number;
+      createdAt: string;
+      customerName: string | null;
+      status: string;
+      totalCents: number;
+      method: string | null;
+    }>(
+      `SELECT o.id, o.number, o.createdAt, o.customerName, o.status, o.totalCents,
+              (SELECT p.method FROM payment p WHERE p.orderId = o.id ORDER BY p.rowid LIMIT 1) AS method
+         FROM "order" o
+        WHERE o.businessId = ?
+        ORDER BY o.createdAt DESC
+        LIMIT ?`,
+      [businessId, limit],
+    );
+    return rows.map((o) => ({
+      id: o.id,
+      number: o.number,
+      createdAt: o.createdAt,
+      customerName: o.customerName,
+      status: o.status as OrderStatus,
+      totalCents: o.totalCents,
+      method: (o.method as PaymentMethod | null) ?? null,
+    }));
   }
-  async getOrderReceipt(): Promise<OrderReceipt | null> {
-    return notYet("getOrderReceipt");
+
+  /**
+   * One order's full receipt (lines + modifiers + payments), STRICTLY scoped to
+   * the business — an orderId from another business returns null (never trust the
+   * id alone), mirroring the cloud `findFirst({ id, businessId })` guarantee.
+   */
+  async getOrderReceipt(businessId: string, orderId: string): Promise<OrderReceipt | null> {
+    const orders = await this.sql.select<{
+      id: string;
+      number: number;
+      createdAt: string;
+      customerName: string | null;
+      status: string;
+      subtotalCents: number;
+      discountCents: number;
+      taxCents: number;
+      tipCents: number;
+      totalCents: number;
+      businessName: string;
+      currency: string;
+      taxRateBps: number;
+      taxInclusive: number;
+      timezone: string;
+    }>(
+      `SELECT o.id, o.number, o.createdAt, o.customerName, o.status,
+              o.subtotalCents, o.discountCents, o.taxCents, o.tipCents, o.totalCents,
+              b.name AS businessName, b.currency, b.taxRateBps, b.taxInclusive, b.timezone
+         FROM "order" o
+         JOIN business b ON b.id = o.businessId
+        WHERE o.id = ? AND o.businessId = ?`,
+      [orderId, businessId],
+    );
+    const order = orders[0];
+    if (!order) return null;
+
+    const lines = await this.sql.select<{
+      id: string;
+      nameSnapshot: string;
+      quantity: number;
+      unitPriceCents: number;
+      discountCents: number;
+      taxCents: number;
+      totalCents: number;
+    }>(
+      `SELECT id, nameSnapshot, quantity, unitPriceCents, discountCents, taxCents, totalCents
+         FROM order_line WHERE orderId = ? ORDER BY id ASC`,
+      [orderId],
+    );
+
+    const lineIds = lines.map((l) => l.id);
+    const mods = lineIds.length
+      ? await this.sql.select<{
+          id: string;
+          orderLineId: string;
+          nameSnapshot: string;
+          priceDeltaCents: number;
+        }>(
+          `SELECT id, orderLineId, nameSnapshot, priceDeltaCents
+             FROM order_line_modifier
+            WHERE orderLineId IN (${lineIds.map(() => "?").join(", ")})
+            ORDER BY id ASC`,
+          lineIds,
+        )
+      : [];
+    const modsByLine = new Map<string, { id: string; name: string; priceDeltaCents: number }[]>();
+    for (const m of mods) {
+      const arr = modsByLine.get(m.orderLineId) ?? [];
+      arr.push({ id: m.id, name: m.nameSnapshot, priceDeltaCents: m.priceDeltaCents });
+      modsByLine.set(m.orderLineId, arr);
+    }
+
+    const payments = await this.sql.select<{
+      method: string;
+      amountCents: number;
+      tenderedCents: number | null;
+      changeCents: number | null;
+      processorRef: string | null;
+    }>(
+      `SELECT method, amountCents, tenderedCents, changeCents, processorRef
+         FROM payment WHERE orderId = ? ORDER BY createdAt ASC`,
+      [orderId],
+    );
+
+    return {
+      id: order.id,
+      number: order.number,
+      createdAt: order.createdAt,
+      customerName: order.customerName,
+      status: order.status as OrderStatus,
+      subtotalCents: order.subtotalCents,
+      discountCents: order.discountCents,
+      taxCents: order.taxCents,
+      tipCents: order.tipCents,
+      totalCents: order.totalCents,
+      businessName: order.businessName,
+      currency: order.currency,
+      taxRateBps: order.taxRateBps,
+      taxInclusive: Boolean(order.taxInclusive),
+      timeZone: order.timezone,
+      lines: lines.map((l) => ({
+        id: l.id,
+        name: l.nameSnapshot,
+        quantity: l.quantity,
+        unitPriceCents: l.unitPriceCents,
+        discountCents: l.discountCents,
+        taxCents: l.taxCents,
+        totalCents: l.totalCents,
+        modifiers: modsByLine.get(l.id) ?? [],
+      })),
+      payments: payments.map((p) => ({
+        method: p.method as PaymentMethod,
+        amountCents: p.amountCents,
+        tenderedCents: p.tenderedCents,
+        changeCents: p.changeCents,
+        manualNote: p.processorRef,
+      })),
+    };
   }
   async getDailyReport(): Promise<DailyReport> {
     return notYet("getDailyReport");

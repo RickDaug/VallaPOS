@@ -265,8 +265,13 @@ lint clean; 808 tests green (+3), real SQLite exercised via `node:sqlite` (zero 
 - CREATE `src/lib/data-store/sqlite/sqlite-store.test.ts` — a `node:sqlite`-backed test driver;
   seeds a catalog and asserts shape/sort/scoping against real SQL.
 
-**Stage 3b — the rest of the store.** Implement the remaining reads (`getManagedCatalog`, orders,
-reports, drawer reads) and the writes — `checkout` (allocate order number + insert
+**Stage 3b — order-history reads (SHIPPED, PR `feat/editions-sqlite-orders`).** `listOrders`
+(recent-first + the first payment's method) and `getOrderReceipt` (lines + modifiers + payments
++ business snapshot, strictly tenant-scoped) implemented against the SQLite schema and tested
+end-to-end (seed an order → read it back). tsc + lint clean; 812 tests green.
+
+**Stage 3c — the rest of the store.** Remaining reads (`getManagedCatalog`, the sales reports,
+the drawer reads) and the writes — `checkout` (allocate order number + insert
 Order/OrderLine[]/OrderLineModifier[]/Payment under `BEGIN IMMEDIATE`), `openDrawer`/`closeDrawer`
 — plus the local operator/PIN reads and a first-run seed (one `business` + `operator`, pinned
 `businessId`). `index.ts` starts returning `SqliteDataStore` when `isLocal` **once the Tauri

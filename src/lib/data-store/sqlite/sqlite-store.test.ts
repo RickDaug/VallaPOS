@@ -127,3 +127,95 @@ describe("SqliteDataStore.getRegisterCatalog", () => {
     expect(await store.getRegisterCatalog("other-biz")).toEqual([]);
   });
 });
+
+const BIZ2 = "biz-orders";
+
+async function seedOrders(driver: SqlDriver) {
+  await driver.execute(
+    `INSERT INTO business (id, name, taxRateBps, taxInclusive, currency, timezone) VALUES (?, ?, ?, ?, ?, ?)`,
+    [BIZ2, "Taco Truck", 825, 0, "USD", "America/Chicago"],
+  );
+  await driver.execute(
+    `INSERT INTO "order" (id, businessId, clientUuid, number, customerName, status, subtotalCents, discountCents, taxCents, tipCents, totalCents, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ["ord1", BIZ2, "uuid-1", 1, "Alice", "PAID", 500, 0, 41, 100, 641, "2026-07-10T12:00:00.000Z"],
+  );
+  await driver.execute(
+    `INSERT INTO "order" (id, businessId, clientUuid, number, customerName, status, subtotalCents, discountCents, taxCents, tipCents, totalCents, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ["ord2", BIZ2, "uuid-2", 2, null, "PAID", 300, 0, 0, 0, 300, "2026-07-11T09:00:00.000Z"],
+  );
+  await driver.execute(
+    `INSERT INTO order_line (id, businessId, orderId, nameSnapshot, unitPriceCents, quantity, discountCents, taxCents, totalCents)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ["ln1", BIZ2, "ord1", "Classic Burger", 500, 1, 0, 41, 500],
+  );
+  await driver.execute(
+    `INSERT INTO order_line_modifier (id, orderLineId, nameSnapshot, priceDeltaCents) VALUES (?, ?, ?, ?)`,
+    ["m1", "ln1", "Cheese", 50],
+  );
+  await driver.execute(
+    `INSERT INTO payment (id, businessId, orderId, method, status, amountCents, tenderedCents, changeCents, processorRef, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ["pay1", BIZ2, "ord1", "CASH", "CAPTURED", 641, 700, 59, null, "2026-07-10T12:00:00.000Z"],
+  );
+  await driver.execute(
+    `INSERT INTO payment (id, businessId, orderId, method, status, amountCents, tenderedCents, changeCents, processorRef, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ["pay2", BIZ2, "ord2", "CARD", "CAPTURED", 300, null, null, null, "2026-07-11T09:00:00.000Z"],
+  );
+}
+
+describe("SqliteDataStore order reads", () => {
+  let store: SqliteDataStore;
+  let driver: SqlDriver;
+
+  beforeEach(async () => {
+    ({ store, driver } = await makeStore());
+    await seedOrders(driver);
+  });
+
+  it("listOrders returns most-recent-first with the first payment's method", async () => {
+    const rows = await store.listOrders(BIZ2);
+    expect(rows.map((r) => r.id)).toEqual(["ord2", "ord1"]);
+    const [first, second] = rows;
+    if (!first || !second) throw new Error("expected 2 orders");
+    expect(first).toMatchObject({ number: 2, customerName: null, totalCents: 300, method: "CARD", status: "PAID" });
+    expect(second).toMatchObject({ number: 1, customerName: "Alice", totalCents: 641, method: "CASH" });
+  });
+
+  it("listOrders honors the limit", async () => {
+    expect((await store.listOrders(BIZ2, 1)).map((r) => r.id)).toEqual(["ord2"]);
+  });
+
+  it("getOrderReceipt returns lines + modifiers + payments + business snapshot", async () => {
+    const receipt = await store.getOrderReceipt(BIZ2, "ord1");
+    if (!receipt) throw new Error("expected a receipt");
+    expect(receipt).toMatchObject({
+      number: 1,
+      customerName: "Alice",
+      subtotalCents: 500,
+      taxCents: 41,
+      tipCents: 100,
+      totalCents: 641,
+      businessName: "Taco Truck",
+      currency: "USD",
+      taxRateBps: 825,
+      taxInclusive: false,
+      timeZone: "America/Chicago",
+    });
+    expect(receipt.lines).toHaveLength(1);
+    const line = receipt.lines[0];
+    if (!line) throw new Error("expected a line");
+    expect(line).toMatchObject({ name: "Classic Burger", quantity: 1, unitPriceCents: 500, taxCents: 41 });
+    expect(line.modifiers).toEqual([{ id: "m1", name: "Cheese", priceDeltaCents: 50 }]);
+    expect(receipt.payments).toEqual([
+      { method: "CASH", amountCents: 641, tenderedCents: 700, changeCents: 59, manualNote: null },
+    ]);
+  });
+
+  it("returns null for a missing order and enforces tenant scope", async () => {
+    expect(await store.getOrderReceipt(BIZ2, "nope")).toBeNull();
+    expect(await store.getOrderReceipt("other-biz", "ord1")).toBeNull();
+  });
+});
