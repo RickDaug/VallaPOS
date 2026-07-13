@@ -35,18 +35,43 @@ const securityHeaders = [
   // middleware.ts (nonce-based) — it is intentionally NOT listed here.
 ];
 
-const nextConfig: NextConfig = {
+// EDITION BRANCH (docs/EDITIONS.md §5). The LOCAL (offline desktop) build is a
+// STATIC EXPORT bundled into the Tauri shell — it has no Node server, so the
+// cloud-only server features here are incompatible with it: `output: 'export'`
+// forbids `headers()`, middleware (where the enforced CSP lives), and request-time
+// RSC. The local edition's security model is the native shell, not HTTP headers.
+// Read straight from process.env (set by the `build:local`/`dev:local` scripts) so
+// the config needs no TS import; the CLOUD build (the default) is byte-for-byte
+// unchanged.
+const isLocalBuild = process.env.NEXT_PUBLIC_VALLA_EDITION === "local";
+
+const baseConfig: NextConfig = {
   reactStrictMode: true,
   // Don't advertise the framework via X-Powered-By.
   poweredByHeader: false,
+};
+
+const cloudConfig: NextConfig = {
+  ...baseConfig,
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
 };
 
+const localConfig: NextConfig = {
+  ...baseConfig,
+  output: "export",
+  // next/image can't optimize without a server; emit sources as-is in the export.
+  images: { unoptimized: true },
+};
+
+const nextConfig: NextConfig = isLocalBuild ? localConfig : cloudConfig;
+
 // Serwist (the next-pwa successor) generates the service worker from `app/sw.ts`
 // into `public/sw.js`. Disabled in dev so HMR isn't fighting a cached shell —
-// the SW only registers in production builds (Serwist convention).
+// the SW only registers in production builds (Serwist convention). The LOCAL
+// edition's DB is on-device (no server sync), so the PWA offline cache is moot —
+// skip Serwist entirely there (it also assumes a server origin the export lacks).
 const withSerwist = withSerwistInit({
   swSrc: "app/sw.ts",
   swDest: "public/sw.js",
@@ -56,4 +81,4 @@ const withSerwist = withSerwistInit({
   reloadOnOnline: true,
 });
 
-export default withSerwist(nextConfig);
+export default isLocalBuild ? nextConfig : withSerwist(nextConfig);

@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "dev:local": "NEXT_PUBLIC_VALLA_EDITION=local next dev",
+    "build:local": "NEXT_PUBLIC_VALLA_EDITION=local next build",
     "start": "next start",
     "lint": "eslint .",
     "format": "prettier --write .",

@@ -1,0 +1,33 @@
+[package]
+name = "vallapos"
+version = "0.1.0"
+description = "VallaPOS — offline desktop edition (docs/EDITIONS.md)"
+authors = ["VallaPOS"]
+edition = "2021"
+rust-version = "1.77"
+
+# The library the desktop binary + (future) mobile entrypoints share.
+[lib]
+name = "vallapos_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# NOTE: versions are pinned to the Tauri v2 line; run `cargo build` on a machine
+# with the Rust toolchain to resolve exact patch versions into Cargo.lock (this
+# scaffold was authored without a local Rust toolchain — see README.md).
+tauri = { version = "2", features = [] }
+# Ships the SQLite driver INSIDE the Rust binary — no native-module rebuild tax.
+# The `@tauri-apps/plugin-sql` JS `Database` this exposes is adapted to the store's
+# SqlDriver by src/lib/data-store/sqlite/tauri-driver.ts.
+tauri-plugin-sql = { version = "2", features = ["sqlite"] }
+# Small KV for local settings + (Stage 6) the license blob.
+tauri-plugin-store = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[features]
+# Default (production) build. `tauri dev` / `tauri build` toggle debug internally.
+default = []
