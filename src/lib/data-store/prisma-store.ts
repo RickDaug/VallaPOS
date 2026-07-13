@@ -14,6 +14,8 @@ import {
   getCashCollectedSince,
   getDrawerDaySummary,
 } from "@/features/cash-drawer/queries";
+import { openDrawer, closeDrawer } from "@/features/cash-drawer/actions";
+import { checkout } from "@/features/register/actions";
 import type { DataStore } from "./types";
 
 /**
@@ -37,4 +39,7 @@ export const prismaDataStore: DataStore = {
   listDrawerSessions,
   getCashCollectedSince,
   getDrawerDaySummary,
+  checkout,
+  openDrawer,
+  closeDrawer,
 };
