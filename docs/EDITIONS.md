@@ -212,21 +212,28 @@ Files to MODIFY: **none.** Nothing imports `edition.ts` yet, and `EDITION` defau
 > own. It now lands with its first (`PrismaDataStore`) implementation, where TypeScript
 > verifies the seam against real code.
 
-### Stage 2 — Data-store seam + cloud adapter (behavior-preserving refactor on `main`)
+### Stage 2 — Data-store seam + cloud adapter (behavior-preserving, additive on `main`)
 
-- CREATE `src/lib/data-store/types.ts` — the `DataStore` interface (§2). `import type` the
-  existing projection types from the `queries.ts` files; declare the few new types
-  (`CommitSaleInput`, `OperatorRow`, `DrawerDaySummary`, …) alongside the adapter below.
-- CREATE `src/lib/data-store/prisma-store.ts` — `PrismaDataStore implements DataStore`,
-  wrapping today's `db.*` calls / server actions.
-- CREATE `src/lib/data-store/index.ts` — composition root: `getDataStore()` returns the
-  Prisma store when `isCloud` (only impl for now).
-- MODIFY the cash-path feature callers to route through the store instead of importing `db`
-  or the action directly: `src/features/catalog/queries.ts`, `src/features/register/actions.ts`,
-  `src/features/register/resolve-lines.ts`, `src/features/orders/queries.ts`,
-  `src/features/cash-drawer/{queries,actions}.ts`, and `src/lib/offline/use-offline-checkout.ts`.
-- This is independently shippable to the cloud app and *is* the edition seam. Verify the full
-  cloud register/drawer/report flow is unchanged.
+**Stage 2a — READ seam (SHIPPED, PR `feat/editions-datastore-seam`).** Additive; nothing
+consumes it yet, so cloud behavior is unchanged. `npm run typecheck` clean; 805 tests green.
+- CREATE `src/lib/data-store/types.ts` — the `DataStore` interface, READ methods only,
+  mirroring the real `queries.ts` signatures verbatim: `getRegisterCatalog`, `getManagedCatalog`,
+  `listOrders`, `getOrderReceipt`, `getDailyReport`, `getItemSalesReport`, `getCashierSalesReport`,
+  `getOpenSession`, `listDrawerSessions`, `getCashCollectedSince`, `getDrawerDaySummary`. All
+  projection types are `import type`-only (no `server-only` runtime pulled in).
+- CREATE `src/lib/data-store/prisma-store.ts` — `prismaDataStore: DataStore`, each method a 1:1
+  delegate to the existing tenant-scoped query fn. The `: DataStore` annotation makes tsc prove
+  the seam matches the real signatures.
+- CREATE `src/lib/data-store/index.ts` — composition root `getDataStore()` (single cloud impl
+  for now; Stage 3 branches on `isLocal`).
+
+**Stage 2b — WRITE path (next).** Extend `DataStore` with the atomic commit + drawer writes,
+sourcing the existing action input/result types: `checkout(input: CheckoutInput)` (the
+allocate-number-and-insert commit — keep atomic), `openDrawer(input: OpenDrawerInput)`,
+`closeDrawer(input: CloseDrawerInput)`, plus the local operator/PIN reads. Then MODIFY the
+cash-path callers (`src/lib/offline/use-offline-checkout.ts` and the register/drawer/report
+pages) to route through `getDataStore()` instead of importing the action/`db` directly. Verify
+the full cloud register/drawer/report flow is unchanged.
 
 ### Stage 3 — Local schema + SQLite store
 
