@@ -330,17 +330,44 @@ Stage 5 concern; `operator.ts`'s edition-aware secret is the defensive groundwor
 
 ### Stage 5 — Tauri shell + native printer transport
 
-- CREATE `src-tauri/` (Cargo project): `tauri`, `tauri-plugin-sql` (sqlite), the `escpos`
-  crate, `tauri-plugin-store`, `ed25519-dalek`.
-- CREATE Rust command `print_raw(target, bytes)` (Network 9100 / Windows spooler RAW / native
-  `usbprint.sys` / serial) + `open_drawer`.
-- CREATE `src/features/peripherals/transports/tauri.ts` — a `PeripheralDevice` implementation
-  satisfying the existing `types.ts` contract, calling `print_raw`; swap it in at
-  `src/features/peripherals/components/DevicesManager.tsx` for the local build.
-- MODIFY `next.config.ts` — `output: 'export'` for the local build; convert the cash-path
-  `page.tsx` shells from server-fetch to client-fetch through the seam.
-- WIRE checkout to `getOrderReceipt` → `fromOrderReceipt` → `formatReceipt({openDrawer,cut})`
-  → `print_raw` (auto-print on sale, on by default in local).
+**Stage 5a — seam wiring + shell scaffold (SHIPPED, PR `feat/editions-tauri-seam`).** The
+additive, dep-free, fully unit-tested TypeScript that connects the store + printer to the (future)
+Tauri runtime, plus the reviewable Rust scaffold. Cloud byte-for-byte unchanged; 851 tests green,
+tsc + lint clean.
+- `src/lib/data-store/sqlite/tauri-driver.ts` — `createTauriSqlDriver(db)` adapts
+  `@tauri-apps/plugin-sql`'s `Database` to the store's `SqlDriver` port (declares only the minimal
+  `TauriSqlDatabase` shape → NO `@tauri-apps` dependency; tested against a `node:sqlite`-backed
+  fake). Plus `toPositionalDollarSql` for the `$n`-placeholder driver variant.
+- `src/lib/data-store/local.ts` — `createLocalDataStore(driver)` (client-safe, NOT `server-only`):
+  the LOCAL composition root — migrate + first-run seed → ready store. Proven end-to-end (a real
+  cash sale round-trips through the Tauri-shaped driver in tests).
+- `src/features/peripherals/transports/tauri.ts` — `createTauriPrinter(invoke, target)`: forwards
+  ESC/POS bytes to the Rust `print_raw` command via an INJECTED `invoke` (no `@tauri-apps` dep;
+  mirrors the injectable `usb` in `webusb.ts`). `kickDrawer` reuses the shared `escpos.drawerKick`.
+- `src/features/peripherals/auto-print.ts` — `printOrderById`/`printOrderReceipt`/
+  `buildOrderReceiptBytes`: the auto-print-on-sale chain
+  (`getReceipt → fromOrderReceipt → formatReceipt({openDrawer,cut}) → printer.print`), pure +
+  injected, fully tested.
+- `src-tauri/` — Tauri v2 Cargo scaffold: `Cargo.toml` (tauri, tauri-plugin-sql[sqlite],
+  tauri-plugin-store), `src/lib.rs` (the `print_raw` TCP-9100 path + `open_drawer`; Windows-spooler
+  and serial paths are loud TODO stubs), `src/main.rs`, `build.rs`, `tauri.conf.json`,
+  `capabilities/default.json`, `README.md`. **NOT `cargo build`-verified** (no local Rust
+  toolchain) — see `src-tauri/README.md`.
+- `next.config.ts` — gates `output: 'export'` + `images.unoptimized` + skips Serwist/`headers()`
+  for the local build (`NEXT_PUBLIC_VALLA_EDITION=local`); the cloud build (default) is unchanged.
+  Added `dev:local`/`build:local` npm scripts (POSIX env-prefix — Windows uses Git Bash/cross-env).
+
+**Stage 5b — the runtime finish (DEFERRED, needs the toolchain + a real device).** These can only
+be done/verified on a machine with Rust + Tauri (and are cloud-render-risky, so they stay gated):
+- `cargo build` the shell (resolves `Cargo.lock`); `npx tauri icon` for `icons/`; add the JS deps
+  `@tauri-apps/api` + `plugin-sql` + `plugin-store` (pinned, with lockfile).
+- Convert the cash-path `page.tsx` shells from server-fetch to CLIENT-fetch through the seam (a
+  static export bans server actions/middleware/request-time RSC) — gated on `isLocal` so the cloud
+  build keeps its server render path. Wire the register to `createLocalDataStore` + call
+  `printOrderById` after checkout (auto-print on by default in local), and swap the native
+  transport into `DevicesManager.tsx`.
+- The real one-liners that inject `@tauri-apps/plugin-sql`'s `Database` and `@tauri-apps/api/core`'s
+  `invoke` into the adapters above.
 
 ### Stage 6 — License gate + issuance
 

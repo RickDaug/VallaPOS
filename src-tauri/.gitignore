@@ -1,0 +1,8 @@
+# Rust / Cargo build output
+/target
+
+# Tauri-generated schema + typings (created by `tauri build`/`tauri dev`)
+/gen/schemas
+
+# Generated app icons (run `npx tauri icon <logo.png>` — see README.md)
+/icons
