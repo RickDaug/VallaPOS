@@ -402,9 +402,22 @@ site).**
 
 ### Stage 7 — Packaging + signing + release
 
-- `tauri build` → `.msi`/NSIS (Win) + `.dmg` (Mac). Windows sign via Azure Trusted Signing
-  (~$10–12/mo) or an OV cert (~$220/yr); macOS Developer ID + `notarytool` staple ($99/yr Apple).
-- Ship a "Test print / Open drawer" diagnostic in local settings. Distribute from vallahub.com.
+**Stage 7a — release pipeline + docs (SHIPPED, PR `feat/editions-desktop-release`).**
+- `.github/workflows/desktop-release.yml` — a `tauri-apps/tauri-action` matrix build
+  (`windows-latest` + `macos-latest` arm64 + `macos-13` x64) that drafts a GitHub Release with
+  the `.msi`/NSIS + `.dmg` installers. Triggers on a `v*` tag or manual dispatch **only** —
+  INDEPENDENT of the `quality` CI, never runs on `pull_request`, so it can't gate a merge. Sets
+  `NEXT_PUBLIC_VALLA_EDITION=local` and threads the macOS notarization secrets.
+- `docs/RELEASING.md` — the operational checklist: the Stage 5b/6b prerequisites the build needs,
+  the signing matrix + costs (Azure Trusted Signing ~$10–12/mo **or** OV ~$220/yr for Windows;
+  Apple Developer $99/yr — year-1 ≈ $220–320), the cut-a-release steps, and the best-effort
+  no-phone-home revocation flow.
+
+**Stage 7b — the actual release (needs the toolchain + certs + a human).** Run once the Stage
+5b/6b prerequisites land: buy/configure the signing certs + set the Actions secrets, replace the
+license `PUBLIC_KEY`, tag `vX.Y.Z`, review the drafted Release, publish, and link the installers
+from vallahub.com. Ship a **Test print / Open drawer** diagnostic in local Settings → Devices
+(reuses the native Tauri transport).
 
 ---
 
