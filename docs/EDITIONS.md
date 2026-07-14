@@ -388,17 +388,30 @@ shared, fully-tested Ed25519 license format + the Rust gate scaffold. Additive; 
   `check_license` Tauri command. `ed25519-dalek = "2"` added to `Cargo.toml`. Embedded `PUBLIC_KEY`
   is a zero placeholder to replace before shipping. **Not `cargo build`-verified.**
 
-**Stage 6b — the gate wiring + issuance (DEFERRED, needs the running local app + the vallahub
-site).**
-- Gate the SQLite open on `check_license`; a license entry screen before the PIN lock;
-  `$APPCONFIG/license.vlk` load/store; the signed embedded revocation blocklist.
+**Stage 6b-core — gate + issuance + store logic (SHIPPED, PR `feat/editions-license-gate`).** The
+testable TS the shell + the vallahub signer both call; additive, cloud unchanged, +7 tests.
+- `src/lib/license/gate.ts` — `resolveLicenseState({ loadBlob, verify, now?, revokedIds? })` →
+  `licensed | unlicensed | invalid(reason)` (injected loader + verifier; a stored-but-bad license
+  is `invalid` with a reason, not silently unlicensed). The webview UX gate; the Rust
+  `verify_license` stays the authoritative one.
+- `src/lib/license/store.ts` — `createLicenseStore(kv)` over an injected KV (the Tauri store plugin
+  in the shell → `$APPCONFIG/license.vlk`; a fake in tests): `load`/`save`/`clear`, empty ⇒ null.
+- `src/lib/license/issue.ts` — `issueLicense({ sku, id, iat, ex? }, sign)` + `buildLicenseClaims`
+  (validated, perpetual `ex:null`, `dev:null`). The vallahub webhook calls this with a
+  `LICENSE_SIGNING_SK`-backed signer. Tested end-to-end: issue → store → gate = licensed;
+  tamper/expiry/revocation → invalid.
+
+**Stage 6b-shell — the runtime gate + issuance deployment (DEFERRED, needs the running local app +
+the vallahub site).**
+- Boot-gate the SQLite open on the Rust `check_license`; a license entry screen (before the PIN
+  lock) that calls `resolveLicenseState`/`createLicenseStore`; the signed embedded revocation
+  blocklist wired into `verify_license`.
 - `app/(app)/layout.tsx` local branch: replace the `getSession`→`/sign-in` redirect with the
   license gate → operator PIN lock (gated on `isLocal`).
 - **vallahub.com issuance** (separate site): a `LICENSE_SIGNING_SK` (zod-validated, PKCS#8) →
-  `importEd25519PrivateKey` → `signLicense`, driven by a one-time Stripe Checkout →
+  `importEd25519PrivateKey` → the shared `issueLicense`, driven by a one-time Stripe Checkout →
   `checkout.session.completed` webhook (reuse the `app/api/payments/webhook` pattern) → `License`
-  DB row keyed on `session.id` → Resend delivery + success-page download. The shared
-  `src/lib/license/` module above is exactly what the signer calls.
+  DB row keyed on `session.id` → Resend delivery + success-page download.
 
 ### Stage 7 — Packaging + signing + release
 
