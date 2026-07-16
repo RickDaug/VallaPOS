@@ -138,6 +138,21 @@ model Business {
   // the (future) QR sale rail create a charge on this account. Flipped by the
   // account webhook, never trusted from the client.
   stripeChargesEnabled Boolean      @default(false)
+  // Payroll-tax provider (embedded payroll — Check — docs/PAYROLL_TAX.md). All
+  // additive + nullable/defaulted so existing businesses are untouched and the
+  // integration stays DORMANT until CHECK_* keys are set AND a merchant onboards.
+  // We store ONLY the provider's tokenized company id + a mirrored onboarding
+  // status string — NEVER any SSN/EIN/bank data (those live only in the provider,
+  // tokenized). Unique so a payroll webhook can resolve exactly one business from
+  // a company id, and a business can never hold two provider companies.
+  checkCompanyId             String?  @unique
+  // Raw provider onboarding status string, mirrored by the refresh action +
+  // webhook. Null = onboarding never started. Normalized to a typed status in
+  // src/features/payroll/tax/gateway.ts.
+  payrollTaxOnboardingStatus String?
+  // Master switch for the automated-withholding path for THIS business. Default
+  // OFF: with it false the payroll v1 gross/net display + CSV are unchanged.
+  payrollTaxEnabled          Boolean  @default(false)
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
 
@@ -186,6 +201,11 @@ model Membership {
   permissions String[]    @default([])
   active      Boolean     @default(true) // deactivate a member without deleting their history
   pinHash     String? // optional shared-device PIN (v1)
+  // Payroll-tax provider worker token (Check employee id). Nullable; set when a
+  // worker is synced to the provider. NO SSN/bank data is stored here — only the
+  // opaque provider id (the sensitive data lives tokenized in the provider). See
+  // docs/PAYROLL_TAX.md.
+  checkEmployeeId String? @unique
   createdAt   DateTime    @default(now())
   user        User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
   business    Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -564,6 +584,11 @@ model PayPeriod {
   notes       String?
   finalizedAt DateTime?
   paidAt      DateTime?
+  // Payroll-tax provider run linkage (Check payroll) + mirrored status. Nullable;
+  // set once a provider tax preview/approval runs for this period. Additive — the
+  // v1 DRAFT→FINALIZED→PAID lifecycle above is unchanged. See docs/PAYROLL_TAX.md.
+  checkPayrollId     String?
+  checkPayrollStatus String?
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
   business    Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -598,7 +623,15 @@ model Payslip {
   grossCents       Int                 @default(0)
   additionsCents   Int                 @default(0) // Σ ADDITION adjustments
   deductionsCents  Int                 @default(0) // Σ DEDUCTION adjustments
-  netCents         Int                 @default(0) // gross + additions − deductions
+  netCents         Int                 @default(0) // gross + additions − deductions (PRE-TAX v1 figure)
+  // Payroll-tax provider MIRROR (Check) — provider-computed withholding + net.
+  // All nullable and ADDITIVE: `netCents` above stays the PRE-TAX v1 figure; these
+  // are populated ONLY when a provider tax preview runs. No PII — just integer-cent
+  // tax/net mirrors sourced from the provider. See docs/PAYROLL_TAX.md.
+  providerPayslipId String?
+  employeeTaxCents  Int? // provider-computed employee withholding (all statutory taxes)
+  employerTaxCents  Int? // provider-computed employer-side tax (employer's cost, not withheld)
+  netPayCents       Int? // provider net-after-tax take-home (distinct from the pre-tax netCents)
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
   business         Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
