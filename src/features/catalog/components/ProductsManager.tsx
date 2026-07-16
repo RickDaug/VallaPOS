@@ -7,6 +7,7 @@ import { formatMoney } from "@/lib/money";
 import type { ManagedCatalog, ManagedItem, ManagedVariation } from "@/features/catalog/queries";
 import {
   addItemIngredientOptions,
+  adjustVariationStock,
   createCategory,
   createItem,
   createModifier,
@@ -20,12 +21,15 @@ import {
   deleteVariation,
   linkModifierGroup,
   setItemActive,
+  setItemStockTracking,
+  setVariationStock,
   unlinkModifierGroup,
   updateCategorySortOrder,
   updateItem,
   updateVariation,
 } from "@/features/catalog/actions";
 import { parseModifierLines, buildIngredientOptions } from "@/features/catalog/bulk-parse";
+import { stockStatus } from "@/features/catalog/stock";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -625,6 +629,7 @@ function ItemRow({
             <span className="numeric">
               · {item.variations.map((v) => formatMoney(v.priceCents, currency)).join(", ")}
             </span>
+            <ItemStockBadge item={item} />
           </p>
           {catalog.modifierGroups.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
@@ -705,6 +710,7 @@ function ItemRow({
             run={run}
             onDone={onToggleEdit}
           />
+          <StockToggle item={item} businessId={businessId} pending={pending} run={run} />
           <VariationsEditor
             item={item}
             currency={currency}
@@ -968,6 +974,7 @@ function VariationsEditor({
             currency={currency}
             businessId={businessId}
             pending={pending}
+            trackStock={Boolean(item.trackStock)}
             canDelete={item.variations.length > 1}
             isFirst={index === 0}
             isLast={index === item.variations.length - 1}
@@ -1011,6 +1018,7 @@ function VariationRow({
   currency,
   businessId,
   pending,
+  trackStock,
   canDelete,
   isFirst,
   isLast,
@@ -1023,6 +1031,7 @@ function VariationRow({
   currency: string;
   businessId: string;
   pending: boolean;
+  trackStock: boolean;
   canDelete: boolean;
   isFirst: boolean;
   isLast: boolean;
@@ -1116,67 +1125,233 @@ function VariationRow({
   }
 
   return (
-    <li className="flex items-center justify-between gap-2 rounded-md border border-border bg-card px-2 py-1.5 text-sm">
-      <span className="min-w-0 flex-1 truncate">
-        <span className="font-medium">{variation.name}</span>
-        <span className="numeric ml-2 text-muted-foreground">
-          {formatMoney(variation.priceCents, currency)}
+    <li className="rounded-md border border-border bg-card px-2 py-1.5 text-sm">
+      <div className="flex items-center justify-between gap-2">
+        <span className="min-w-0 flex-1 truncate">
+          <span className="font-medium">{variation.name}</span>
+          <span className="numeric ml-2 text-muted-foreground">
+            {formatMoney(variation.priceCents, currency)}
+          </span>
+          {variation.sku && <span className="ml-2 text-xs text-muted-foreground">SKU {variation.sku}</span>}
         </span>
-        {variation.sku && <span className="ml-2 text-xs text-muted-foreground">SKU {variation.sku}</span>}
-      </span>
-      <div className="flex shrink-0 items-center">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-muted-foreground"
-          onClick={() => move(-1)}
-          disabled={pending || isFirst}
-          aria-label={`Move ${variation.name} up`}
-        >
-          <ChevronUp size={14} />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-muted-foreground"
-          onClick={() => move(1)}
-          disabled={pending || isLast}
-          aria-label={`Move ${variation.name} down`}
-        >
-          <ChevronDown size={14} />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-muted-foreground"
-          onClick={() => setEditing(true)}
-          disabled={pending}
-          aria-label={`Edit ${variation.name}`}
-        >
-          <Pencil size={14} />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-30"
-          onClick={async () => {
-            if (
-              await confirm({
-                title: `Delete variation "${variation.name}"?`,
-                confirmLabel: "Delete",
-              })
-            )
-              run(() => deleteVariation({ businessId, id: variation.id }), undefined, {
-                success: `Variation “${variation.name}” deleted`,
-              });
-          }}
-          disabled={pending || !canDelete}
-          aria-label={`Delete ${variation.name}`}
-          title={canDelete ? undefined : "An item must keep at least one variation."}
-        >
-          <Trash2 size={14} />
-        </Button>
+        <div className="flex shrink-0 items-center">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground"
+            onClick={() => move(-1)}
+            disabled={pending || isFirst}
+            aria-label={`Move ${variation.name} up`}
+          >
+            <ChevronUp size={14} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground"
+            onClick={() => move(1)}
+            disabled={pending || isLast}
+            aria-label={`Move ${variation.name} down`}
+          >
+            <ChevronDown size={14} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground"
+            onClick={() => setEditing(true)}
+            disabled={pending}
+            aria-label={`Edit ${variation.name}`}
+          >
+            <Pencil size={14} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-30"
+            onClick={async () => {
+              if (
+                await confirm({
+                  title: `Delete variation "${variation.name}"?`,
+                  confirmLabel: "Delete",
+                })
+              )
+                run(() => deleteVariation({ businessId, id: variation.id }), undefined, {
+                  success: `Variation “${variation.name}” deleted`,
+                });
+            }}
+            disabled={pending || !canDelete}
+            aria-label={`Delete ${variation.name}`}
+            title={canDelete ? undefined : "An item must keep at least one variation."}
+          >
+            <Trash2 size={14} />
+          </Button>
+        </div>
       </div>
+      {trackStock && (
+        <VariationStockControls
+          variation={variation}
+          businessId={businessId}
+          pending={pending}
+          run={run}
+        />
+      )}
     </li>
   );
+}
+
+// ── Stock: per-item toggle, per-variation controls, row badge ─────────────────
+
+/** Per-item "Track stock" on/off toggle (enabling seeds each variation to 0). */
+function StockToggle({
+  item,
+  businessId,
+  pending,
+  run,
+}: {
+  item: ManagedItem;
+  businessId: string;
+  pending: boolean;
+  run: RunFn;
+}) {
+  const tracking = Boolean(item.trackStock);
+  return (
+    <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3">
+      <div className="min-w-0">
+        <p className="text-sm font-semibold">Track stock</p>
+        <p className="text-xs text-muted-foreground">
+          {tracking
+            ? "Counts down as this item sells; shows low/out badges."
+            : "Off — this item never shows a stock count."}
+        </p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={tracking}
+        aria-label="Track stock"
+        disabled={pending}
+        onClick={() =>
+          run(
+            () => setItemStockTracking({ businessId, itemId: item.id, trackStock: !tracking }),
+            undefined,
+            { success: tracking ? "Stock tracking off" : "Stock tracking on" },
+          )
+        }
+        className={cn(
+          "relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          tracking ? "bg-primary" : "bg-muted",
+        )}
+      >
+        <span
+          className={cn(
+            "absolute top-0.5 h-6 w-6 rounded-full bg-card shadow transition-transform",
+            tracking ? "translate-x-[1.375rem]" : "translate-x-0.5",
+          )}
+        />
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Inline stock editor for one variation: the on-hand count (color-highlighted
+ * when low/out), −1/+1 adjust buttons (restock/correction, floored at 0), and a
+ * "Set" field for an absolute stock-take. Only rendered when the item tracks stock.
+ */
+function VariationStockControls({
+  variation,
+  businessId,
+  pending,
+  run,
+}: {
+  variation: ManagedVariation;
+  businessId: string;
+  pending: boolean;
+  run: RunFn;
+}) {
+  const { toast } = useToast();
+  const [setValue, setSetValue] = useState("");
+  const stock = variation.stock ?? 0;
+  const status = stockStatus(variation.stock);
+
+  function onSet(e: React.FormEvent) {
+    e.preventDefault();
+    const n = parseInt(setValue, 10);
+    if (!Number.isInteger(n) || n < 0)
+      return toast({ title: "Enter a whole number (0 or more).", variant: "error" });
+    run(
+      () => setVariationStock({ businessId, variationId: variation.id, stock: n }),
+      () => setSetValue(""),
+      { success: `${variation.name} stock set to ${n}` },
+    );
+  }
+
+  function adjust(delta: number) {
+    run(() => adjustVariationStock({ businessId, variationId: variation.id, delta }));
+  }
+
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-2 border-t border-border pt-1.5">
+      <span
+        className={cn(
+          "numeric text-xs font-semibold",
+          status === "out"
+            ? "text-destructive"
+            : status === "low"
+              ? "text-warning-foreground"
+              : "text-muted-foreground",
+        )}
+        aria-live="polite"
+      >
+        {stock} in stock
+      </span>
+      {status === "out" && <Badge variant="destructive">Out</Badge>}
+      {status === "low" && <Badge variant="warning">Low</Badge>}
+      <div className="ml-auto flex items-center gap-1">
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => adjust(-1)}
+          disabled={pending}
+          aria-label={`Decrease ${variation.name} stock by one`}
+        >
+          −
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => adjust(1)}
+          disabled={pending}
+          aria-label={`Increase ${variation.name} stock by one`}
+        >
+          +
+        </Button>
+        <form onSubmit={onSet} className="flex items-center gap-1">
+          <Input
+            inputMode="numeric"
+            value={setValue}
+            onChange={(e) => setSetValue(e.target.value)}
+            placeholder="Set"
+            className="numeric h-8 w-16"
+            aria-label={`Set ${variation.name} stock`}
+          />
+          <Button type="submit" variant="outline" size="sm" disabled={pending || setValue.trim() === ""}>
+            Set
+          </Button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/** At-a-glance stock status shown on the collapsed item row. */
+function ItemStockBadge({ item }: { item: ManagedItem }) {
+  if (!item.trackStock) return null;
+  const statuses = item.variations.map((v) => stockStatus(v.stock));
+  if (statuses.includes("out")) return <Badge variant="destructive">Out of stock</Badge>;
+  if (statuses.includes("low")) return <Badge variant="warning">Low stock</Badge>;
+  return <Badge variant="muted">In stock</Badge>;
 }

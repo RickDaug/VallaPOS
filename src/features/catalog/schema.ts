@@ -71,6 +71,37 @@ export const updateVariationSchema = z.object({
   sortOrder: z.number().int().min(0).max(100_000).optional(),
 });
 
+// ── Stock / inventory ─────────────────────────────────────────────────────────
+
+// Toggle Item.trackStock. Enabling initializes each of the item's null-stock
+// variations to 0 (see setItemStockTracking).
+export const setItemStockTrackingSchema = z.object({
+  businessId: businessIdSchema,
+  itemId: z.string().min(1),
+  trackStock: z.boolean(),
+});
+
+// Absolute set of a variation's on-hand count (manual entry / stock-take).
+// Non-negative; the action also clamps defensively.
+export const setVariationStockSchema = z.object({
+  businessId: businessIdSchema,
+  variationId: z.string().min(1),
+  stock: z.number().int().min(0).max(1_000_000),
+});
+
+// Relative +/- correction (restock / shrinkage). Non-zero; the action clamps the
+// RESULT to >= 0 so a manual over-decrement can't drive the count negative.
+export const adjustVariationStockSchema = z.object({
+  businessId: businessIdSchema,
+  variationId: z.string().min(1),
+  delta: z
+    .number()
+    .int()
+    .min(-1_000_000)
+    .max(1_000_000)
+    .refine((v) => v !== 0, { message: "delta must be non-zero." }),
+});
+
 // Reorder a category (numeric sortOrder; lower sorts first).
 export const updateCategorySortOrderSchema = z.object({
   businessId: businessIdSchema,

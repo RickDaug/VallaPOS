@@ -257,7 +257,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       });
       const number = counter.lastNumber;
 
-      return tx.order.create({
+      const created = await tx.order.create({
         data: {
           businessId,
           clientUuid: data.clientUuid,
@@ -309,6 +309,25 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           },
         },
       });
+
+      // STOCK DECREMENT (inventory). For each resolved line whose parent item
+      // tracks stock, atomically decrement the variation's on-hand count IN THIS
+      // SAME transaction, so stock only moves if the order commits. OVERSELL IS
+      // ALLOWED — we never block the sale and the count may go negative; a POS
+      // must not freeze a real transaction over inventory, and a negative reading
+      // is an honest "you sold more than you had" signal. Applies on BOTH the
+      // online and offline-replay paths (this whole action is shared). Ownership
+      // is already established: `resolveOrderLines` looked these variations up
+      // scoped to `businessId`, so `l.variationId` is this tenant's.
+      for (const l of lineRecords) {
+        if (!l.trackStock) continue;
+        await tx.variation.update({
+          where: { id: l.variationId },
+          data: { stock: { decrement: l.quantity } },
+        });
+      }
+
+      return created;
     });
   } catch (e) {
     // Concurrency: another request with the same clientUuid won the insert race

@@ -19,6 +19,9 @@ import {
   bulkCreateItemsSchema,
   createModifierGroupWithModifiersSchema,
   addItemIngredientOptionsSchema,
+  setItemStockTrackingSchema,
+  setVariationStockSchema,
+  adjustVariationStockSchema,
 } from "./schema";
 import { getPreset, isBlankRow, validateRow, type ParsedRow } from "./bulk-parse";
 
@@ -236,6 +239,91 @@ export async function deleteVariation(input: z.infer<typeof idSchema>) {
   if (count <= 1) throw new Error("An item must keep at least one variation.");
 
   await db.variation.deleteMany({ where: { id: variation.id, businessId: ctx.businessId } });
+  revalidateCatalog(ctx.businessId);
+}
+
+// ── Stock / inventory ─────────────────────────────────────────────────────────
+
+/**
+ * Turn stock tracking on/off for one item. When ENABLING, every variation of the
+ * item that currently has `stock = null` (never tracked) is initialized to 0, so
+ * the count starts from a known baseline the operator can then set/adjust.
+ * Disabling leaves the stored numbers in place (harmless; reads ignore them when
+ * `trackStock` is false) — re-enabling doesn't wipe a prior count.
+ */
+export async function setItemStockTracking(
+  input: z.infer<typeof setItemStockTrackingSchema>,
+) {
+  const data = setItemStockTrackingSchema.parse(input);
+  const ctx = await requireCapability(data.businessId, "manage_products");
+
+  // The item must belong to this business (defense in depth).
+  const item = await db.item.findFirst({
+    where: { id: data.itemId, businessId: ctx.businessId },
+    select: { id: true },
+  });
+  if (!item) throw new Error("Item not found.");
+
+  await db.$transaction(async (tx) => {
+    await tx.item.update({ where: { id: item.id }, data: { trackStock: data.trackStock } });
+    if (data.trackStock) {
+      // Seed a 0 baseline only where nothing was ever tracked; leave existing
+      // counts untouched. Scoped by businessId (tenant-safe bulk update).
+      await tx.variation.updateMany({
+        where: { itemId: item.id, businessId: ctx.businessId, stock: null },
+        data: { stock: 0 },
+      });
+    }
+  });
+  revalidateCatalog(ctx.businessId);
+}
+
+/** Absolute set of a variation's on-hand count (manual entry / stock-take). */
+export async function setVariationStock(input: z.infer<typeof setVariationStockSchema>) {
+  const data = setVariationStockSchema.parse(input);
+  const ctx = await requireCapability(data.businessId, "manage_products");
+
+  // The variation must belong to this business.
+  const variation = await db.variation.findFirst({
+    where: { id: data.variationId, businessId: ctx.businessId },
+    select: { id: true },
+  });
+  if (!variation) throw new Error("Variation not found.");
+
+  // Clamp >= 0 for a manual set (the schema already floors at 0; belt-and-braces).
+  const stock = Math.max(0, data.stock);
+  await db.variation.updateMany({
+    where: { id: variation.id, businessId: ctx.businessId },
+    data: { stock },
+  });
+  revalidateCatalog(ctx.businessId);
+}
+
+/**
+ * Relative +/- correction to a variation's count (restock, shrinkage, fix). The
+ * RESULT is clamped to >= 0 so an over-decrement by hand can't drive it negative
+ * (only an oversell at checkout is allowed to go negative — that's an honest
+ * signal there; a manual correction should never manufacture negative stock).
+ */
+export async function adjustVariationStock(
+  input: z.infer<typeof adjustVariationStockSchema>,
+) {
+  const data = adjustVariationStockSchema.parse(input);
+  const ctx = await requireCapability(data.businessId, "manage_products");
+
+  // The variation must belong to this business; read the current count to apply
+  // the delta with a >= 0 floor.
+  const variation = await db.variation.findFirst({
+    where: { id: data.variationId, businessId: ctx.businessId },
+    select: { id: true, stock: true },
+  });
+  if (!variation) throw new Error("Variation not found.");
+
+  const next = Math.max(0, (variation.stock ?? 0) + data.delta);
+  await db.variation.updateMany({
+    where: { id: variation.id, businessId: ctx.businessId },
+    data: { stock: next },
+  });
   revalidateCatalog(ctx.businessId);
 }
 
