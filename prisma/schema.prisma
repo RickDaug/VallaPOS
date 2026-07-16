@@ -151,6 +151,21 @@ model Business {
   subscriptionStatus           String?
   subscriptionPriceId          String?
   subscriptionCurrentPeriodEnd DateTime?
+  // Payroll-tax provider (embedded payroll — Check — docs/PAYROLL_TAX.md). All
+  // additive + nullable/defaulted so existing businesses are untouched and the
+  // integration stays DORMANT until CHECK_* keys are set AND a merchant onboards.
+  // We store ONLY the provider's tokenized company id + a mirrored onboarding
+  // status string — NEVER any SSN/EIN/bank data (those live only in the provider,
+  // tokenized). Unique so a payroll webhook can resolve exactly one business from
+  // a company id, and a business can never hold two provider companies.
+  checkCompanyId               String?      @unique
+  // Raw provider onboarding status string, mirrored by the refresh action +
+  // webhook. Null = onboarding never started. Normalized to a typed status in
+  // src/features/payroll/tax/gateway.ts.
+  payrollTaxOnboardingStatus   String?
+  // Master switch for the automated-withholding path for THIS business. Default
+  // OFF: with it false the payroll v1 gross/net display + CSV are unchanged.
+  payrollTaxEnabled            Boolean      @default(false)
   createdAt                    DateTime     @default(now())
   updatedAt                    DateTime     @updatedAt
 
@@ -188,23 +203,28 @@ enum Role {
 }
 
 model Membership {
-  id          String      @id @default(cuid())
+  id              String      @id @default(cuid())
   // Null for PIN-only staff who have no login account; otherwise the Better Auth user.
-  userId      String?
+  userId          String?
   // Display name for PIN-only staff (accountless); account members use User.name/email.
-  name        String?
-  businessId  String
-  role        Role        @default(CASHIER)
+  name            String?
+  businessId      String
+  role            Role        @default(CASHIER)
   // Granular capability grants (see src/lib/capabilities.ts). OWNER ignores this
   // (implicitly all-access); non-owners are granted a capability iff it's listed.
-  permissions String[]    @default([])
-  active      Boolean     @default(true) // deactivate a member without deleting their history
-  pinHash     String? // optional shared-device PIN (v1)
-  createdAt   DateTime    @default(now())
-  user        User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  business    Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  timeEntries TimeEntry[]
-  payRate     PayRate?
+  permissions     String[]    @default([])
+  active          Boolean     @default(true) // deactivate a member without deleting their history
+  pinHash         String? // optional shared-device PIN (v1)
+  // Payroll-tax provider worker token (Check employee id). Nullable; set when a
+  // worker is synced to the provider. NO SSN/bank data is stored here — only the
+  // opaque provider id (the sensitive data lives tokenized in the provider). See
+  // docs/PAYROLL_TAX.md.
+  checkEmployeeId String?     @unique
+  createdAt       DateTime    @default(now())
+  user            User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business        Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  timeEntries     TimeEntry[]
+  payRate         PayRate?
 
   @@unique([userId, businessId])
   @@index([businessId])
@@ -655,19 +675,24 @@ model PayRate {
 // A pay run over [startDate, endDate). Payslips are computed from TimeEntry within
 // the window. DRAFT → FINALIZED → PAID.
 model PayPeriod {
-  id          String          @id @default(cuid())
-  businessId  String
-  label       String? // optional human label ("Jul 1–15")
-  startDate   DateTime // inclusive window start (UTC instant)
-  endDate     DateTime // EXCLUSIVE window end (UTC instant)
-  status      PayPeriodStatus @default(DRAFT)
-  notes       String?
-  finalizedAt DateTime?
-  paidAt      DateTime?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  business    Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  payslips    Payslip[]
+  id                 String          @id @default(cuid())
+  businessId         String
+  label              String? // optional human label ("Jul 1–15")
+  startDate          DateTime // inclusive window start (UTC instant)
+  endDate            DateTime // EXCLUSIVE window end (UTC instant)
+  status             PayPeriodStatus @default(DRAFT)
+  notes              String?
+  finalizedAt        DateTime?
+  paidAt             DateTime?
+  // Payroll-tax provider run linkage (Check payroll) + mirrored status. Nullable;
+  // set once a provider tax preview/approval runs for this period. Additive — the
+  // v1 DRAFT→FINALIZED→PAID lifecycle above is unchanged. See docs/PAYROLL_TAX.md.
+  checkPayrollId     String?
+  checkPayrollStatus String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  business           Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  payslips           Payslip[]
 
   @@index([businessId])
   @@index([businessId, startDate])
@@ -678,32 +703,40 @@ model PayPeriod {
 // gross = regularPay + overtimePay (hourly) or prorated salary; net = gross +
 // additions − deductions. NO tax withholding is computed (see docs/PAYROLL.md).
 model Payslip {
-  id               String              @id @default(cuid())
-  businessId       String
-  payPeriodId      String
-  membershipId     String
-  nameSnapshot     String // worker display name at compute time
-  payType          PayType             @default(HOURLY)
+  id                String              @id @default(cuid())
+  businessId        String
+  payPeriodId       String
+  membershipId      String
+  nameSnapshot      String // worker display name at compute time
+  payType           PayType             @default(HOURLY)
   // Hours worked (from TimeEntry), split by the weekly overtime rule.
-  regularMinutes   Int                 @default(0)
-  overtimeMinutes  Int                 @default(0)
-  openShiftCount   Int                 @default(0) // shifts still open at compute time (measured to compute instant)
+  regularMinutes    Int                 @default(0)
+  overtimeMinutes   Int                 @default(0)
+  openShiftCount    Int                 @default(0) // shifts still open at compute time (measured to compute instant)
   // Rate snapshots.
-  hourlyCents      Int                 @default(0)
-  annualCents      Int                 @default(0)
-  otMultiplierBps  Int                 @default(15000)
+  hourlyCents       Int                 @default(0)
+  annualCents       Int                 @default(0)
+  otMultiplierBps   Int                 @default(15000)
   // Money (integer cents).
-  regularPayCents  Int                 @default(0)
-  overtimePayCents Int                 @default(0)
-  grossCents       Int                 @default(0)
-  additionsCents   Int                 @default(0) // Σ ADDITION adjustments
-  deductionsCents  Int                 @default(0) // Σ DEDUCTION adjustments
-  netCents         Int                 @default(0) // gross + additions − deductions
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
-  business         Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  payPeriod        PayPeriod           @relation(fields: [payPeriodId], references: [id], onDelete: Cascade)
-  adjustments      PayslipAdjustment[]
+  regularPayCents   Int                 @default(0)
+  overtimePayCents  Int                 @default(0)
+  grossCents        Int                 @default(0)
+  additionsCents    Int                 @default(0) // Σ ADDITION adjustments
+  deductionsCents   Int                 @default(0) // Σ DEDUCTION adjustments
+  netCents          Int                 @default(0) // gross + additions − deductions (PRE-TAX v1 figure)
+  // Payroll-tax provider MIRROR (Check) — provider-computed withholding + net.
+  // All nullable and ADDITIVE: `netCents` above stays the PRE-TAX v1 figure; these
+  // are populated ONLY when a provider tax preview runs. No PII — just integer-cent
+  // tax/net mirrors sourced from the provider. See docs/PAYROLL_TAX.md.
+  providerPayslipId String?
+  employeeTaxCents  Int? // provider-computed employee withholding (all statutory taxes)
+  employerTaxCents  Int? // provider-computed employer-side tax (employer's cost, not withheld)
+  netPayCents       Int? // provider net-after-tax take-home (distinct from the pre-tax netCents)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  business          Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  payPeriod         PayPeriod           @relation(fields: [payPeriodId], references: [id], onDelete: Cascade)
+  adjustments       PayslipAdjustment[]
 
   @@unique([payPeriodId, membershipId]) // one payslip per worker per period
   @@index([businessId])

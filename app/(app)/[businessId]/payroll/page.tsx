@@ -9,6 +9,7 @@ import { listPayPeriods, listPayRates } from "@/features/payroll/queries";
 import { CreatePeriodForm } from "@/features/payroll/components/CreatePeriodForm";
 import { PayRatePanel } from "@/features/payroll/components/PayRatePanel";
 import { PayrollTaxNotice } from "@/features/payroll/components/PayrollTaxNotice";
+import { getPayrollTaxContext } from "@/features/payroll/tax/queries";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
@@ -38,9 +39,10 @@ export default async function PayrollPage({
   if (!business) notFound();
   const money = (c: number) => formatMoney(c, business.currency);
 
-  const [periods, rates] = await Promise.all([
+  const [periods, rates, taxCtx] = await Promise.all([
     listPayPeriods(businessId),
     listPayRates(businessId),
+    getPayrollTaxContext(businessId),
   ]);
 
   return (
@@ -52,7 +54,7 @@ export default async function PayrollPage({
         </p>
       </header>
 
-      <PayrollTaxNotice />
+      <PayrollTaxNotice enabled={taxCtx.active} />
 
       <section className="space-y-4">
         <h2 className="text-lg font-bold">Pay periods</h2>

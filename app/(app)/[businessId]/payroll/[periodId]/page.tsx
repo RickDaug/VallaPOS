@@ -10,6 +10,8 @@ import { getPayPeriodDetail } from "@/features/payroll/queries";
 import { formatMinutes } from "@/features/payroll/calc";
 import { PeriodActions, AdjustmentEditor } from "@/features/payroll/components/PeriodDetail";
 import { PayrollTaxNotice } from "@/features/payroll/components/PayrollTaxNotice";
+import { getPayrollTaxContext } from "@/features/payroll/tax/queries";
+import { PayrollTaxRunControls } from "@/features/payroll/tax/components/PayrollTaxRunControls";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
@@ -32,15 +34,19 @@ export default async function PayPeriodPage({
   await requireMembership(businessId);
   if (!(await pageHasCapability(businessId, "manage_payroll"))) return <NoAccess what="payroll" />;
 
-  const [business, detail] = await Promise.all([
+  const [business, detail, taxCtx] = await Promise.all([
     db.business.findUnique({ where: { id: businessId }, select: { currency: true } }),
     getPayPeriodDetail(businessId, periodId),
+    getPayrollTaxContext(businessId),
   ]);
   if (!business) notFound();
   if (!detail) notFound();
 
   const money = (c: number) => formatMoney(c, business.currency);
   const editable = detail.status === "DRAFT";
+  // Provider withholding path on for this business? Show provider tax/net columns
+  // instead of falling back to the pre-tax v1 display.
+  const taxActive = taxCtx.active;
   // endDate is the exclusive window end; show the inclusive last day.
   const lastDay = new Date(new Date(detail.endDate).getTime() - 1).toISOString();
   const rangeLabel = `${fmtDay(detail.startDate)} – ${fmtDay(lastDay)}`;
@@ -76,7 +82,15 @@ export default async function PayPeriodPage({
         hasPayslips={detail.payslips.length > 0}
       />
 
-      <PayrollTaxNotice />
+      {taxActive && detail.payslips.length > 0 && (
+        <PayrollTaxRunControls
+          businessId={businessId}
+          periodId={detail.id}
+          hasPreview={detail.checkPayrollStatus != null}
+        />
+      )}
+
+      <PayrollTaxNotice enabled={taxActive} />
 
       {detail.payslips.length === 0 ? (
         <p className="text-sm text-muted-foreground">
@@ -113,8 +127,19 @@ export default async function PayPeriodPage({
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="numeric text-lg font-black">{money(s.netCents)}</p>
-                      <p className="text-xs text-muted-foreground">net</p>
+                      {taxActive && s.netPayCents != null ? (
+                        <>
+                          <p className="numeric text-lg font-black">{money(s.netPayCents)}</p>
+                          <p className="text-xs text-muted-foreground">net (after tax)</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="numeric text-lg font-black">{money(s.netCents)}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {taxActive ? "net (pre-tax)" : "net"}
+                          </p>
+                        </>
+                      )}
                     </div>
                   </div>
 
@@ -127,6 +152,18 @@ export default async function PayPeriodPage({
                       value={`+${money(s.additionsCents)} / −${money(s.deductionsCents)}`}
                     />
                   </dl>
+
+                  {taxActive && s.netPayCents != null && (
+                    <dl className="grid grid-cols-2 gap-x-6 gap-y-1 border-t border-border pt-3 text-sm sm:grid-cols-4">
+                      <Stat
+                        label="Employee tax"
+                        value={`−${money(s.employeeTaxCents ?? 0)}`}
+                      />
+                      <Stat label="Employer tax" value={money(s.employerTaxCents ?? 0)} />
+                      <Stat label="Net (after tax)" value={money(s.netPayCents)} strong />
+                      <Stat label="Computed by" value="Provider" />
+                    </dl>
+                  )}
 
                   <div className="border-t border-border pt-3">
                     <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -152,7 +189,21 @@ export default async function PayPeriodPage({
                 <Stat label="Gross" value={money(detail.totals.grossCents)} />
                 <Stat label="Additions" value={money(detail.totals.additionsCents)} />
                 <Stat label="Deductions" value={money(detail.totals.deductionsCents)} />
-                <Stat label="Net" value={money(detail.totals.netCents)} strong />
+                {taxActive && detail.totals.netPayCents != null ? (
+                  <>
+                    <Stat
+                      label="Employee tax"
+                      value={`−${money(detail.totals.employeeTaxCents ?? 0)}`}
+                    />
+                    <Stat label="Net (after tax)" value={money(detail.totals.netPayCents)} strong />
+                  </>
+                ) : (
+                  <Stat
+                    label={taxActive ? "Net (pre-tax)" : "Net"}
+                    value={money(detail.totals.netCents)}
+                    strong
+                  />
+                )}
               </dl>
             </CardContent>
           </Card>

@@ -128,6 +128,13 @@ export interface PayslipRow {
   additionsCents: number;
   deductionsCents: number;
   netCents: number;
+  // Payroll-tax provider mirror (docs/PAYROLL_TAX.md). Null unless a provider tax
+  // preview has run; the v1 fields above are unaffected. Only shown when the
+  // provider withholding path is active for the business.
+  providerPayslipId: string | null;
+  employeeTaxCents: number | null;
+  employerTaxCents: number | null;
+  netPayCents: number | null;
   adjustments: AdjustmentRow[];
 }
 
@@ -140,8 +147,19 @@ export interface PayPeriodDetail {
   notes: string | null;
   finalizedAt: string | null;
   paidAt: string | null;
+  /** Payroll-tax provider run status mirror (null unless a preview/approve ran). */
+  checkPayrollStatus: string | null;
   payslips: PayslipRow[];
-  totals: { grossCents: number; additionsCents: number; deductionsCents: number; netCents: number };
+  totals: {
+    grossCents: number;
+    additionsCents: number;
+    deductionsCents: number;
+    netCents: number;
+    /** Provider mirror totals — null when no payslip has provider figures. */
+    employeeTaxCents: number | null;
+    employerTaxCents: number | null;
+    netPayCents: number | null;
+  };
 }
 
 /** A single pay period with its payslips + adjustment lines. Tenant-scoped. */
@@ -160,6 +178,7 @@ export async function getPayPeriodDetail(
       notes: true,
       finalizedAt: true,
       paidAt: true,
+      checkPayrollStatus: true,
       payslips: {
         orderBy: { nameSnapshot: "asc" },
         select: {
@@ -179,6 +198,10 @@ export async function getPayPeriodDetail(
           additionsCents: true,
           deductionsCents: true,
           netCents: true,
+          providerPayslipId: true,
+          employeeTaxCents: true,
+          employerTaxCents: true,
+          netPayCents: true,
           adjustments: {
             orderBy: { createdAt: "asc" },
             select: { id: true, kind: true, label: true, amountCents: true },
@@ -206,17 +229,35 @@ export async function getPayPeriodDetail(
     additionsCents: s.additionsCents,
     deductionsCents: s.deductionsCents,
     netCents: s.netCents,
+    providerPayslipId: s.providerPayslipId,
+    employeeTaxCents: s.employeeTaxCents,
+    employerTaxCents: s.employerTaxCents,
+    netPayCents: s.netPayCents,
     adjustments: s.adjustments,
   }));
 
+  // Provider mirror totals stay null until at least one payslip carries figures,
+  // so the v1 display is untouched when the provider path is off.
+  const anyProvider = payslips.some((s) => s.netPayCents != null);
   const totals = payslips.reduce(
     (acc, s) => ({
       grossCents: acc.grossCents + s.grossCents,
       additionsCents: acc.additionsCents + s.additionsCents,
       deductionsCents: acc.deductionsCents + s.deductionsCents,
       netCents: acc.netCents + s.netCents,
+      employeeTaxCents: anyProvider ? (acc.employeeTaxCents ?? 0) + (s.employeeTaxCents ?? 0) : null,
+      employerTaxCents: anyProvider ? (acc.employerTaxCents ?? 0) + (s.employerTaxCents ?? 0) : null,
+      netPayCents: anyProvider ? (acc.netPayCents ?? 0) + (s.netPayCents ?? 0) : null,
     }),
-    { grossCents: 0, additionsCents: 0, deductionsCents: 0, netCents: 0 },
+    {
+      grossCents: 0,
+      additionsCents: 0,
+      deductionsCents: 0,
+      netCents: 0,
+      employeeTaxCents: 0 as number | null,
+      employerTaxCents: 0 as number | null,
+      netPayCents: 0 as number | null,
+    },
   );
 
   return {
@@ -228,6 +269,7 @@ export async function getPayPeriodDetail(
     notes: period.notes,
     finalizedAt: period.finalizedAt ? period.finalizedAt.toISOString() : null,
     paidAt: period.paidAt ? period.paidAt.toISOString() : null,
+    checkPayrollStatus: period.checkPayrollStatus,
     payslips,
     totals,
   };
