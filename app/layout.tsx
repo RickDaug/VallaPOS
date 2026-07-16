@@ -4,12 +4,13 @@ import { headers } from "next/headers";
 import { Inter } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ToastProvider } from "@/components/ui/toast";
+import { CANONICAL_URL } from "@/lib/site";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
 
-// Absolute base for canonical/OG URLs. NEXT_PUBLIC_APP_URL is validated at build
-// (src/lib/env.ts); the fallback only guards local/preview where it's unset.
-const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://valla-pos.vercel.app";
+// Absolute base for canonical/OG URLs — the fixed brand domain (vallapos.com),
+// so canonical/og:url always resolve to production even from a preview build.
+const appUrl = CANONICAL_URL;
 const description = "Browser-based point of sale for mobile and local businesses.";
 
 export const metadata: Metadata = {
