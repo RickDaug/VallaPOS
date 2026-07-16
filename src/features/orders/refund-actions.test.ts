@@ -13,6 +13,9 @@ const paymentFindFirst = vi.fn();
 const orderUpdate = vi.fn();
 const drawerFindFirst = vi.fn();
 const queryRaw = vi.fn();
+const orderLineFindMany = vi.fn();
+const variationFindMany = vi.fn();
+const variationUpdate = vi.fn();
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 // Stub the tenant module (its real impl pulls in auth.ts → env.ts, which throws
@@ -43,6 +46,13 @@ vi.mock("@/lib/db", () => {
     },
     cashDrawerSession: {
       findFirst: (...a: unknown[]) => drawerFindFirst(...a),
+    },
+    orderLine: {
+      findMany: (...a: unknown[]) => orderLineFindMany(...a),
+    },
+    variation: {
+      findMany: (...a: unknown[]) => variationFindMany(...a),
+      update: (...a: unknown[]) => variationUpdate(...a),
     },
   };
   return {
@@ -90,6 +100,10 @@ beforeEach(() => {
   paymentFindFirst.mockResolvedValue(null);
   // Default: a drawer IS open, so cash refunds/voids are allowed to proceed.
   drawerFindFirst.mockResolvedValue({ id: "drawer_1" });
+  // Default: no order lines → restock is a no-op for the existing tests.
+  orderLineFindMany.mockResolvedValue([]);
+  variationFindMany.mockResolvedValue([]);
+  variationUpdate.mockResolvedValue({});
 });
 
 describe("voidOrder — auth + tenant", () => {
@@ -342,6 +356,53 @@ describe("cash-drawer guard on cash refunds/voids", () => {
       manualRefundRequired: true,
     });
     expect(drawerFindFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe("restock on reversal (inventory)", () => {
+  // A tracked line + a variation whose item tracks stock.
+  function withTrackedLine() {
+    orderLineFindMany.mockResolvedValue([{ variationId: "var_1", quantity: 4 }]);
+    variationFindMany.mockResolvedValue([{ id: "var_1", item: { trackStock: true } }]);
+  }
+
+  it("void returns the sold units to inventory (increment by line quantity)", async () => {
+    orderFindFirst.mockResolvedValue(order("PAID", [{ id: "p1", method: "CASH", amountCents: 1000 }]));
+    withTrackedLine();
+    await voidOrder({ businessId: BUSINESS_ID, orderId: ORDER_ID });
+    expect(orderLineFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ orderId: ORDER_ID, businessId: BUSINESS_ID }),
+      }),
+    );
+    expect(variationUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "var_1" }, data: { stock: { increment: 4 } } }),
+    );
+  });
+
+  it("a FULL refund restocks", async () => {
+    orderFindFirst.mockResolvedValue(order("PAID", [{ id: "p1", method: "CASH", amountCents: 1000 }]));
+    withTrackedLine();
+    await refundOrder({ businessId: BUSINESS_ID, orderId: ORDER_ID });
+    expect(variationUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { stock: { increment: 4 } } }),
+    );
+  });
+
+  it("a PARTIAL (amount-only) refund does NOT restock", async () => {
+    orderFindFirst.mockResolvedValue(order("PAID", [{ id: "p1", method: "CASH", amountCents: 1000 }]));
+    withTrackedLine();
+    await refundOrder({ businessId: BUSINESS_ID, orderId: ORDER_ID, amountCents: 300 });
+    expect(orderLineFindMany).not.toHaveBeenCalled();
+    expect(variationUpdate).not.toHaveBeenCalled();
+  });
+
+  it("skips lines whose variation doesn't track stock", async () => {
+    orderFindFirst.mockResolvedValue(order("PAID", [{ id: "p1", method: "CASH", amountCents: 1000 }]));
+    orderLineFindMany.mockResolvedValue([{ variationId: "var_1", quantity: 4 }]);
+    variationFindMany.mockResolvedValue([{ id: "var_1", item: { trackStock: false } }]);
+    await voidOrder({ businessId: BUSINESS_ID, orderId: ORDER_ID });
+    expect(variationUpdate).not.toHaveBeenCalled();
   });
 });
 

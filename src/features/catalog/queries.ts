@@ -23,6 +23,12 @@ export interface SellableEntry {
   category: string;
   type: ItemType;
   priceCents: number;
+  // Inventory. `trackStock` is the parent item's flag; `stock` is this
+  // variation's on-hand count (null when not tracking). OPTIONAL so the offline
+  // SqliteDataStore (which doesn't surface stock yet) still satisfies the type —
+  // consumers treat an absent value as "untracked". See stock.ts.
+  trackStock?: boolean;
+  stock?: number | null;
   // Modifier groups linked to the parent item (shared across its variations).
   modifierGroups: SellableModifierGroup[];
 }
@@ -46,6 +52,7 @@ export async function getRegisterCatalog(businessId: string): Promise<SellableEn
       id: true,
       name: true,
       type: true,
+      trackStock: true,
       category: { select: { name: true } },
       variations: { orderBy: { sortOrder: "asc" } },
       modifierLinks: {
@@ -84,6 +91,8 @@ export async function getRegisterCatalog(businessId: string): Promise<SellableEn
         category: item.category?.name ?? UNCATEGORIZED,
         type: item.type,
         priceCents: variation.priceCents,
+        trackStock: item.trackStock,
+        stock: variation.stock,
         modifierGroups,
       });
     }
@@ -103,6 +112,9 @@ export interface ManagedVariation {
   priceCents: number;
   sku: string | null;
   sortOrder: number;
+  // On-hand count (null when the item isn't tracking stock). OPTIONAL so the
+  // offline SqliteDataStore still satisfies the type. See stock.ts.
+  stock?: number | null;
 }
 
 export interface ManagedItem {
@@ -112,6 +124,8 @@ export interface ManagedItem {
   active: boolean;
   categoryId: string | null;
   categoryName: string | null;
+  // Whether this item tracks per-variation stock. OPTIONAL for the same reason.
+  trackStock?: boolean;
   variations: ManagedVariation[];
   // Ids of the modifier groups linked to this item.
   modifierGroupIds: string[];
@@ -149,11 +163,12 @@ export async function getManagedCatalog(businessId: string): Promise<ManagedCata
         name: true,
         type: true,
         active: true,
+        trackStock: true,
         categoryId: true,
         category: { select: { name: true } },
         variations: {
           orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-          select: { id: true, name: true, priceCents: true, sku: true, sortOrder: true },
+          select: { id: true, name: true, priceCents: true, sku: true, sortOrder: true, stock: true },
         },
         modifierLinks: { select: { groupId: true } },
       },
@@ -183,6 +198,7 @@ export async function getManagedCatalog(businessId: string): Promise<ManagedCata
       active: i.active,
       categoryId: i.categoryId,
       categoryName: i.category?.name ?? null,
+      trackStock: i.trackStock,
       variations: i.variations,
       modifierGroupIds: i.modifierLinks.map((l) => l.groupId),
     })),

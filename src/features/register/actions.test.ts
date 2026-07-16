@@ -13,6 +13,7 @@ const variationFindMany = vi.fn();
 const orderCounterUpsert = vi.fn();
 const orderCreate = vi.fn();
 const membershipFindFirst = vi.fn();
+const variationUpdate = vi.fn();
 
 // checkout now gates on the active operator's capability; the operator's
 // membershipId is the cashierId. Mock the gate to return a fixed operator.
@@ -35,6 +36,7 @@ vi.mock("@/lib/db", () => {
   const tx = {
     orderCounter: { upsert: (...a: unknown[]) => orderCounterUpsert(...a) },
     order: { create: (...a: unknown[]) => orderCreate(...a) },
+    variation: { update: (...a: unknown[]) => variationUpdate(...a) },
   };
   return {
     db: {
@@ -82,15 +84,23 @@ function variation(
     priceCents: number;
     itemName: string;
     groups: TestGroup[];
+    trackStock: boolean;
   }> = {},
 ) {
-  const { id = "var_1", name = "Default", priceCents = 1000, itemName = "Coffee", groups = [] } = over;
+  const {
+    id = "var_1",
+    name = "Default",
+    priceCents = 1000,
+    itemName = "Coffee",
+    groups = [],
+    trackStock = false,
+  } = over;
   return {
     id,
     businessId: BUSINESS_ID,
     name,
     priceCents,
-    item: { name: itemName, modifierLinks: groups.map((group) => ({ group })) },
+    item: { name: itemName, trackStock, modifierLinks: groups.map((group) => ({ group })) },
   };
 }
 
@@ -133,6 +143,7 @@ beforeEach(() => {
   businessFindUniqueOrThrow.mockResolvedValue({ taxRateBps: 825, taxInclusive: false });
   variationFindMany.mockResolvedValue([variation()]);
   orderCounterUpsert.mockResolvedValue({ lastNumber: 7 });
+  variationUpdate.mockResolvedValue({});
   // By default the captured offline cashier resolves to a valid active member.
   membershipFindFirst.mockResolvedValue({ id: "mem_ringer" });
   // order.create echoes back the persisted totals so toReceipt reflects them.
@@ -924,6 +935,73 @@ describe("checkout — manager-approval gate for unverified tenders", () => {
       expect(verifyManagerApproval).not.toHaveBeenCalled();
       expect(orderCreate).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("checkout — stock decrement (inventory)", () => {
+  it("decrements a tracked variation's stock by the line quantity, inside the tx", async () => {
+    variationFindMany.mockResolvedValue([variation({ trackStock: true })]);
+    await checkout(input({ lines: [{ variationId: "var_1", quantity: 3 }] }));
+    expect(variationUpdate).toHaveBeenCalledTimes(1);
+    expect(variationUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "var_1" },
+        data: { stock: { decrement: 3 } },
+      }),
+    );
+  });
+
+  it("does NOT decrement when the item doesn't track stock", async () => {
+    variationFindMany.mockResolvedValue([variation({ trackStock: false })]);
+    await checkout(input());
+    expect(variationUpdate).not.toHaveBeenCalled();
+  });
+
+  it("allows oversell — never blocks the sale (a tracked line still commits)", async () => {
+    variationFindMany.mockResolvedValue([variation({ trackStock: true })]);
+    const receipt = await checkoutReceipt(
+      input({ lines: [{ variationId: "var_1", quantity: 99 }], cashTenderedCents: 200000 }),
+    );
+    // The order still writes and the decrement (which may drive stock negative) fires.
+    expect(orderCreate).toHaveBeenCalledTimes(1);
+    expect(receipt.orderId).toBe("order_1");
+    expect(variationUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { stock: { decrement: 99 } } }),
+    );
+  });
+
+  it("decrements each tracked line independently (mixed cart)", async () => {
+    variationFindMany.mockResolvedValue([
+      variation({ id: "var_a", itemName: "A", trackStock: true }),
+      variation({ id: "var_b", itemName: "B", trackStock: false }),
+    ]);
+    await checkout(
+      input({
+        lines: [
+          { variationId: "var_a", quantity: 2 },
+          { variationId: "var_b", quantity: 5 },
+        ],
+        cashTenderedCents: 20000,
+      }),
+    );
+    // Only the tracked line (var_a) is decremented; var_b is left alone.
+    expect(variationUpdate).toHaveBeenCalledTimes(1);
+    expect(variationUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "var_a" }, data: { stock: { decrement: 2 } } }),
+    );
+  });
+
+  it("decrements on the offline-replay path too", async () => {
+    variationFindMany.mockResolvedValue([variation({ trackStock: true })]);
+    await checkout(
+      input({
+        priceSnapshot: { quoted: true, lines: [{ unitPriceCents: 1000 }] },
+        cashTenderedCents: 2000,
+      }),
+    );
+    expect(variationUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { stock: { decrement: 1 } } }),
+    );
   });
 });
 

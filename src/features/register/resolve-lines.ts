@@ -51,6 +51,9 @@ export interface ResolvedLine {
   lineDiscountCents: number;
   modifiers: ResolvedModifier[];
   nameSnapshot: string;
+  // Whether the parent item tracks stock — the checkout decrements this
+  // variation's stock (inside the sale's transaction) only when true.
+  trackStock: boolean;
 }
 
 /**
@@ -106,6 +109,7 @@ export async function resolveOrderLines(
       item: {
         select: {
           name: true,
+          trackStock: true,
           modifierLinks: {
             select: {
               group: {
@@ -212,6 +216,7 @@ export async function resolveOrderLines(
         variation.name && variation.name !== "Default"
           ? `${variation.item.name} — ${variation.name}`
           : variation.item.name,
+      trackStock: Boolean(variation.item.trackStock),
     };
   });
 

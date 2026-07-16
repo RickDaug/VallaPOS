@@ -26,6 +26,7 @@ import { formatMoney } from "@/lib/money";
 import { lockOperator, getActiveOperatorId } from "@/features/employees/actions";
 import { computePricedOrder, type PricedLineInput } from "@/features/register/pricing";
 import type { SellableEntry, SellableModifierGroup } from "@/features/catalog/queries";
+import { stockStatus } from "@/features/catalog/stock";
 import { QRCodeSVG } from "qrcode.react";
 import type { Receipt, TenderMethod } from "@/features/register/schema";
 
@@ -768,6 +769,11 @@ export function Register({
                     <span className="min-w-0">
                       <span className="block truncate font-semibold">{entry.label}</span>
                       <span className="text-xs text-muted-foreground">{entry.category}</span>
+                      <StockBadge
+                        trackStock={entry.trackStock}
+                        stock={entry.stock}
+                        className="mt-1"
+                      />
                     </span>
                     <span className="numeric shrink-0 font-black">{money(entry.priceCents)}</span>
                   </button>
@@ -802,6 +808,11 @@ export function Register({
                     </div>
                     <h3 className="font-semibold leading-tight">{entry.label}</h3>
                     <p className="numeric mt-1 text-2xl font-black">{money(entry.priceCents)}</p>
+                    <StockBadge
+                      trackStock={entry.trackStock}
+                      stock={entry.stock}
+                      className="mt-2"
+                    />
                   </button>
                 </div>
               ))}
@@ -849,6 +860,42 @@ export function Register({
       </button>
     </div>
   );
+}
+
+/**
+ * Low/out-of-stock indicator for a catalog card. Renders nothing when the item
+ * doesn't track stock (or has healthy stock), a warning "Low stock" chip in the
+ * (0, threshold] band, and a destructive "Out of stock" chip at/below zero. The
+ * badge is informational only — the register never blocks adding an out-of-stock
+ * item (a POS must not freeze a sale over inventory). The text is descriptive so
+ * it reads correctly to assistive tech without extra aria.
+ */
+function StockBadge({
+  trackStock,
+  stock,
+  className,
+}: {
+  trackStock?: boolean;
+  stock?: number | null;
+  className?: string;
+}) {
+  if (!trackStock) return null;
+  const status = stockStatus(stock);
+  if (status === "out") {
+    return (
+      <Badge variant="destructive" className={cn("block w-fit", className)}>
+        Out of stock
+      </Badge>
+    );
+  }
+  if (status === "low") {
+    return (
+      <Badge variant="warning" className={cn("block w-fit", className)}>
+        Low stock · {stock} left
+      </Badge>
+    );
+  }
+  return null;
 }
 
 /** Star toggle for favoriting a catalog entry. Stops click propagation so it

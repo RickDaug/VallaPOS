@@ -209,6 +209,8 @@ export async function voidOrder(input: VoidOrderInput): Promise<RefundVoidResult
     // drawer session (throws when none is open — see assertOpenDrawerForCash).
     await assertOpenDrawerForCash(tx, ctx.businessId, reversals);
     await applyReversal(tx, ctx.businessId, order.id, order.payments, reversals, "VOIDED", refTag(data.clientUuid));
+    // A void reverses the whole sale → return the sold units to inventory.
+    await restockOrderLines(tx, ctx.businessId, order.id);
 
     revalidatePaths(ctx.businessId, order.id);
     return { ok: true, status: "VOIDED", reversedCents, ...classifyRefund(reversals) };
@@ -257,6 +259,9 @@ export async function refundOrder(input: RefundOrderInput): Promise<RefundVoidRe
       const reversedCents = -reversals.reduce((s, r) => s + r.amountCents, 0);
       await assertOpenDrawerForCash(tx, ctx.businessId, reversals);
       await applyReversal(tx, ctx.businessId, order.id, order.payments, reversals, "REFUNDED", refTag(data.clientUuid));
+      // FULL refund reverses the whole sale → return the sold units to inventory.
+      // (A partial refund below intentionally does NOT — see restockOrderLines.)
+      await restockOrderLines(tx, ctx.businessId, order.id);
       revalidatePaths(ctx.businessId, order.id);
       return { ok: true, status: "REFUNDED", reversedCents, ...classifyRefund(reversals) };
     }
@@ -355,6 +360,48 @@ async function applyReversal(
     });
   }
   await tx.order.update({ where: { id: orderId }, data: { status } });
+}
+
+/**
+ * RESTOCK the sold units back onto inventory when a sale is fully reversed.
+ *
+ * Called from `voidOrder` and from a FULL `refundOrder` inside the existing
+ * transaction, so the stock increment commits atomically with the reversing
+ * payments + status change. For each order line whose variation's item tracks
+ * stock, the variation's on-hand count is incremented by that line's quantity —
+ * the exact inverse of the checkout decrement.
+ *
+ * DELIBERATELY NOT called for a PARTIAL (amount-only) refund: a partial refund
+ * reverses money, not specific items, so there is no line quantity to add back.
+ * (If a merchant physically takes goods back on a partial, they correct stock by
+ * hand via the Products screen — a money-only partial must not silently move
+ * inventory.) Lines whose variation was deleted, or whose item doesn't track
+ * stock, are skipped. Tenant-scoped by businessId throughout.
+ */
+async function restockOrderLines(tx: Tx, businessId: string, orderId: string): Promise<void> {
+  const lines = await tx.orderLine.findMany({
+    where: { orderId, businessId, variationId: { not: null } },
+    select: { variationId: true, quantity: true },
+  });
+  if (lines.length === 0) return;
+
+  // Which of the referenced variations still exist AND track stock.
+  const variationIds = [...new Set(lines.map((l) => l.variationId!))];
+  const variations = await tx.variation.findMany({
+    where: { businessId, id: { in: variationIds } },
+    select: { id: true, item: { select: { trackStock: true } } },
+  });
+  const tracked = new Set(variations.filter((v) => v.item.trackStock).map((v) => v.id));
+  if (tracked.size === 0) return;
+
+  for (const l of lines) {
+    if (l.variationId && tracked.has(l.variationId)) {
+      await tx.variation.update({
+        where: { id: l.variationId },
+        data: { stock: { increment: l.quantity } },
+      });
+    }
+  }
 }
 
 function revalidatePaths(businessId: string, orderId: string): void {
