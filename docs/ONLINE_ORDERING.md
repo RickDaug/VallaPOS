@@ -26,6 +26,10 @@ a merchant turns it on in **Settings → Online ordering**.
 5. Staff **Accept** (→ ACCEPTED, **stock decrements here**) → **Ready** (→ READY)
    → **Complete** (→ COMPLETED) or **Reject** (→ REJECTED, restocked if it had
    been accepted).
+6. Staff **Take payment** on the board (Cash / QR / Other) → records a `Payment`
+   and flips the order to **PAID**, so it becomes realized revenue/tax on the
+   Z-report. Independent of the fulfilment status above (pay before or after
+   Complete); a completed-but-unpaid order stays on the board until it's settled.
 
 ### Status lifecycle
 
@@ -47,11 +51,11 @@ server-side; the client is never trusted for anything that matters:
 | Control | How |
 | --- | --- |
 | **Enable-gate** | Rejected (`unavailable`) unless `Business.onlineOrderingEnabled`. A missing/disabled business is indistinguishable → the page also 404s via `getPublicMenu`. |
-| **IP rate limit** | `rateLimit()` (`src/lib/rate-limit.ts`) — shared Upstash fixed-window limiter (same optional-Redis pattern as `pin-throttle.ts`), keyed `online-submit:<businessId>:<ip>`. Default **8 requests / 60s / IP**. Fails **open** on a limiter outage so it can't take the endpoint down. |
-| **Input caps (zod)** | `submitOnlineOrderSchema`: ≤100 lines, qty ≤99, ≤30 modifiers/line, name ≤80, phone ≤40, tip bounded. No client price, no discount, no ad-hoc modifier, no price snapshot. |
+| **IP rate limit** | `rateLimit()` (`src/lib/rate-limit.ts`) — shared Upstash fixed-window limiter (same optional-Redis pattern as `pin-throttle.ts`), keyed `online-submit:<businessId>:<ip>`. Default **20 requests / 60s / IP** (raised from 8 so a busy shared-NAT venue isn't throttled). The client IP is taken from a **platform-trusted** source — `x-vercel-forwarded-for`, else the **right-most** hop of `x-forwarded-for` — never the client-spoofable left-most entry (A5). This path **fails CLOSED** (`onError: "memory"`): on a Redis outage it falls back to a strict per-instance in-memory counter rather than removing all throttling. |
+| **Input caps (zod)** | `submitOnlineOrderSchema`: ≤100 lines, qty ≤99, ≤30 modifiers/line, name ≤80, phone ≤40, **tip hard-capped at $1,000** (`MAX_TIP_CENTS` — the tip is the one client-authoritative amount, so a seven-figure "tip" can't be bolted onto the recomputed subtotal; #13). No client price, no discount, no ad-hoc modifier, no price snapshot. |
 | **Server-authoritative pricing** | Every unit price / modifier delta / tax / total is **recomputed from the DB** via `resolveOrderLines` + `computePricedOrder` — the exact engine the register checkout uses. Unknown / foreign / cross-tenant item or modifier ids, or an unsatisfied required group, are rejected as a generic `invalid` (leaks nothing). The customer sends **no money amount**. |
 | **Tenant scope** | The order + all lookups are scoped to `businessId` (guarded by the tenant-isolation CI check). |
-| **Idempotent** | Keyed on `clientUuid` (`@@unique([businessId, clientUuid])`), including the concurrent **P2002** insert race — a double-tap never places two orders. |
+| **Idempotent (channel-scoped)** | Keyed on `clientUuid` (`@@unique([businessId, clientUuid])`), including the concurrent **P2002** insert race — a double-tap never places two orders. The idempotency read is scoped to `channel: "ONLINE"` (#16) so a reused UUID can never read back an in-person order's number/total to an anonymous caller. |
 | **Minimal response** | Returns only `{ orderId, number, totalCents }` — no cross-customer data. |
 
 The created order is `status=OPEN` (unpaid), `channel=ONLINE`,
@@ -68,6 +72,15 @@ the order had already been accepted (`isStockCommittedAt`) — a reject straight
 SUBMITTED never decremented, so it never restocks. Oversell is allowed (counts may
 go negative), matching the register checkout.
 
+**Atomic transition (no double-decrement — A4).** `transitionOnlineOrder` does the
+status change as a **guarded compare-and-set** inside the transaction —
+`updateMany({ where: { …, onlineStatus: current }, data: { onlineStatus: target } })`
+— and runs `adjustStock` **only when that update actually applied** (`count === 1`).
+Two staff (or a double-tap) both Accepting the same SUBMITTED order therefore
+decrement stock **exactly once**: the loser's guarded update matches zero rows and
+is returned as `{ status: "already" }` (a friendly no-op), never re-running the
+decrement. The action returns `{ status: "applied" | "already" }`.
+
 ## Merchant board & live updates
 
 - `listOnlineOrders(businessId)` returns SUBMITTED/ACCEPTED/READY orders (oldest
@@ -77,18 +90,43 @@ go negative), matching the register checkout.
   tenant-scoped, zod-validated.
 - Live: `OnlineOrderAlerts` (mounted in the business layout when enabled + the
   operator can take orders) polls `/[businessId]/online/count` every 15s **while
-  the tab is visible** (poll-on-visible, mirroring `FloorService`), fires a
-  `useToast` when the SUBMITTED count rises, and `router.refresh()`es to update the
-  server-rendered nav badge + the board.
+  the tab is visible** (poll-on-visible, mirroring `FloorService`). When the
+  SUBMITTED count rises it (#6): plays a short **audio chime** (Web Audio, no
+  asset — so staff notice away from the screen) and bumps a **persistent
+  unacknowledged counter** rendered as a fixed `aria-live="assertive"` banner
+  (with a link to the board + a dismiss button) that **stays until acted on** —
+  not an auto-dismissing toast. It also `router.refresh()`es to update the
+  server-rendered nav badge + the board. The chime is a best-effort enhancement
+  (autoplay policies may block it until a gesture); the visual banner is always
+  the reliable signal.
 
 ## Settlement / payment (v1)
 
-- **Complete** leaves the order `status=OPEN` (an unpaid sale). v1 payment is
-  pay-on-pickup or the confirm-based QR handle shown on the customer's
-  confirmation — the merchant collects out-of-band. A COMPLETED online order that
-  was paid ahead can simply be left; it contributes nothing to cash/Z-report
-  totals (no `Payment` rows) until a real settlement path records payment.
-- **Reject** sets `status=VOIDED` so it never counts as a sale.
+The fulfilment lifecycle (Accept/Ready/Complete) and **settlement** are separate
+dimensions. Completing an order does **not** by itself record money — settlement is
+the explicit **Take payment** step.
+
+- **Take payment** → `settleOnlineOrder({ businessId, orderId, method, tipCents? })`
+  (`src/features/online/actions.ts`). `take_orders`-gated, tenant-scoped, zod. In
+  ONE transaction it writes a `Payment` at the order's **server-stored total**
+  (method ∈ `CASH | QR | MANUAL`, recorded exactly like the register's
+  non-cash/manual tenders — `amountCents = total`, no tendered/change) and flips
+  `Order.status → PAID`, **without touching stock** (stock already moved on
+  Accept). An optional staff `tipCents` (same hard cap as the public tip) is added
+  on top. The flip is a **guarded** `updateMany({ where: { status: "OPEN" }, … })`
+  so a double-tap / two-staff race writes exactly **one** payment (the loser
+  returns `already_paid`). Once PAID the order is a normal sale: it flows into the
+  existing **Z-report / tax / item reports**, which filter `status = "PAID"`.
+- **Why this exists (A1).** Before it, a completed online order was stranded
+  `OPEN` forever with no `PAID` writer reachable for it (the register creates a
+  *new* sale; `settleTab` is restaurant-floor-only), so a food truck could never
+  turn a QR order into revenue/tax. `settleOnlineOrder` is that missing writer.
+- **On the board.** Each card shows a **Paid / Unpaid** chip and, while unpaid, a
+  **Take payment** control (tender picker). A COMPLETED-but-unpaid order stays on
+  the board (see `listOnlineOrders`) so it can still be settled; a PAID or VOIDED
+  order drops off.
+- **Reject** sets `status=VOIDED` so it never counts as a sale (and cannot be
+  settled).
 
 ## Extension seam
 

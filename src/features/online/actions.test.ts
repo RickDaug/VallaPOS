@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-// The public submit + merchant transitions are exercised end-to-end with REAL
-// money math (resolveOrderLines + computePricedOrder) and REAL zod validation,
-// with the DB, tenant gate, rate limiter, and next/headers|cache stubbed. We
-// assert the security controls: enable-gate, IP rate limit, server-authoritative
-// pricing, idempotency, tenant scope, input caps, and stock-on-accept.
+// The public submit + merchant transitions/settlement are exercised end-to-end
+// with REAL money math (resolveOrderLines + computePricedOrder) and REAL zod
+// validation, with the DB, tenant gate, rate limiter, and next/headers|cache
+// stubbed. We assert the security controls: enable-gate, IP rate limit,
+// server-authoritative pricing, channel-scoped idempotency, tenant scope, input
+// caps, stock-on-accept, the atomic (no double-decrement) transition, and the
+// settlement path that records a Payment + flips the order to PAID.
 
 const rateLimit = vi.fn();
 vi.mock("@/lib/rate-limit", () => ({ rateLimit: (...a: unknown[]) => rateLimit(...a) }));
@@ -20,18 +22,22 @@ vi.mock("@/lib/operator-guard", () => ({
 }));
 
 const businessFindUnique = vi.fn();
-const orderFindUnique = vi.fn();
 const orderFindFirst = vi.fn();
 const orderCreate = vi.fn();
-const orderUpdate = vi.fn();
+const orderUpdateMany = vi.fn();
 const orderCounterUpsert = vi.fn();
 const variationFindMany = vi.fn();
 const variationUpdate = vi.fn();
+const paymentCreate = vi.fn();
 
 vi.mock("@/lib/db", () => {
   const tx = {
     orderCounter: { upsert: (...a: unknown[]) => orderCounterUpsert(...a) },
-    order: { create: (...a: unknown[]) => orderCreate(...a), update: (...a: unknown[]) => orderUpdate(...a) },
+    order: {
+      create: (...a: unknown[]) => orderCreate(...a),
+      updateMany: (...a: unknown[]) => orderUpdateMany(...a),
+    },
+    payment: { create: (...a: unknown[]) => paymentCreate(...a) },
     variation: {
       findMany: (...a: unknown[]) => variationFindMany(...a),
       update: (...a: unknown[]) => variationUpdate(...a),
@@ -40,17 +46,14 @@ vi.mock("@/lib/db", () => {
   return {
     db: {
       business: { findUnique: (...a: unknown[]) => businessFindUnique(...a) },
-      order: {
-        findUnique: (...a: unknown[]) => orderFindUnique(...a),
-        findFirst: (...a: unknown[]) => orderFindFirst(...a),
-      },
+      order: { findFirst: (...a: unknown[]) => orderFindFirst(...a) },
       variation: { findMany: (...a: unknown[]) => variationFindMany(...a) },
       $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx),
     },
   };
 });
 
-import { submitOnlineOrder, transitionOnlineOrder } from "./actions";
+import { settleOnlineOrder, submitOnlineOrder, transitionOnlineOrder } from "./actions";
 import { isOnlineConfirmation, type SubmitOnlineOrderInput } from "./schema";
 
 const BUSINESS_ID = "biz_1";
@@ -95,10 +98,12 @@ beforeEach(() => {
     taxRateBps: 825,
     taxInclusive: false,
   });
-  orderFindUnique.mockResolvedValue(null);
+  orderFindFirst.mockResolvedValue(null);
   variationFindMany.mockResolvedValue([variation()]);
   orderCounterUpsert.mockResolvedValue({ lastNumber: 5 });
   variationUpdate.mockResolvedValue({});
+  orderUpdateMany.mockResolvedValue({ count: 1 });
+  paymentCreate.mockResolvedValue({ id: "pay_1" });
   orderCreate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
     id: "order_1",
     number: data.number,
@@ -130,11 +135,17 @@ describe("submitOnlineOrder — IP rate limit", () => {
     expect(orderCreate).not.toHaveBeenCalled();
   });
 
-  it("keys the limiter by businessId + caller IP", async () => {
+  it("keys the limiter by businessId + caller IP and fails CLOSED on a limiter outage", async () => {
     await submitOnlineOrder(input());
     expect(rateLimit).toHaveBeenCalledWith(
       `online-submit:${BUSINESS_ID}:203.0.113.7`,
-      expect.objectContaining({ limit: expect.any(Number), windowSeconds: expect.any(Number) }),
+      // A5: the sole guard on an anonymous write falls back to a strict in-memory
+      // counter (onError: "memory") rather than removing all throttling.
+      expect.objectContaining({
+        limit: expect.any(Number),
+        windowSeconds: expect.any(Number),
+        onError: "memory",
+      }),
     );
   });
 });
@@ -214,9 +225,9 @@ describe("submitOnlineOrder — order shape", () => {
   });
 });
 
-describe("submitOnlineOrder — idempotency", () => {
+describe("submitOnlineOrder — channel-scoped idempotency (#16)", () => {
   it("returns the existing order for a repeated clientUuid without creating another", async () => {
-    orderFindUnique.mockResolvedValue({ id: "order_existing", number: 3, totalCents: 1083 });
+    orderFindFirst.mockResolvedValue({ id: "order_existing", number: 3, totalCents: 1083 });
     const result = await submitOnlineOrder(input());
     if (!isOnlineConfirmation(result)) throw new Error("expected confirmation");
     expect(result.orderId).toBe("order_existing");
@@ -224,8 +235,21 @@ describe("submitOnlineOrder — idempotency", () => {
     expect(orderCreate).not.toHaveBeenCalled();
   });
 
-  it("returns the winner on a concurrent P2002 insert race", async () => {
-    orderFindUnique
+  it("scopes the idempotency read to channel=ONLINE (never reads back an in-person order)", async () => {
+    await submitOnlineOrder(input());
+    expect(orderFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          businessId: BUSINESS_ID,
+          clientUuid: UUID,
+          channel: "ONLINE",
+        }),
+      }),
+    );
+  });
+
+  it("returns the winner on a concurrent P2002 insert race (channel-scoped re-read)", async () => {
+    orderFindFirst
       .mockResolvedValueOnce(null) // pre-check
       .mockResolvedValueOnce({ id: "order_winner", number: 9, totalCents: 1083 }); // re-read
     orderCreate.mockRejectedValueOnce(Object.assign(new Error("dup"), { code: "P2002" }));
@@ -249,6 +273,11 @@ describe("submitOnlineOrder — input caps (zod)", () => {
     await expect(
       submitOnlineOrder(input({ lines: [{ variationId: "var_1", quantity: 1000 }] })),
     ).rejects.toThrow();
+  });
+
+  it("rejects an over-cap tip (#13 — hard-capped, not the old $1M)", async () => {
+    // The tip is the one client-authoritative amount; a seven-figure tip is rejected.
+    await expect(submitOnlineOrder(input({ tipCents: 5_000_000 }))).rejects.toThrow();
   });
 });
 
@@ -293,12 +322,17 @@ describe("transitionOnlineOrder — transitions + stock", () => {
     requireCapability.mockResolvedValue({ businessId: BUSINESS_ID, membershipId: "mem_1", role: "MANAGER", permissions: ["take_orders"] });
   });
 
-  it("accept → ACCEPTED and decrements tracked stock", async () => {
+  it("accept → ACCEPTED via a guarded compare-and-set and decrements tracked stock", async () => {
     orderFindFirst.mockResolvedValue(order({ onlineStatus: "SUBMITTED" }));
     variationFindMany.mockResolvedValue([{ id: "var_1", item: { trackStock: true } }]);
-    await transitionOnlineOrder({ businessId: BUSINESS_ID, orderId: "order_1", action: "accept" });
-    expect(orderUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ onlineStatus: "ACCEPTED" }) }),
+    const result = await transitionOnlineOrder({ businessId: BUSINESS_ID, orderId: "order_1", action: "accept" });
+    expect(result).toEqual({ status: "applied" });
+    // CAS guard: the update only matches a row still at the CURRENT status.
+    expect(orderUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ onlineStatus: "SUBMITTED" }),
+        data: expect.objectContaining({ onlineStatus: "ACCEPTED" }),
+      }),
     );
     expect(variationUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "var_1" }, data: { stock: { decrement: 2 } } }),
@@ -316,7 +350,7 @@ describe("transitionOnlineOrder — transitions + stock", () => {
     orderFindFirst.mockResolvedValue(order({ onlineStatus: "SUBMITTED" }));
     variationFindMany.mockResolvedValue([{ id: "var_1", item: { trackStock: true } }]);
     await transitionOnlineOrder({ businessId: BUSINESS_ID, orderId: "order_1", action: "reject" });
-    expect(orderUpdate).toHaveBeenCalledWith(
+    expect(orderUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ onlineStatus: "REJECTED", status: "VOIDED" }) }),
     );
     expect(variationUpdate).not.toHaveBeenCalled();
@@ -335,7 +369,7 @@ describe("transitionOnlineOrder — transitions + stock", () => {
     orderFindFirst.mockResolvedValue(order({ onlineStatus: "ACCEPTED" }));
     variationFindMany.mockResolvedValue([{ id: "var_1", item: { trackStock: true } }]);
     await transitionOnlineOrder({ businessId: BUSINESS_ID, orderId: "order_1", action: "ready" });
-    expect(orderUpdate).toHaveBeenCalledWith(
+    expect(orderUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ onlineStatus: "READY" }) }),
     );
     expect(variationUpdate).not.toHaveBeenCalled();
@@ -346,6 +380,137 @@ describe("transitionOnlineOrder — transitions + stock", () => {
     await expect(
       transitionOnlineOrder({ businessId: BUSINESS_ID, orderId: "order_1", action: "complete" }),
     ).rejects.toThrow("Cannot complete");
-    expect(orderUpdate).not.toHaveBeenCalled();
+    expect(orderUpdateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("transitionOnlineOrder — atomic (A4: no double-decrement race)", () => {
+  beforeEach(() => {
+    requireCapability.mockResolvedValue({ businessId: BUSINESS_ID, membershipId: "mem_1", role: "MANAGER", permissions: ["take_orders"] });
+    orderFindFirst.mockResolvedValue(order({ onlineStatus: "SUBMITTED" }));
+    variationFindMany.mockResolvedValue([{ id: "var_1", item: { trackStock: true } }]);
+  });
+
+  it("decrements stock EXACTLY ONCE when two Accepts race the same SUBMITTED order", async () => {
+    // Simulate the DB compare-and-set: the first guarded updateMany matches the
+    // row (count 1), the second finds it already moved (count 0).
+    orderUpdateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
+
+    const [a, b] = await Promise.all([
+      transitionOnlineOrder({ businessId: BUSINESS_ID, orderId: "order_1", action: "accept" }),
+      transitionOnlineOrder({ businessId: BUSINESS_ID, orderId: "order_1", action: "accept" }),
+    ]);
+
+    // One call applied, the other was a no-op — and stock moved only once.
+    const statuses = [a.status, b.status].sort();
+    expect(statuses).toEqual(["already", "applied"]);
+    expect(variationUpdate).toHaveBeenCalledTimes(1);
+    expect(variationUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { stock: { decrement: 2 } } }),
+    );
+  });
+
+  it("returns { status: 'already' } and skips stock when the CAS matches 0 rows", async () => {
+    orderUpdateMany.mockResolvedValue({ count: 0 });
+    const result = await transitionOnlineOrder({ businessId: BUSINESS_ID, orderId: "order_1", action: "accept" });
+    expect(result).toEqual({ status: "already" });
+    expect(variationUpdate).not.toHaveBeenCalled();
+  });
+});
+
+// ── Merchant settlement (A1) ──────────────────────────────────────────────────
+
+function payableOrder(over: Partial<{ status: string; totalCents: number }> = {}) {
+  const { status = "OPEN", totalCents = 2165 } = over;
+  return { id: "order_1", status, totalCents };
+}
+
+describe("settleOnlineOrder — records a Payment + flips to PAID (A1)", () => {
+  beforeEach(() => {
+    requireCapability.mockResolvedValue({ businessId: BUSINESS_ID, membershipId: "mem_1", role: "CASHIER", permissions: ["take_orders"] });
+    orderFindFirst.mockResolvedValue(payableOrder());
+  });
+
+  it("gates on take_orders and scopes the lookup to businessId + ONLINE channel", async () => {
+    await settleOnlineOrder({ businessId: BUSINESS_ID, orderId: "order_1", method: "CASH" });
+    expect(requireCapability).toHaveBeenCalledWith(BUSINESS_ID, "take_orders");
+    expect(orderFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: "order_1", businessId: BUSINESS_ID, channel: "ONLINE" }),
+      }),
+    );
+  });
+
+  it("writes a CAPTURED Payment at the order total and flips the order to PAID (guarded on OPEN)", async () => {
+    const result = await settleOnlineOrder({ businessId: BUSINESS_ID, orderId: "order_1", method: "QR" });
+    expect(result).toEqual({ status: "paid", totalCents: 2165 });
+    expect(orderUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ businessId: BUSINESS_ID, channel: "ONLINE", status: "OPEN" }),
+        data: expect.objectContaining({ status: "PAID" }),
+      }),
+    );
+    expect(paymentCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          businessId: BUSINESS_ID,
+          orderId: "order_1",
+          method: "QR",
+          status: "CAPTURED",
+          amountCents: 2165,
+        }),
+      }),
+    );
+  });
+
+  it("does NOT touch stock (stock already moved on accept)", async () => {
+    await settleOnlineOrder({ businessId: BUSINESS_ID, orderId: "order_1", method: "CASH" });
+    expect(variationUpdate).not.toHaveBeenCalled();
+  });
+
+  it("adds an optional staff tip on top of the stored total", async () => {
+    const result = await settleOnlineOrder({ businessId: BUSINESS_ID, orderId: "order_1", method: "CASH", tipCents: 300 });
+    expect(result).toEqual({ status: "paid", totalCents: 2465 });
+    expect(orderUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          tipCents: { increment: 300 },
+          totalCents: { increment: 300 },
+        }),
+      }),
+    );
+    expect(paymentCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ amountCents: 2465 }) }),
+    );
+  });
+
+  it("is idempotent: an already-PAID order records no second Payment", async () => {
+    orderFindFirst.mockResolvedValue(payableOrder({ status: "PAID" }));
+    const result = await settleOnlineOrder({ businessId: BUSINESS_ID, orderId: "order_1", method: "CASH" });
+    expect(result).toEqual({ status: "already_paid", totalCents: 2165 });
+    expect(orderUpdateMany).not.toHaveBeenCalled();
+    expect(paymentCreate).not.toHaveBeenCalled();
+  });
+
+  it("refuses to settle a rejected (VOIDED) order", async () => {
+    orderFindFirst.mockResolvedValue(payableOrder({ status: "VOIDED" }));
+    await expect(
+      settleOnlineOrder({ businessId: BUSINESS_ID, orderId: "order_1", method: "CASH" }),
+    ).rejects.toThrow("rejected");
+    expect(paymentCreate).not.toHaveBeenCalled();
+  });
+
+  it("concurrency: the losing settle (CAS matches 0 rows) writes no Payment", async () => {
+    orderUpdateMany.mockResolvedValue({ count: 0 });
+    const result = await settleOnlineOrder({ businessId: BUSINESS_ID, orderId: "order_1", method: "CASH" });
+    expect(result).toEqual({ status: "already_paid", totalCents: 2165 });
+    expect(paymentCreate).not.toHaveBeenCalled();
+  });
+
+  it("throws when the order isn't found in this business", async () => {
+    orderFindFirst.mockResolvedValue(null);
+    await expect(
+      settleOnlineOrder({ businessId: BUSINESS_ID, orderId: "x", method: "CASH" }),
+    ).rejects.toThrow("not found");
   });
 });

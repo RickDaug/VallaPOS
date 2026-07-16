@@ -21,6 +21,11 @@ export function OnlineOrderingSettings({
   const { toast } = useToast();
   const [enabled, setEnabled] = useState(initial.onlineOrderingEnabled);
   const [instructions, setInstructions] = useState(initial.onlineOrderInstructions ?? "");
+  // The PERSISTED enabled state (#11). The public /order/[businessId] page only
+  // exists once this is saved, so the QR/link must be gated on the SAVED value —
+  // not the local toggle — or a merchant could print a QR that 404s until they hit
+  // Save. Updated only on a successful save.
+  const [savedEnabled, setSavedEnabled] = useState(initial.onlineOrderingEnabled);
   const [pending, startTransition] = useTransition();
 
   // The public link needs the real page origin — resolved on the client so it's
@@ -28,6 +33,9 @@ export function OnlineOrderingSettings({
   const [origin, setOrigin] = useState("");
   useEffect(() => setOrigin(window.location.origin), []);
   const orderUrl = origin ? `${origin}/order/${businessId}` : `/order/${businessId}`;
+
+  // The toggle has an unsaved change the merchant must Save to take effect.
+  const dirty = enabled !== savedEnabled;
 
   function save() {
     startTransition(async () => {
@@ -37,6 +45,7 @@ export function OnlineOrderingSettings({
           onlineOrderingEnabled: enabled,
           onlineOrderInstructions: instructions.trim() || null,
         });
+        setSavedEnabled(enabled);
         toast({ title: "Online ordering saved", variant: "success" });
       } catch (err) {
         toast({
@@ -99,7 +108,17 @@ export function OnlineOrderingSettings({
         {pending ? "Saving…" : "Save"}
       </button>
 
-      {enabled && (
+      {/* #11: while there's an unsaved enable, tell the merchant the QR isn't live
+          yet — printing it before Save would give customers a 404. */}
+      {dirty && enabled && (
+        <p className="text-sm text-amber-600 dark:text-amber-400">
+          Save to activate online ordering — your QR &amp; link appear once it&apos;s live.
+        </p>
+      )}
+
+      {/* Gated on the SAVED state, not the local toggle, so the QR is only shown
+          when the public page actually exists (#11). */}
+      {savedEnabled && (
         <div className="border-t border-border pt-6">
           <p className="mb-3 text-sm font-semibold">Your ordering QR &amp; link</p>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
