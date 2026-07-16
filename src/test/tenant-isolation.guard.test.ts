@@ -81,6 +81,11 @@ const TENANT_MODELS = [
   "orderCounter",
   "timeEntry",
   "membership",
+  // Payroll (all carry businessId; see prisma/schema.prisma).
+  "payRate",
+  "payPeriod",
+  "payslip",
+  "payslipAdjustment",
   // Restaurant floor plan (both carry businessId). OrderTable is a join with no
   // businessId column (scoped via its order/table, like orderLineModifier), so
   // it's intentionally excluded — same as the other join tables.

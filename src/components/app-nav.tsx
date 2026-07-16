@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
+  Banknote,
   Boxes,
   LayoutGrid,
   MoreHorizontal,
@@ -41,6 +42,7 @@ function navFor(mode: BusinessMode, operator: NavOperator): NavItem[] {
     { slug: "reports", label: "Reports", Icon: BarChart3, cap: "view_reports" },
     { slug: "drawer", label: "Drawer", Icon: Wallet, cap: "cash_drawer" },
     { slug: "employees", label: "Team", Icon: Users, cap: "manage_team" },
+    { slug: "payroll", label: "Payroll", Icon: Banknote, cap: "manage_payroll" },
     { slug: "settings", label: "Settings", Icon: Settings, cap: "manage_settings" },
   ];
   return all.filter((item) => can(operator.role, operator.permissions, item.cap));
