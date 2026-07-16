@@ -46,7 +46,26 @@ const CSP_HEADER = CSP_ENFORCE
   ? "Content-Security-Policy"
   : "Content-Security-Policy-Report-Only";
 
+// The branded canonical origin. The auto-generated production alias below 308s
+// here; preview deployments (valla-<hash>-*.vercel.app) and the apex itself are
+// untouched because we match the host EXACTLY.
+const CANONICAL_HOST = "vallapos.com";
+const VERCEL_ALIAS_HOST = "valla-pos.vercel.app";
+
 export function middleware(request: NextRequest): NextResponse {
+  // Canonical-domain redirect. The auto-generated production alias
+  // `valla-pos.vercel.app` permanently redirects to the branded domain so we
+  // don't split SEO or the auth session-cookie jar across two origins. Exact
+  // host match only — preview URLs keep working, and there's no loop because the
+  // target host never matches. Path + query are preserved.
+  if (request.headers.get("host") === VERCEL_ALIAS_HOST) {
+    const url = request.nextUrl.clone();
+    url.protocol = "https:";
+    url.host = CANONICAL_HOST;
+    url.port = "";
+    return NextResponse.redirect(url, 308);
+  }
+
   // 16 random bytes → base64. Web Crypto is available in the (Edge) middleware
   // runtime; no Node Buffer, no new dependency.
   const nonceBytes = crypto.getRandomValues(new Uint8Array(16));
