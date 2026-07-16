@@ -1,0 +1,1242 @@
+// AUTO-GENERATED from scripts/marketing/artifact-source.html by
+// scripts/marketing/generate.mjs. Do not hand-edit the strings below; edit the
+// source and re-run `node scripts/marketing/generate.mjs`.
+// CSS dark selectors were rewritten from the artifact's [data-theme] system to
+// next-themes' `.dark` class so the site shares ONE theme with the app.
+
+export const MARKETING_CSS = `/* ============================================================================
+   VallaPOS marketing site — mirrors the app's "Calm Teal" OKLCH design system
+   (app/globals.css) so it reads as a true sibling of the product.
+   ========================================================================== */
+
+:root {
+  --radius: 0.625rem;
+
+  --bg: oklch(0.99 0.004 220);
+  --fg: oklch(0.21 0.02 250);
+  --card: oklch(1 0 0);
+  --card-fg: oklch(0.21 0.02 250);
+  --muted: oklch(0.965 0.008 220);
+  --muted-fg: oklch(0.52 0.02 250);
+
+  --primary: oklch(0.58 0.1 195);
+  --primary-strong: oklch(0.52 0.11 195);
+  --primary-fg: oklch(0.99 0.01 200);
+  --primary-tint: oklch(0.58 0.1 195 / 0.10);
+
+  --accent: oklch(0.83 0.12 80);
+  --accent-fg: oklch(0.28 0.05 70);
+  --success: oklch(0.6 0.13 155);
+
+  --border: oklch(0.9 0.008 240);
+  --ring: oklch(0.58 0.1 195);
+
+  /* Signature branded dark surface (the app sidebar) — used for bands + footer. */
+  --navy: oklch(0.21 0.02 250);
+  --navy-2: oklch(0.26 0.025 250);
+  --navy-fg: oklch(0.96 0.01 220);
+  --navy-muted: oklch(0.7 0.02 240);
+  --navy-border: oklch(1 0 0 / 0.10);
+
+  --shadow-sm: 0 1px 2px oklch(0.21 0.02 250 / 0.06), 0 1px 1px oklch(0.21 0.02 250 / 0.04);
+  --shadow-md: 0 6px 20px -6px oklch(0.21 0.02 250 / 0.14), 0 2px 6px -2px oklch(0.21 0.02 250 / 0.08);
+  --shadow-lg: 0 24px 60px -18px oklch(0.21 0.02 250 / 0.28), 0 8px 24px -12px oklch(0.21 0.02 250 / 0.16);
+
+  --font: "Inter", "Inter var", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --maxw: 1160px;
+}
+
+/* Dark theme — same tokens redefined (skill pattern: media query + explicit
+   data-theme overrides so the viewer's toggle wins in both directions). */
+@media (prefers-color-scheme: dark) {
+  :root.dark {
+    --bg: oklch(0.17 0.015 250);
+    --fg: oklch(0.95 0.01 220);
+    --card: oklch(0.212 0.018 250);
+    --card-fg: oklch(0.95 0.01 220);
+    --muted: oklch(0.25 0.02 250);
+    --muted-fg: oklch(0.7 0.02 240);
+    --primary: oklch(0.72 0.11 195);
+    --primary-strong: oklch(0.78 0.11 195);
+    --primary-fg: oklch(0.16 0.02 250);
+    --primary-tint: oklch(0.72 0.11 195 / 0.14);
+    --accent: oklch(0.83 0.12 80);
+    --accent-fg: oklch(0.22 0.04 70);
+    --success: oklch(0.7 0.13 155);
+    --border: oklch(1 0 0 / 0.12);
+    --ring: oklch(0.72 0.11 195);
+    --navy: oklch(0.13 0.012 250);
+    --navy-2: oklch(0.185 0.016 250);
+    --navy-border: oklch(1 0 0 / 0.09);
+    --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.4);
+    --shadow-md: 0 8px 24px -8px oklch(0 0 0 / 0.55);
+    --shadow-lg: 0 28px 70px -20px oklch(0 0 0 / 0.7);
+  }
+}
+:root.dark {
+  --bg: oklch(0.17 0.015 250);
+  --fg: oklch(0.95 0.01 220);
+  --card: oklch(0.212 0.018 250);
+  --card-fg: oklch(0.95 0.01 220);
+  --muted: oklch(0.25 0.02 250);
+  --muted-fg: oklch(0.7 0.02 240);
+  --primary: oklch(0.72 0.11 195);
+  --primary-strong: oklch(0.78 0.11 195);
+  --primary-fg: oklch(0.16 0.02 250);
+  --primary-tint: oklch(0.72 0.11 195 / 0.14);
+  --accent: oklch(0.83 0.12 80);
+  --accent-fg: oklch(0.22 0.04 70);
+  --success: oklch(0.7 0.13 155);
+  --border: oklch(1 0 0 / 0.12);
+  --ring: oklch(0.72 0.11 195);
+  --navy: oklch(0.13 0.012 250);
+  --navy-2: oklch(0.185 0.016 250);
+  --navy-border: oklch(1 0 0 / 0.09);
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.4);
+  --shadow-md: 0 8px 24px -8px oklch(0 0 0 / 0.55);
+  --shadow-lg: 0 28px 70px -20px oklch(0 0 0 / 0.7);
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: 17px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+.numeric { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 4px; }
+a { color: inherit; text-decoration: none; }
+img { max-width: 100%; }
+h1, h2, h3 { text-wrap: balance; margin: 0; letter-spacing: -0.02em; line-height: 1.08; }
+p { margin: 0; }
+::selection { background: var(--primary-tint); }
+
+.wrap { width: 100%; max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+.eyebrow {
+  font-size: 0.78rem; font-weight: 650; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--primary); display: inline-flex; align-items: center; gap: 8px;
+}
+.icon { width: 1em; height: 1em; display: inline-block; vertical-align: -0.125em; fill: none;
+  stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---- buttons ---- */
+.btn {
+  --_bg: var(--primary); --_fg: var(--primary-fg);
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  font-weight: 600; font-size: 0.98rem; padding: 12px 20px; border-radius: calc(var(--radius) + 1px);
+  background: var(--_bg); color: var(--_fg); border: 1px solid transparent; cursor: pointer;
+  transition: transform 0.14s ease, box-shadow 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+  white-space: nowrap; box-shadow: var(--shadow-sm);
+}
+.btn:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
+.btn:active { transform: translateY(0); }
+.btn--ghost { --_bg: transparent; --_fg: var(--fg); border-color: var(--border); box-shadow: none; }
+.btn--ghost:hover { background: var(--muted); box-shadow: none; }
+.btn--accent { --_bg: var(--accent); --_fg: var(--accent-fg); }
+.btn--onNavy { --_bg: var(--primary); --_fg: var(--primary-fg); }
+.btn--ghostNavy { --_bg: transparent; --_fg: var(--navy-fg); border-color: var(--navy-border); box-shadow: none; }
+.btn--ghostNavy:hover { background: oklch(1 0 0 / 0.06); }
+.btn--lg { padding: 14px 26px; font-size: 1.03rem; }
+.btn .icon { width: 1.1em; height: 1.1em; }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 7px; font-size: 0.82rem; font-weight: 550;
+  padding: 6px 12px; border-radius: 999px; background: var(--muted); color: var(--muted-fg);
+  border: 1px solid var(--border);
+}
+.pill .icon { color: var(--primary); }
+
+/* ---- nav ---- */
+.nav {
+  position: sticky; top: 0; z-index: 60;
+  background: oklch(0.99 0.004 220 / 0.72);
+  backdrop-filter: saturate(1.4) blur(14px);
+  border-bottom: 1px solid var(--border);
+}
+:root.dark .nav, :root.dark .nav {
+  background: oklch(0.17 0.015 250 / 0.72);
+}
+@media (prefers-color-scheme: dark) { :root.dark .nav { background: oklch(0.17 0.015 250 / 0.72); } }
+.nav__row { display: flex; align-items: center; gap: 20px; height: 66px; }
+.brand { display: inline-flex; align-items: center; gap: 11px; font-weight: 700; font-size: 1.14rem; letter-spacing: -0.02em; }
+.brand__mark {
+  width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center;
+  background: linear-gradient(150deg, var(--primary), var(--primary-strong));
+  color: var(--primary-fg); box-shadow: var(--shadow-sm); flex: none;
+}
+.brand__mark .icon { width: 20px; height: 20px; stroke-width: 2; }
+.brand b { color: var(--primary); font-weight: 700; }
+.nav__links { display: flex; align-items: center; gap: 4px; margin-left: 12px; }
+.nav__link {
+  font-size: 0.95rem; font-weight: 550; color: var(--muted-fg); padding: 8px 12px; border-radius: 8px;
+  transition: color 0.15s, background 0.15s;
+}
+.nav__link:hover { color: var(--fg); background: var(--muted); }
+.nav__link.is-active { color: var(--fg); }
+.nav__spacer { flex: 1; }
+.nav__actions { display: flex; align-items: center; gap: 10px; }
+.iconbtn {
+  width: 40px; height: 40px; border-radius: 9px; display: grid; place-items: center;
+  background: transparent; color: var(--muted-fg); border: 1px solid var(--border); cursor: pointer;
+  transition: color 0.15s, background 0.15s, transform 0.15s;
+}
+.iconbtn:hover { color: var(--fg); background: var(--muted); }
+.iconbtn .icon { width: 19px; height: 19px; }
+.theme-moon { display: none; }
+:root.dark .theme-sun, :root.dark .theme-sun { display: none; }
+:root.dark .theme-moon, :root.dark .theme-moon { display: block; }
+@media (prefers-color-scheme: dark) {
+  :root.dark .theme-sun { display: none; }
+  :root.dark .theme-moon { display: block; }
+}
+/* mobile menu */
+.nav__burger { display: none; }
+.menu-close { display: none; }
+.nav__burger[aria-expanded="true"] .menu-open { display: none; }
+.nav__burger[aria-expanded="true"] .menu-close { display: block; }
+.nav__mobile { display: none; flex-direction: column; gap: 2px; padding: 10px 24px 20px; border-top: 1px solid var(--border); background: var(--bg); }
+.nav__mlink { padding: 13px 6px; font-weight: 600; font-size: 1.02rem; color: var(--fg); border-bottom: 1px solid var(--border); }
+.nav__mlink:hover { color: var(--primary); }
+.nav__mrow { display: flex; gap: 10px; margin-top: 14px; }
+@media (max-width: 860px) {
+  .nav__links { display: none; }
+  .nav__cta-text { display: none; }
+  .nav__cta { display: none; }
+  .nav__burger { display: grid; }
+  .nav__mobile:not([hidden]) { display: flex; }
+}
+
+/* ---- top strip ---- */
+.strip {
+  background: var(--navy); color: var(--navy-fg); font-size: 0.86rem;
+  text-align: center; padding: 9px 16px; border-bottom: 1px solid var(--navy-border);
+}
+.strip a { color: var(--accent); font-weight: 600; }
+.strip a:hover { text-decoration: underline; }
+
+/* ---- sections ---- */
+section { padding: 88px 0; }
+.section-head { max-width: 680px; margin: 0 auto 52px; text-align: center; }
+.section-head h2 { font-size: clamp(1.9rem, 4vw, 2.7rem); font-weight: 750; margin: 14px 0 0; }
+.section-head p { color: var(--muted-fg); font-size: 1.12rem; margin-top: 16px; }
+
+/* ---- hero ---- */
+.hero { padding: 56px 0 40px; position: relative; overflow: hidden; }
+.hero__glow {
+  position: absolute; inset: -10% -20% auto; height: 620px; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(60% 60% at 78% 12%, var(--primary-tint), transparent 70%),
+    radial-gradient(40% 40% at 12% 0%, oklch(0.83 0.12 80 / 0.10), transparent 70%);
+}
+.hero__grid {
+  position: relative; z-index: 1; display: grid; grid-template-columns: 1.05fr 0.95fr;
+  gap: 56px; align-items: center;
+}
+.hero h1 { font-size: clamp(2.4rem, 5.4vw, 3.9rem); font-weight: 800; margin: 20px 0 0; }
+.hero h1 .u { color: var(--primary); }
+.hero__sub { font-size: 1.2rem; color: var(--muted-fg); margin-top: 22px; max-width: 33ch; }
+.hero__cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+.hero__trust { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 26px; color: var(--muted-fg); font-size: 0.9rem; }
+.hero__trust span { display: inline-flex; align-items: center; gap: 7px; }
+.hero__trust .icon { color: var(--success); width: 16px; height: 16px; }
+
+/* ---- hero product visual: a "living register" ---- */
+.stage { position: relative; min-height: 440px; }
+.reg {
+  position: relative; z-index: 2; background: var(--card); color: var(--card-fg);
+  border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow-lg);
+  padding: 18px; width: min(100%, 380px); margin-left: auto;
+}
+.reg__top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.reg__biz { display: flex; align-items: center; gap: 9px; font-weight: 650; font-size: 0.95rem; }
+.reg__dot { width: 30px; height: 30px; border-radius: 8px; background: var(--primary-tint); color: var(--primary); display: grid; place-items: center; }
+.reg__dot .icon { width: 16px; height: 16px; }
+.reg__chip {
+  font-size: 0.72rem; font-weight: 650; color: var(--success); background: oklch(0.6 0.13 155 / 0.12);
+  padding: 4px 9px; border-radius: 999px; display: inline-flex; gap: 6px; align-items: center;
+}
+.reg__chip .icon { width: 13px; height: 13px; }
+.line { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px dashed var(--border); }
+.line:last-of-type { border-bottom: 0; }
+.line__name { font-weight: 550; font-size: 0.95rem; }
+.line__mod { display: block; font-size: 0.78rem; color: var(--muted-fg); font-weight: 450; }
+.line__qty { color: var(--muted-fg); font-size: 0.82rem; margin-left: 6px; }
+.line__price { font-weight: 600; font-size: 0.95rem; }
+.reg__totals { margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+.trow { display: flex; justify-content: space-between; font-size: 0.9rem; color: var(--muted-fg); padding: 3px 0; }
+.trow--grand { color: var(--fg); font-weight: 750; font-size: 1.35rem; padding-top: 8px; }
+.reg__pay {
+  margin-top: 14px; width: 100%; border: 0; cursor: pointer; border-radius: 11px; padding: 14px;
+  font-weight: 700; font-size: 1.02rem; color: var(--primary-fg);
+  background: linear-gradient(150deg, var(--primary), var(--primary-strong));
+  display: flex; align-items: center; justify-content: center; gap: 9px; box-shadow: var(--shadow-sm);
+  transition: transform 0.14s ease, box-shadow 0.18s;
+}
+.reg__pay:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
+.reg__pay .icon { width: 18px; height: 18px; }
+/* floating receipt behind the register */
+.receipt {
+  position: absolute; z-index: 1; top: 40px; left: -6px; width: 190px;
+  background: var(--card); border: 1px solid var(--border); border-radius: 6px 6px 10px 10px;
+  box-shadow: var(--shadow-md); padding: 16px 16px 22px; transform: rotate(-7deg);
+  font-size: 0.72rem; color: var(--muted-fg);
+  -webkit-mask-image: linear-gradient(#000 86%, transparent);
+  mask-image: linear-gradient(#000 86%, transparent);
+}
+.receipt b { color: var(--fg); display: block; text-align: center; letter-spacing: 0.14em; font-size: 0.66rem; text-transform: uppercase; margin-bottom: 10px; }
+.receipt .rl { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px dotted var(--border); }
+.badge-float {
+  position: absolute; z-index: 3; right: -8px; bottom: 34px;
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-md);
+  padding: 11px 14px; display: flex; align-items: center; gap: 10px;
+}
+.badge-float .ic { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; background: oklch(0.83 0.12 80 / 0.16); color: var(--accent-fg); }
+:root.dark .badge-float .ic, :root.dark .badge-float .ic { color: var(--accent); }
+.badge-float .ic .icon { width: 18px; height: 18px; }
+.badge-float b { font-size: 0.86rem; display: block; }
+.badge-float span { font-size: 0.75rem; color: var(--muted-fg); }
+
+/* ---- trust row ---- */
+.trust { padding: 20px 0 6px; }
+.trust__inner { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px 14px; }
+.trust__label { width: 100%; text-align: center; color: var(--muted-fg); font-size: 0.82rem; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; margin-bottom: 4px; }
+
+/* ---- feature grid ---- */
+.grid { display: grid; gap: 20px; }
+.grid--3 { grid-template-columns: repeat(3, 1fr); }
+.grid--2 { grid-template-columns: repeat(2, 1fr); }
+.card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 26px;
+  box-shadow: var(--shadow-sm); transition: transform 0.18s ease, box-shadow 0.2s ease, border-color 0.2s;
+}
+.feature:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); border-color: color-mix(in oklch, var(--primary) 35%, var(--border)); }
+.feature__ic {
+  width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center;
+  background: var(--primary-tint); color: var(--primary); margin-bottom: 18px;
+}
+.feature__ic .icon { width: 23px; height: 23px; stroke-width: 1.8; }
+.feature h3 { font-size: 1.16rem; font-weight: 680; }
+.feature p { color: var(--muted-fg); margin-top: 9px; font-size: 0.98rem; }
+
+/* ---- editions ---- */
+.editions { background: var(--muted); }
+.ed-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+.ed {
+  background: var(--card); border: 1px solid var(--border); border-radius: 18px; padding: 32px;
+  box-shadow: var(--shadow-sm); display: flex; flex-direction: column;
+}
+.ed--feature { border-color: color-mix(in oklch, var(--primary) 45%, var(--border)); box-shadow: var(--shadow-md); position: relative; }
+.ed__tag { position: absolute; top: 20px; right: 20px; font-size: 0.72rem; font-weight: 700; color: var(--primary); background: var(--primary-tint); padding: 5px 11px; border-radius: 999px; }
+.ed__kind { font-size: 0.8rem; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted-fg); }
+.ed h3 { font-size: 1.5rem; font-weight: 750; margin-top: 8px; }
+.ed__price { margin: 16px 0 4px; display: flex; align-items: baseline; gap: 8px; }
+.ed__price b { font-size: 2.4rem; font-weight: 800; letter-spacing: -0.03em; }
+.ed__price span { color: var(--muted-fg); font-weight: 500; }
+.ed__desc { color: var(--muted-fg); font-size: 0.98rem; }
+.ed__list { list-style: none; padding: 0; margin: 22px 0 26px; display: grid; gap: 12px; }
+.ed__list li { display: flex; gap: 11px; align-items: flex-start; font-size: 0.97rem; }
+.ed__list .icon { color: var(--success); flex: none; margin-top: 3px; width: 18px; height: 18px; }
+.ed__list .muted { color: var(--muted-fg); }
+.ed__foot { margin-top: auto; }
+.ed__note { font-size: 0.82rem; color: var(--muted-fg); margin-top: 12px; text-align: center; }
+
+/* ---- steps ---- */
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; counter-reset: step; }
+.step { position: relative; padding: 30px 26px; }
+.step__n {
+  font-numeric: tabular-nums; font-size: 0.85rem; font-weight: 700; color: var(--primary);
+  width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center;
+  background: var(--primary-tint); margin-bottom: 16px;
+}
+.step h3 { font-size: 1.15rem; font-weight: 680; }
+.step p { color: var(--muted-fg); margin-top: 9px; font-size: 0.97rem; }
+
+/* ---- navy band ---- */
+.band { background: var(--navy); color: var(--navy-fg); border-radius: 0; }
+.band .wrap { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 40px; align-items: center; }
+.band h2 { font-size: clamp(1.8rem, 4vw, 2.6rem); font-weight: 780; }
+.band p { color: var(--navy-muted); margin-top: 16px; font-size: 1.1rem; max-width: 52ch; }
+.band__stats { display: grid; gap: 18px; }
+.bstat { border-left: 3px solid var(--primary); padding-left: 16px; }
+.bstat b { font-size: 2rem; font-weight: 800; display: block; letter-spacing: -0.02em; }
+.bstat span { color: var(--navy-muted); font-size: 0.92rem; }
+
+/* ---- pricing (compact recap on home reuses editions; standalone below) ---- */
+
+/* ---- faq ---- */
+.faq { max-width: 780px; margin: 0 auto; display: grid; gap: 12px; }
+.qa { background: var(--card); border: 1px solid var(--border); border-radius: 13px; box-shadow: var(--shadow-sm); overflow: hidden; }
+.qa summary {
+  cursor: pointer; list-style: none; padding: 20px 22px; font-weight: 620; font-size: 1.04rem;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+}
+.qa summary::-webkit-details-marker { display: none; }
+.qa summary .icon { color: var(--muted-fg); transition: transform 0.2s; flex: none; }
+.qa[open] summary .icon { transform: rotate(45deg); color: var(--primary); }
+.qa__body { padding: 0 22px 20px; color: var(--muted-fg); }
+.qa__body p + p { margin-top: 10px; }
+
+/* ---- CTA ---- */
+.cta { text-align: center; }
+.cta__box {
+  background: linear-gradient(160deg, var(--navy), var(--navy-2));
+  border: 1px solid var(--navy-border); border-radius: 24px; padding: 60px 32px; color: var(--navy-fg);
+  box-shadow: var(--shadow-lg); position: relative; overflow: hidden;
+}
+.cta__box::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(50% 80% at 50% 0%, var(--primary-tint), transparent 70%);
+}
+.cta__box > * { position: relative; }
+.cta__box h2 { font-size: clamp(1.9rem, 4vw, 2.8rem); font-weight: 800; }
+.cta__box p { color: var(--navy-muted); margin: 16px auto 0; font-size: 1.14rem; max-width: 44ch; }
+.cta__row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 30px; }
+
+/* ---- footer ---- */
+.footer { background: var(--navy); color: var(--navy-fg); padding: 66px 0 30px; margin-top: 0; }
+.footer__top { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 40px; }
+.footer__brand .brand { color: var(--navy-fg); }
+.footer__brand p { color: var(--navy-muted); margin-top: 16px; font-size: 0.95rem; max-width: 34ch; }
+.footer__social { display: flex; gap: 10px; margin-top: 20px; }
+.footer__social a { width: 38px; height: 38px; border-radius: 9px; display: grid; place-items: center; border: 1px solid var(--navy-border); color: var(--navy-muted); transition: color 0.15s, background 0.15s; }
+.footer__social a:hover { color: var(--navy-fg); background: oklch(1 0 0 / 0.06); }
+.fcol h4 { font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--navy-muted); font-weight: 650; margin: 0 0 16px; }
+.fcol a { display: block; color: var(--navy-fg); opacity: 0.86; font-size: 0.95rem; padding: 6px 0; transition: opacity 0.15s, color 0.15s; }
+.fcol a:hover { opacity: 1; color: var(--accent); }
+.footer__bottom {
+  margin-top: 48px; padding-top: 22px; border-top: 1px solid var(--navy-border);
+  display: flex; flex-wrap: wrap; gap: 12px 22px; align-items: center; justify-content: space-between;
+  color: var(--navy-muted); font-size: 0.86rem;
+}
+.footer__bottom nav { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.footer__bottom a:hover { color: var(--accent); }
+
+/* ---- views ---- */
+.view[hidden] { display: none; }
+
+/* ---- about ---- */
+.about-hero { padding: 72px 0 20px; text-align: center; }
+.about-hero h1 { font-size: clamp(2.2rem, 5vw, 3.4rem); font-weight: 800; margin-top: 16px; }
+.about-hero p { color: var(--muted-fg); font-size: 1.2rem; max-width: 60ch; margin: 20px auto 0; }
+.prose-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; }
+.about-block h2 { font-size: 1.7rem; font-weight: 750; margin-bottom: 14px; }
+.about-block p { color: var(--muted-fg); font-size: 1.04rem; }
+.about-block p + p { margin-top: 14px; }
+.values { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.value__ic { width: 44px; height: 44px; border-radius: 11px; background: var(--primary-tint); color: var(--primary); display: grid; place-items: center; margin-bottom: 16px; }
+.value h3 { font-size: 1.12rem; font-weight: 680; }
+.value p { color: var(--muted-fg); margin-top: 8px; font-size: 0.96rem; }
+
+/* ---- legal ---- */
+.legal-hero { padding: 56px 0 0; }
+.legal-hero .wrap { max-width: 820px; }
+.legal-hero h1 { font-size: clamp(2rem, 4.4vw, 2.9rem); font-weight: 800; margin-top: 14px; }
+.legal-banner {
+  display: flex; gap: 12px; align-items: flex-start; margin: 26px 0 0;
+  background: oklch(0.83 0.12 80 / 0.12); border: 1px solid color-mix(in oklch, var(--accent) 40%, var(--border));
+  border-radius: 12px; padding: 14px 16px; font-size: 0.9rem; color: var(--fg);
+}
+.legal-banner .icon { color: var(--accent-fg); flex: none; margin-top: 2px; }
+:root.dark .legal-banner .icon, :root.dark .legal-banner .icon { color: var(--accent); }
+.legal-body { padding: 34px 0 40px; }
+.legal-body .wrap { max-width: 760px; }
+.legal-doc { display: none; }
+.legal-doc.is-active { display: block; }
+.legal-doc { font-size: 1rem; }
+.legal-doc .legal-note { font-size: 0.86rem; color: var(--muted-fg); font-style: italic; padding: 12px 16px; background: var(--muted); border-radius: 10px; margin-bottom: 22px; }
+.legal-doc .legal-lead { font-size: 1.1rem; color: var(--fg); margin-bottom: 8px; }
+.legal-doc h2 { font-size: 1.32rem; font-weight: 720; margin: 34px 0 10px; letter-spacing: -0.01em; }
+.legal-doc h3 { font-size: 1.06rem; font-weight: 680; margin: 22px 0 8px; }
+.legal-doc p { color: var(--muted-fg); margin: 10px 0; }
+.legal-doc ul { color: var(--muted-fg); margin: 10px 0; padding-left: 22px; }
+.legal-doc li { margin: 6px 0; }
+.legal-doc strong { color: var(--fg); font-weight: 650; }
+.legal-doc a { color: var(--primary); font-weight: 550; }
+.legal-doc a:hover { text-decoration: underline; }
+.legal-nav { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.legal-nav a { font-size: 0.88rem; font-weight: 550; color: var(--muted-fg); padding: 7px 13px; border: 1px solid var(--border); border-radius: 999px; transition: color 0.15s, background 0.15s, border-color 0.15s; }
+.legal-nav a:hover { color: var(--fg); background: var(--muted); }
+.legal-nav a.is-active { color: var(--primary); border-color: color-mix(in oklch, var(--primary) 45%, var(--border)); background: var(--primary-tint); }
+
+/* ---- reveal ---- */
+.reveal { opacity: 0; transform: translateY(16px); transition: opacity 0.6s ease, transform 0.6s ease; }
+.reveal.in { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } }
+
+/* ---- responsive ---- */
+@media (max-width: 960px) {
+  .hero__grid { grid-template-columns: 1fr; gap: 36px; }
+  .stage { min-height: 420px; max-width: 420px; margin: 0 auto; }
+  .grid--3, .steps, .values { grid-template-columns: 1fr 1fr; }
+  .band .wrap { grid-template-columns: 1fr; gap: 26px; }
+  .footer__top { grid-template-columns: 1fr 1fr; gap: 32px; }
+  .prose-2 { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  body { font-size: 16px; }
+  section { padding: 64px 0; }
+  .hero { padding: 30px 0 20px; }
+  .grid--3, .grid--2, .steps, .values, .ed-grid, .footer__top { grid-template-columns: 1fr; }
+  .footer__bottom { flex-direction: column; align-items: flex-start; }
+  .reg { margin: 0 auto; }
+  .receipt { display: none; }
+}`;
+
+export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-logo" viewBox="0 0 24 24"><path d="M6.5 7.5 12 16.5 17.5 7.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="7" r="1.5" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></symbol>
+  <symbol id="i-wifioff" viewBox="0 0 24 24"><path d="M2 2l20 20"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M5 12.9a10 10 0 0 1 4-2.6"/><path d="M2 8.8A15 15 0 0 1 6 6.3"/><path d="M15 10.4A10 10 0 0 1 19 12.9"/><path d="M18.5 6.3A15 15 0 0 0 10.6 4"/><path d="M12 20h.01"/></symbol>
+  <symbol id="i-cash" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></symbol>
+  <symbol id="i-printer" viewBox="0 0 24 24"><path d="M6 9V3h12v6"/><path d="M6 18H4a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="7" rx="1"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15l3-4 3 2 4-6"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><path d="M12 15v2"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 24 24"><path d="M12 2H2v10l9.3 9.3a1 1 0 0 0 1.4 0l7.6-7.6a1 1 0 0 0 0-1.4z" fill="none"/><circle cx="7" cy="7" r="1.4"/></symbol>
+  <symbol id="i-store" viewBox="0 0 24 24"><path d="M3 9l1.5-5h15L21 9"/><path d="M4 9v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9"/><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/><path d="M9 20v-6h6v6"/></symbol>
+  <symbol id="i-qr" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M21 14v.01M14 21h.01M21 21v-4M17 21h.01"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M16 5.2a3.2 3.2 0 0 1 0 5.6"/><path d="M17.5 20a5.5 5.5 0 0 0-2.2-4.4"/></symbol>
+  <symbol id="i-tables" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="1.5"/><path d="M6 10v4M18 10v4"/><rect x="3" y="14" width="18" height="6" rx="1.5"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2 4 5v6c0 5 3.4 8.5 8 11 4.6-2.5 8-6 8-11V5z"/><path d="M9 12l2 2 4-4"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7-4.5-9.5-9A4.8 4.8 0 0 1 12 6a4.8 4.8 0 0 1 9.5 5c-2.5 4.5-9.5 9-9.5 9z"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 20h16"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M5 3v18l2-1.4L9 21l2-1.4L13 21l2-1.4L17 21l2-1.4V3l-2 1.4L15 3l-2 1.4L11 3 9 4.4 7 3z"/><path d="M8 8h8M8 12h8M8 16h5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M4 4l16 16M20 4L4 20"/></symbol>
+</svg>
+
+<!-- ====================== top strip ====================== -->
+<div class="strip">
+  New — <strong>VallaPOS Offline</strong> is here: own your register for a one-time <strong>$99</strong>.
+  <a href="#/#pricing">See the editions&nbsp;→</a>
+</div>
+
+<!-- ====================== nav ====================== -->
+<header class="nav">
+  <div class="wrap nav__row">
+    <a href="#/" class="brand" aria-label="VallaPOS home">
+      <span class="brand__mark"><svg class="icon"><use href="#i-logo"/></svg></span>
+      <span>Valla<b>POS</b></span>
+    </a>
+    <nav class="nav__links" aria-label="Primary">
+      <a class="nav__link" href="#/#features" data-nav="features">Features</a>
+      <a class="nav__link" href="#/#editions" data-nav="editions">Editions</a>
+      <a class="nav__link" href="#/#pricing" data-nav="pricing">Pricing</a>
+      <a class="nav__link" href="#/about" data-nav="about">About</a>
+    </nav>
+    <div class="nav__spacer"></div>
+    <div class="nav__actions">
+      <button class="iconbtn" id="themeToggle" aria-label="Toggle dark mode" title="Toggle theme">
+        <svg class="icon theme-sun"><use href="#i-sun"/></svg>
+        <svg class="icon theme-moon"><use href="#i-moon"/></svg>
+      </button>
+      <a class="nav__link nav__signin" href="/sign-in">Sign in</a>
+      <a class="btn nav__cta" href="#/#pricing"><span class="nav__cta-text">Start free</span><svg class="icon"><use href="#i-arrow"/></svg></a>
+      <button class="iconbtn nav__burger" id="menuToggle" aria-label="Menu" aria-expanded="false" aria-controls="navMobile">
+        <svg class="icon menu-open"><use href="#i-menu"/></svg>
+        <svg class="icon menu-close"><use href="#i-x"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="nav__mobile" id="navMobile" hidden>
+    <a class="nav__mlink" href="#/#features">Features</a>
+    <a class="nav__mlink" href="#/#editions">Editions</a>
+    <a class="nav__mlink" href="#/#pricing">Pricing</a>
+    <a class="nav__mlink" href="#/about">About</a>
+    <div class="nav__mrow">
+      <a class="btn" href="#/#pricing" data-buy="cloud" style="flex:1">Subscribe</a>
+      <a class="btn btn--accent" href="#/#pricing" data-buy="offline" style="flex:1">Buy $99</a>
+    </div>
+  </div>
+</header>
+
+<!-- ====================== HOME ====================== -->
+<main class="view" id="view-home">
+
+  <section class="hero">
+    <div class="hero__glow" aria-hidden="true"></div>
+    <div class="wrap hero__grid">
+      <div class="hero__copy">
+        <span class="eyebrow"><svg class="icon"><use href="#i-store"/></svg> Point of sale for local business</span>
+        <h1>Run your register <span class="u">anywhere</span>. Even off the grid.</h1>
+        <p class="hero__sub">VallaPOS turns any phone, tablet, or laptop into a fast, friendly register — built for food trucks, barbers, market stalls and small shops. No pricey hardware. No dead zones.</p>
+        <div class="hero__cta">
+          <a class="btn btn--lg" href="#/#pricing" data-buy="cloud">Start the monthly plan<svg class="icon"><use href="#i-arrow"/></svg></a>
+          <a class="btn btn--ghost btn--lg" href="#/#pricing" data-buy="offline"><svg class="icon"><use href="#i-download"/></svg> Buy the $99 desktop app</a>
+        </div>
+        <div class="hero__trust">
+          <span><svg class="icon"><use href="#i-check"/></svg> Works fully offline</span>
+          <span><svg class="icon"><use href="#i-check"/></svg> Cash &amp; QR ready</span>
+          <span><svg class="icon"><use href="#i-check"/></svg> Cancel anytime</span>
+        </div>
+      </div>
+
+      <div class="stage" aria-hidden="true">
+        <div class="receipt">
+          <b>Rosa's Tacos</b>
+          <div class="rl"><span>Al Pastor ×2</span><span>9.00</span></div>
+          <div class="rl"><span>Horchata</span><span>3.50</span></div>
+          <div class="rl"><span>Chips + Salsa</span><span>4.00</span></div>
+          <div class="rl"><span>Tax</span><span>1.35</span></div>
+          <div class="rl"><span>Total</span><span>17.85</span></div>
+        </div>
+
+        <div class="reg">
+          <div class="reg__top">
+            <span class="reg__biz"><span class="reg__dot"><svg class="icon"><use href="#i-store"/></svg></span> Rosa's Tacos</span>
+            <span class="reg__chip"><svg class="icon"><use href="#i-wifioff"/></svg> Offline</span>
+          </div>
+          <div class="line">
+            <span><span class="line__name">Al Pastor</span><span class="line__mod">Extra onion · No cilantro</span></span>
+            <span><span class="line__qty numeric">×2</span> <span class="line__price numeric">$9.00</span></span>
+          </div>
+          <div class="line">
+            <span class="line__name">Horchata <span class="line__qty numeric">×1</span></span>
+            <span class="line__price numeric">$3.50</span>
+          </div>
+          <div class="line">
+            <span class="line__name">Chips &amp; Salsa <span class="line__qty numeric">×1</span></span>
+            <span class="line__price numeric">$4.00</span>
+          </div>
+          <div class="reg__totals">
+            <div class="trow"><span>Subtotal</span><span class="numeric">$16.50</span></div>
+            <div class="trow"><span>Tax (8.25%)</span><span class="numeric">$1.36</span></div>
+            <div class="trow trow--grand"><span>Total</span><span class="numeric" id="heroTotal">$17.86</span></div>
+          </div>
+          <button class="reg__pay" type="button" tabindex="-1"><svg class="icon"><use href="#i-cash"/></svg> Charge <span class="numeric">$17.86</span></button>
+        </div>
+
+        <div class="badge-float">
+          <span class="ic"><svg class="icon"><use href="#i-printer"/></svg></span>
+          <span><b>Receipt printed</b><span>Drawer opened · Sale #1043</span></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="trust" style="padding-top:8px">
+    <div class="wrap trust__inner reveal">
+      <span class="trust__label">Made for the way small &amp; mobile businesses actually sell</span>
+      <span class="pill"><svg class="icon"><use href="#i-store"/></svg> Food trucks</span>
+      <span class="pill"><svg class="icon"><use href="#i-tag"/></svg> Barbers &amp; salons</span>
+      <span class="pill"><svg class="icon"><use href="#i-store"/></svg> Market stalls</span>
+      <span class="pill"><svg class="icon"><use href="#i-tables"/></svg> Cafés &amp; small restaurants</span>
+      <span class="pill"><svg class="icon"><use href="#i-tag"/></svg> Lawn care &amp; services</span>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <span class="eyebrow"><svg class="icon"><use href="#i-bolt"/></svg> Everything you need to ring up a sale</span>
+        <h2>A real register, minus the register</h2>
+        <p>The essentials done well — fast checkout, honest money math, and hardware support when you want it — without the contracts and countertop clutter.</p>
+      </div>
+      <div class="grid grid--3">
+        <div class="card feature reveal">
+          <div class="feature__ic"><svg class="icon"><use href="#i-bolt"/></svg></div>
+          <h3>Ring up in seconds</h3>
+          <p>Tap items, add modifiers like "extra onion," take cash and make change — a sale in a few taps, even during a rush.</p>
+        </div>
+        <div class="card feature reveal">
+          <div class="feature__ic"><svg class="icon"><use href="#i-wifioff"/></svg></div>
+          <h3>Works with no signal</h3>
+          <p>Parked in a dead zone? Keep selling. Your sales are safe on the device and sync the moment you're back online.</p>
+        </div>
+        <div class="card feature reveal">
+          <div class="feature__ic"><svg class="icon"><use href="#i-qr"/></svg></div>
+          <h3>Cash, QR &amp; more</h3>
+          <p>Take cash with automatic change, show your own scan-to-pay QR, or record any other tender. Card payments are on the way.</p>
+        </div>
+        <div class="card feature reveal">
+          <div class="feature__ic"><svg class="icon"><use href="#i-printer"/></svg></div>
+          <h3>Receipts &amp; cash drawer</h3>
+          <p>Print to Epson &amp; Star thermal printers and pop a connected cash drawer — or send a tidy receipt by email. Paper optional.</p>
+        </div>
+        <div class="card feature reveal">
+          <div class="feature__ic"><svg class="icon"><use href="#i-chart"/></svg></div>
+          <h3>Reports that reconcile</h3>
+          <p>An end-of-day Z-report, sales by item and by cashier, and a blind cash-drawer count that always ties out to the penny.</p>
+        </div>
+        <div class="card feature reveal">
+          <div class="feature__ic"><svg class="icon"><use href="#i-users"/></svg></div>
+          <h3>Staff PINs &amp; operator lock</h3>
+          <p>Share one device across a shift. Each worker unlocks with a PIN, every sale is attributed, and refunds need a manager.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="editions" id="editions">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <span class="eyebrow"><svg class="icon"><use href="#i-tag"/></svg> Two ways to run VallaPOS</span>
+        <h2>Subscribe in the cloud, or own it outright</h2>
+        <p>Same fast register, two philosophies. Pick the one that fits how you work — you're never locked in.</p>
+      </div>
+      <div class="ed-grid">
+        <div class="ed reveal">
+          <span class="ed__kind">VallaPOS Cloud</span>
+          <h3>Sell online, sync everywhere</h3>
+          <div class="ed__price"><b class="numeric">$19.99</b><span>/ month</span></div>
+          <p class="ed__desc">A subscription web app that follows you across every device, with reports in the cloud and your team in sync.</p>
+          <ul class="ed__list">
+            <li><svg class="icon"><use href="#i-check"/></svg> Multi-device, multi-operator</li>
+            <li><svg class="icon"><use href="#i-check"/></svg> Cloud backups &amp; live reports</li>
+            <li><svg class="icon"><use href="#i-check"/></svg> Restaurant floor plan &amp; tabs</li>
+            <li><svg class="icon"><use href="#i-check"/></svg> Cash, QR &amp; email receipts</li>
+            <li><svg class="icon"><use href="#i-check"/></svg> <span class="muted">Card payments via Stripe — coming soon</span></li>
+          </ul>
+          <div class="ed__foot">
+            <a class="btn btn--lg" href="#/#pricing" data-buy="cloud" style="width:100%">Subscribe — $19.99/mo</a>
+            <p class="ed__note">Cancel anytime. Secure checkout by Stripe.</p>
+          </div>
+        </div>
+
+        <div class="ed ed--feature reveal">
+          <span class="ed__tag">Own it forever</span>
+          <span class="ed__kind">VallaPOS Offline</span>
+          <h3>One device, one price, no internet</h3>
+          <div class="ed__price"><b class="numeric">$99</b><span>one-time</span></div>
+          <p class="ed__desc">A desktop app you download and keep. Cash-only, 100% offline, your data stays on your machine — no account, no monthly bill.</p>
+          <ul class="ed__list">
+            <li><svg class="icon"><use href="#i-check"/></svg> Pay once — yours to keep</li>
+            <li><svg class="icon"><use href="#i-check"/></svg> Fully offline, data on-device</li>
+            <li><svg class="icon"><use href="#i-check"/></svg> Native thermal printing &amp; drawer</li>
+            <li><svg class="icon"><use href="#i-check"/></svg> No account, no phone-home</li>
+            <li><svg class="icon"><use href="#i-check"/></svg> Windows &amp; macOS</li>
+          </ul>
+          <div class="ed__foot">
+            <a class="btn btn--accent btn--lg" href="#/#pricing" data-buy="offline" style="width:100%"><svg class="icon"><use href="#i-download"/></svg> Buy now — $99 once</a>
+            <p class="ed__note">A one-time license, delivered instantly by Stripe.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="how">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <span class="eyebrow"><svg class="icon"><use href="#i-clock"/></svg> Live in an afternoon</span>
+        <h2>From zero to your first sale, fast</h2>
+      </div>
+      <div class="steps">
+        <div class="card step reveal">
+          <div class="step__n numeric">1</div>
+          <h3>Add your menu</h3>
+          <p>Type or paste your items and prices — sizes, modifiers and categories included. Bulk-add from a spreadsheet in minutes.</p>
+        </div>
+        <div class="card step reveal">
+          <div class="step__n numeric">2</div>
+          <h3>Ring it up</h3>
+          <p>Hand a phone or tablet to your staff. They unlock with a PIN and start taking orders — online or off.</p>
+        </div>
+        <div class="card step reveal">
+          <div class="step__n numeric">3</div>
+          <h3>Get paid &amp; print</h3>
+          <p>Take cash or a QR payment, print or email the receipt, and watch it land in your day's report automatically.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" style="padding:76px 0">
+    <div class="wrap reveal">
+      <div>
+        <span class="eyebrow" style="color:var(--accent)"><svg class="icon"><use href="#i-wifioff"/></svg> Offline-first, on purpose</span>
+        <h2>The internet goes down. Your business doesn't.</h2>
+        <p>Most registers freeze the second the Wi-Fi drops. VallaPOS keeps ringing sales the whole time and reconciles perfectly when you reconnect — because your till shouldn't depend on a signal.</p>
+      </div>
+      <div class="band__stats">
+        <div class="bstat"><b class="numeric">$0</b><span>in hardware to get started</span></div>
+        <div class="bstat"><b class="numeric">100%</b><span>of sales captured, signal or not</span></div>
+        <div class="bstat"><b>To the penny</b><span>cash drawer reconciliation</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="pricing">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <span class="eyebrow"><svg class="icon"><use href="#i-tag"/></svg> Simple, honest pricing</span>
+        <h2>No percentage of your sales. Ever.</h2>
+        <p>We don't take a cut of what you earn. Choose a low monthly plan, or pay once and own it.</p>
+      </div>
+      <div class="ed-grid">
+        <div class="ed reveal">
+          <span class="ed__kind">Cloud</span>
+          <h3>Monthly</h3>
+          <div class="ed__price"><b class="numeric">$19.99</b><span>/ mo</span></div>
+          <p class="ed__desc">Everything online, synced across your team and devices.</p>
+          <ul class="ed__list">
+            <li><svg class="icon"><use href="#i-check"/></svg> Unlimited items &amp; sales</li>
+            <li><svg class="icon"><use href="#i-check"/></svg> Unlimited staff PINs</li>
+            <li><svg class="icon"><use href="#i-check"/></svg> Cloud reports &amp; backups</li>
+            <li><svg class="icon"><use href="#i-check"/></svg> Free trial to start</li>
+          </ul>
+          <div class="ed__foot"><a class="btn btn--lg" href="#/#pricing" data-buy="cloud" style="width:100%">Subscribe monthly</a></div>
+        </div>
+        <div class="ed ed--feature reveal">
+          <span class="ed__tag">Best value</span>
+          <span class="ed__kind">Offline desktop</span>
+          <h3>One-time</h3>
+          <div class="ed__price"><b class="numeric">$99</b><span>once</span></div>
+          <p class="ed__desc">Download it, own it, run it forever with no internet.</p>
+          <ul class="ed__list">
+            <li><svg class="icon"><use href="#i-check"/></svg> Everything in the register</li>
+            <li><svg class="icon"><use href="#i-check"/></svg> Native printer &amp; drawer support</li>
+            <li><svg class="icon"><use href="#i-check"/></svg> Your data never leaves the device</li>
+            <li><svg class="icon"><use href="#i-check"/></svg> Free updates within the version</li>
+          </ul>
+          <div class="ed__foot"><a class="btn btn--accent btn--lg" href="#/#pricing" data-buy="offline" style="width:100%"><svg class="icon"><use href="#i-download"/></svg> Buy &amp; download</a></div>
+        </div>
+      </div>
+      <p style="text-align:center;color:var(--muted-fg);font-size:0.9rem;margin-top:22px">Prices in USD. Card processing, when available, is billed by Stripe at their standard rates — never by us.</p>
+    </div>
+  </section>
+
+  <section id="faq" style="padding-top:20px">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <span class="eyebrow"><svg class="icon"><use href="#i-heart"/></svg> Good to know</span>
+        <h2>Questions, answered</h2>
+      </div>
+      <div class="faq">
+        <details class="qa reveal"><summary>Do I need special hardware or a card reader?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="qa__body"><p>No. VallaPOS runs on the phone, tablet, or computer you already own. Cash and QR payments work out of the box. If you want to print receipts or pop a cash drawer, we support common Epson and Star thermal printers — but nothing is required to start.</p></div></details>
+        <details class="qa reveal"><summary>Does it really work without internet?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="qa__body"><p>Yes. The Cloud edition keeps working during outages and syncs when you're back online. The Offline desktop edition never needs a connection at all — every sale and report lives on your machine.</p></div></details>
+        <details class="qa reveal"><summary>What's the difference between Cloud and Offline?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="qa__body"><p><strong>Cloud</strong> is a monthly subscription that syncs across devices and staff, with backups and live reports in the cloud. <strong>Offline</strong> is a one-time $99 desktop app that's cash-only, 100% local, and needs no account. Many owners start on Cloud and add Offline for a fixed second station.</p></div></details>
+        <details class="qa reveal"><summary>Do you take a percentage of my sales?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="qa__body"><p>Never. You pay a flat subscription or a one-time price — we don't skim your revenue. When card payments launch, they're processed by Stripe at Stripe's standard rates, paid directly to you as the merchant.</p></div></details>
+        <details class="qa reveal"><summary>Can my whole team use one device?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="qa__body"><p>Absolutely. Add each worker with a PIN, and they unlock the register to ring up sales. Every order is attributed to whoever rang it, and sensitive actions like refunds require a manager PIN.</p></div></details>
+        <details class="qa reveal"><summary>Where is my business data stored?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="qa__body"><p>In the Cloud edition, your data is securely hosted in the United States and isolated per business. In the Offline edition, it's stored only on your own device — it never touches our servers. See our <a href="#/privacy">Privacy Statement</a> for details.</p></div></details>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta">
+    <div class="wrap">
+      <div class="cta__box reveal">
+        <span class="eyebrow" style="color:var(--accent)">Ready when you are</span>
+        <h2>Start selling smarter today</h2>
+        <p>Set up your menu, hand out a PIN, and take your first order this afternoon — no contracts, no card reader, no risk.</p>
+        <div class="cta__row">
+          <a class="btn btn--onNavy btn--lg" href="#/#pricing">Start free<svg class="icon"><use href="#i-arrow"/></svg></a>
+          <a class="btn btn--ghostNavy btn--lg" href="#/about">Learn our story</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ====================== ABOUT ====================== -->
+<main class="view" id="view-about" hidden>
+  <section class="about-hero">
+    <div class="wrap">
+      <span class="eyebrow"><svg class="icon"><use href="#i-heart"/></svg> About us</span>
+      <h1>Point of sale, on the side of the little guy.</h1>
+      <p>VallaPOS — the register you'll find at <strong>vallapos.com</strong> — started with a simple frustration: the best register software was built for chains with countertops and contracts, not for the taco cart, the barber chair, or the Saturday market stall. So we built the register we wished they had.</p>
+    </div>
+  </section>
+
+  <section style="padding-top:44px">
+    <div class="wrap">
+      <div class="prose-2">
+        <div class="about-block reveal">
+          <h2>Why we built VallaPOS</h2>
+          <p>Small and mobile businesses are the heartbeat of every neighborhood — and they've been handed the worst tools. Bulky terminals, pricey card readers, monthly fees that scale with your success, and software that quits the moment the Wi-Fi does.</p>
+          <p>We thought the register should meet you where you actually work: on a phone in a food-truck window, on a tablet at the farmers market, on a laptop in the back of the shop. Fast enough for a rush, honest with your money, and calm enough that a new hire gets it in five minutes.</p>
+        </div>
+        <div class="about-block reveal">
+          <h2>How we're different</h2>
+          <p>We don't take a percentage of your sales, and we don't hold your data hostage. You can subscribe to the Cloud edition, or buy the Offline edition once and own it — your choice, your data, your call.</p>
+          <p>Everything is engineered to be correct where it counts: money is exact to the penny, sales reconcile against the cash drawer, and offline sales are never lost. The boring things a register must get right, we obsess over.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="editions" style="padding:72px 0">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <span class="eyebrow"><svg class="icon"><use href="#i-shield"/></svg> What we stand for</span>
+        <h2>Principles we won't compromise on</h2>
+      </div>
+      <div class="values">
+        <div class="card value reveal">
+          <div class="value__ic"><svg class="icon"><use href="#i-tag"/></svg></div>
+          <h3>Fair, flat pricing</h3>
+          <p>A low monthly plan or a one-time price — never a cut of what you earn. Your growth is yours.</p>
+        </div>
+        <div class="card value reveal">
+          <div class="value__ic"><svg class="icon"><use href="#i-lock"/></svg></div>
+          <h3>Your data is yours</h3>
+          <p>We isolate every business, encrypt what matters, and never sell personal information. Offline means truly on-device.</p>
+        </div>
+        <div class="card value reveal">
+          <div class="value__ic"><svg class="icon"><use href="#i-wifioff"/></svg></div>
+          <h3>Reliable by design</h3>
+          <p>Offline-first, penny-exact, and reconciled. The register should never be the reason a sale is lost.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="band" style="border-radius:24px;padding:56px 40px">
+        <div class="wrap" style="padding:0">
+          <div>
+            <span class="eyebrow" style="color:var(--accent)"><svg class="icon"><use href="#i-globe"/></svg> Who it's for</span>
+            <h2>Built for people who sell on the move</h2>
+            <p>Food trucks and carts, barbers and stylists, market and fair vendors, lawn-care and mobile services, and small cafés and restaurants finding their footing. If you sell face-to-face, VallaPOS was made for you.</p>
+          </div>
+          <div class="band__stats">
+            <div class="bstat"><b>Local-first</b><span>Made for independents, not chains</span></div>
+            <div class="bstat"><b>Two editions</b><span>Subscribe, or own it for $99</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta" style="padding-top:20px">
+    <div class="wrap">
+      <div class="cta__box reveal">
+        <h2>Come sell with us</h2>
+        <p>Join the independents running a smarter register — and keeping every dollar they earn. Get started at <strong>vallapos.com</strong>, or reach the team any time at <a href="mailto:hello@vallapos.com" style="color:var(--accent);font-weight:600">hello@vallapos.com</a>.</p>
+        <div class="cta__row">
+          <a class="btn btn--onNavy btn--lg" href="#/#pricing">Get started<svg class="icon"><use href="#i-arrow"/></svg></a>
+          <a class="btn btn--ghostNavy btn--lg" href="#/#features">Explore features</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ====================== LEGAL ====================== -->
+<main class="view" id="view-legal" hidden>
+  <section class="legal-hero">
+    <div class="wrap">
+      <a href="#/" class="eyebrow" style="cursor:pointer"><svg class="icon" style="transform:scaleX(-1)"><use href="#i-arrow"/></svg> Back to home</a>
+      <h1 id="legalTitle">Legal</h1>
+      <div class="legal-banner">
+        <svg class="icon"><use href="#i-shield"/></svg>
+        <span>These policies are a starting template provided for convenience and are <strong>not legal advice</strong>. VallaPOS should have qualified counsel review and localize them before publishing. Bracketed items are placeholders to complete.</span>
+      </div>
+      <nav class="legal-nav" id="legalNav" aria-label="Legal documents">
+        <a href="#/privacy" data-doc="privacy">Privacy Statement</a>
+        <a href="#/terms" data-doc="terms">Terms of Use</a>
+        <a href="#/disputes" data-doc="disputes">Dispute Policy</a>
+        <a href="#/do-not-sell" data-doc="do-not-sell">Do Not Sell My Info</a>
+        <a href="#/dmca" data-doc="dmca">DMCA Policy</a>
+      </nav>
+    </div>
+  </section>
+  <section class="legal-body" style="padding-top:12px">
+    <div class="wrap">
+      <article class="legal-doc" id="doc-privacy">
+<p class="legal-note">This Privacy Statement is a template provided for your convenience and is not legal advice; VallaPOS should have qualified counsel review and tailor it before publishing.</p>
+<p class="legal-lead">VallaPOS makes point-of-sale software for mobile and local small businesses — food trucks, barbers, salons, lawn-care crews, market vendors, and small cafés and restaurants. This statement explains what data VallaPOS collects, why, and the choices you have. Because we offer two very different products, we spell out how each one handles data.</p>
+
+<h2>Two editions, two very different data pictures</h2>
+<h3>VallaPOS Cloud (subscription web app at vallapos.com)</h3>
+<p>VallaPOS Cloud is a multi-tenant progressive web app that runs online. When you create an account and run your business on it, we collect and store: account information (your name, email address, and a securely hashed password); your business profile and catalog (items, prices, tax settings); and the order and transaction records you enter as you make sales. Today VallaPOS Cloud records cash, QR-code, and manual/"other" tender sales; card payments via Stripe are on our roadmap and in beta. For any card sale, the business using VallaPOS is the merchant of record — not VallaPOS — and card data is handled by Stripe, not stored by us. We also keep standard technical logs (IP address, browser type, timestamps, and error diagnostics) to keep the service secure and running.</p>
+<h3>VallaPOS Offline (one-time desktop download)</h3>
+<p>VallaPOS Offline is a downloadable, single-business, cash-only desktop app unlocked by a one-time license key. It is built to be genuinely offline: all of your business, catalog, and transaction data stays local on your own device. There is no account to create, no phone-home, and no analytics. We do not receive your sales data, your catalog, or usage telemetry from the Offline edition. The only personal data associated with an Offline purchase is what Stripe collects to sell you the license and issue your key.</p>
+
+<h2>How we use data</h2>
+<p>We use the limited data we hold to provide and operate the service, authenticate you, process your subscription or one-time purchase, provide support, secure the platform against fraud and abuse, meet legal and tax obligations, and communicate service and account notices. We do not use your personal information for cross-context behavioral advertising, and we do not build advertising profiles.</p>
+
+<h2>Service providers and sub-processors</h2>
+<p>We rely on a small set of vendors who process data only on our instructions:</p>
+<ul>
+<li><strong>Stripe</strong> — processes subscription and one-time purchase payments and, for the Cloud edition, card acceptance where enabled.</li>
+<li><strong>Hosting</strong> — VallaPOS Cloud data is hosted in the United States (Postgres via Vercel/Neon).</li>
+<li><strong>Email delivery</strong> — sends transactional messages such as verification, receipts, and account notices.</li>
+</ul>
+
+<h2>We do not sell your personal information</h2>
+<p>VallaPOS does not sell your personal information, and we do not share it for cross-context behavioral advertising, as those terms are defined under the CCPA/CPRA and similar US state laws. See our <a href="#/do-not-sell">Do Not Sell or Share My Personal Information</a> notice for details.</p>
+
+<h2>Security</h2>
+<p>We protect data in transit with encryption (TLS). Passwords and PINs are stored only as salted hashes, never in plaintext. Cloud is multi-tenant with tenant isolation so one business cannot access another business's data. No system is perfectly secure, but we work to protect your information using reasonable technical and organizational measures.</p>
+
+<h2>Data retention and deletion</h2>
+<p>For Cloud, we keep account and transaction data for as long as your account is active and as needed to provide the service and meet legal, accounting, and tax requirements. You may request deletion of your account and associated personal data; some records may be retained where the law requires. For Offline, deletion is entirely in your hands — remove the app and its local data files from your device.</p>
+
+<h2>You are the controller of your customers' data</h2>
+<p>For the order and customer information you enter into VallaPOS Cloud, you (the merchant) are the controller and VallaPOS is a processor acting on your behalf. You are responsible for handling your own customers' information lawfully, including providing any notices and honoring any requests they make to you.</p>
+
+<h2>Children</h2>
+<p>VallaPOS is business software and is not directed to children, and we do not knowingly collect personal information from children.</p>
+
+<h2>International users</h2>
+<p>VallaPOS Cloud is operated from and hosted in the United States. If you access it from outside the US, you understand your information will be processed in the US, where privacy laws may differ from those where you live.</p>
+
+<h2>Your privacy rights</h2>
+<p>Depending on where you live (including California and other US states with privacy laws), you may have the right to access or know what personal information we hold, request correction, request deletion, and opt out of any sale or sharing. Because we do not sell or share, there is nothing to opt out of, but you may still submit a request. We will not discriminate against you for exercising these rights. To make a request, email <a href="mailto:privacy@vallapos.com">privacy@vallapos.com</a>; we may need to verify your identity before acting.</p>
+
+<h2>Cookies and essential storage</h2>
+<p>VallaPOS Cloud uses only cookies and local/session storage that are essential to sign you in, keep your session secure, and run the app offline as a PWA. We do not use advertising or cross-site tracking cookies.</p>
+
+<h2>Changes to this statement</h2>
+<p>We may update this statement from time to time. Material changes will be posted here with a revised effective date, and where appropriate we will notify you.</p>
+
+<h2>Contact</h2>
+<p>Questions or requests: <a href="mailto:privacy@vallapos.com">privacy@vallapos.com</a>, or write to VallaPOS, [mailing address]. This statement is governed by the laws of the State of Texas, USA.</p>
+<p><strong>Effective date:</strong> July 15, 2026</p>
+</article>
+      <article class="legal-doc" id="doc-terms">
+<p class="legal-note">This is a plain-language template provided for convenience only. It is not legal advice and does not create an attorney-client relationship. VallaPOS should have qualified counsel review and adapt this document before publishing or relying on it.</p>
+<p class="legal-lead">These Terms of Use ("Terms") govern your access to and use of VallaPOS, the point-of-sale software offered by VallaPOS ("VallaPOS," "we," "us," or "our"). By creating an account, downloading the Offline edition, entering a license key, or otherwise using VallaPOS, you agree to these Terms. If you do not agree, do not use VallaPOS.</p>
+
+<h2>1. Acceptance of these Terms</h2>
+<p>These Terms form a binding agreement between you and VallaPOS. If you use VallaPOS on behalf of a business, you represent that you are authorized to bind that business, and "you" refers to both you and that business. Effective date: July 15, 2026.</p>
+
+<h2>2. What VallaPOS is</h2>
+<p>VallaPOS is point-of-sale software designed for mobile and local small businesses. It is offered in two editions:</p>
+<ul>
+<li><strong>VallaPOS Cloud</strong> — a subscription web application hosted in the United States at vallapos.com. It is multi-tenant and online, and today it supports cash, QR, and manual tender types. Card payments through Stripe are on our roadmap and may be offered in beta. For any card sale, <strong>the merchant</strong> (the business using VallaPOS) is the merchant of record, not VallaPOS.</li>
+<li><strong>VallaPOS Offline</strong> — a downloadable desktop application sold once for US$99. It is single-business, fully offline, cash-only, stores data locally on your device, and is unlocked with a one-time license key. No account is required.</li>
+</ul>
+
+<h2>3. Eligibility</h2>
+<p>VallaPOS is intended for commercial use by businesses and their authorized operators. You must be at least 18 years old and capable of forming a binding contract. VallaPOS is not a consumer product and is not intended for personal, household, or minor use.</p>
+
+<h2>4. Accounts and security (Cloud)</h2>
+<p>To use the Cloud edition you must create an account. You are responsible for keeping your credentials, staff logins, and register PINs confidential, and for all activity that occurs under your account, whether by you, your employees, or your operators. Provision access only to people you trust, remove access promptly when someone leaves, and notify us at support@vallapos.com if you suspect unauthorized use.</p>
+
+<h2>5. Subscription billing (Cloud)</h2>
+<p>The Cloud edition is sold as a recurring subscription (for example, US$19.99 per month), and may include a free trial. Billing is processed by Stripe. By starting a paid plan you authorize us and Stripe to charge your payment method on a recurring basis until you cancel.</p>
+<ul>
+<li><strong>Free trial.</strong> If a trial is offered, you will not be charged during the trial. Unless you cancel before the trial ends, your plan converts to a paid subscription and your payment method is charged automatically.</li>
+<li><strong>Renewals.</strong> Subscriptions renew automatically each billing period at the then-current rate.</li>
+<li><strong>Price changes.</strong> We may change subscription prices. We will give you reasonable advance notice, and changes apply at your next renewal. Continued use after a change takes effect means you accept the new price.</li>
+<li><strong>Cancellation.</strong> You may cancel at any time; cancellation stops future renewals and takes effect at the end of your current billing period. Refund posture is described in our <a href="#/disputes">Dispute Policy</a>.</li>
+</ul>
+
+<h2>6. License terms and acceptable use (Offline)</h2>
+<p>The Offline edition is licensed, not sold. Your US$99 purchase grants you a limited, non-exclusive, non-transferable license to use one copy of VallaPOS Offline for a single business. Your license key is <strong>per-business</strong> and personal to you. You may not resell, sublicense, rent, share, or redistribute the software or your license key; remove or alter licensing or copyright notices; or reverse-engineer, decompile, or attempt to derive source code except to the extent applicable law expressly permits. Refund posture for the one-time license is described in our <a href="#/disputes">Dispute Policy</a>.</p>
+
+<h2>7. Merchant responsibilities</h2>
+<p>You are solely responsible for how you operate your business through VallaPOS, including:</p>
+<ul>
+<li>Your own tax, licensing, and legal compliance, including correctly configuring tax rates and issuing any required receipts or records.</li>
+<li>The accuracy of your catalog, prices, inventory, and tender records.</li>
+<li>Acting as the <strong>merchant of record</strong> for any card sales, including honoring your customers' purchases, refunds, and disputes.</li>
+<li>Lawful use of the software and lawful handling of your own customers' personal and payment data, including any privacy or consumer-protection obligations you owe them.</li>
+</ul>
+
+<h2>8. Acceptable use and prohibited conduct</h2>
+<p>You agree not to use VallaPOS to violate any law; to process fraudulent, unlawful, or prohibited transactions; to interfere with, overload, or probe the security of our systems; to circumvent licensing, usage limits, or authentication; or to build a competing product from our software. We may investigate and take action, including suspension, for violations.</p>
+
+<h2>9. Intellectual property</h2>
+<p>VallaPOS, including all software, interfaces, and trademarks, is and remains the property of VallaPOS and its licensors. These Terms grant you only the limited rights expressly stated. As between you and us, <strong>you own your business data</strong> — your catalog, sales records, and customer information — and you grant us only the limited rights needed to operate and support the Cloud service for you.</p>
+
+<h2>10. Third-party services</h2>
+<p>VallaPOS relies on third parties, including <strong>Stripe</strong> for subscription and purchase processing and, where offered, card payments. Your use of those services is subject to their own terms and privacy policies. We are not responsible for the acts, omissions, or availability of third-party services.</p>
+
+<h2>11. Availability and disclaimer of warranties</h2>
+<p>VallaPOS is provided <strong>"as is"</strong> and <strong>"as available."</strong> To the fullest extent permitted by law, we disclaim all warranties, express or implied, including merchantability, fitness for a particular purpose, and non-infringement. We do not warrant that VallaPOS will be uninterrupted, error-free, or that it will meet your requirements. The Offline edition runs locally and its data durability depends on your own device and backups.</p>
+
+<h2>12. Limitation of liability</h2>
+<p>To the fullest extent permitted by law, VallaPOS will not be liable for any indirect, incidental, special, consequential, or punitive damages, or for lost profits, revenue, data, or goodwill, arising out of or relating to VallaPOS. Our total aggregate liability for all claims relating to VallaPOS will not exceed the greater of (a) the amounts you paid us for VallaPOS in the twelve months before the event giving rise to the claim, or (b) US$100.</p>
+
+<h2>13. Indemnification</h2>
+<p>You agree to indemnify and hold harmless VallaPOS and its officers, employees, and agents from any claims, damages, and expenses (including reasonable attorneys' fees) arising from your use of VallaPOS, your violation of these Terms, your sales and business operations, or your handling of your customers' data.</p>
+
+<h2>14. Termination and suspension</h2>
+<p>You may stop using VallaPOS at any time; for the Cloud edition, cancel your subscription as described above. We may suspend or terminate your access if you breach these Terms, fail to pay, or use VallaPOS unlawfully or in a way that risks harm to others or our systems. On termination of the Cloud service, your right to use it ends; we will make your data available for a reasonable period where practicable.</p>
+
+<h2>15. Changes to the service and to these Terms</h2>
+<p>We may modify, add, or discontinue features, and we may update these Terms from time to time. Material changes will be communicated by reasonable means, such as posting the updated Terms with a new effective date. Your continued use after changes take effect constitutes acceptance.</p>
+
+<h2>16. Governing law</h2>
+<p>These Terms are governed by the laws of the State of Texas, USA, without regard to conflict-of-laws rules. Dispute resolution, arbitration, and venue are addressed in our <a href="#/disputes">Dispute Policy</a>, which is incorporated into these Terms by reference.</p>
+
+<h2>17. Contact</h2>
+<p>Questions about these Terms: legal@vallapos.com. Product and account support: support@vallapos.com. Mailing address: [mailing address].</p>
+</article>
+      <article class="legal-doc" id="doc-disputes">
+<p class="legal-note">This is a plain-language template provided for convenience only. It is not legal advice and does not create an attorney-client relationship. VallaPOS should have qualified counsel review and adapt this document — especially the arbitration and class-action sections — for enforceability in your jurisdiction before publishing or relying on it.</p>
+<p class="legal-lead">This Dispute Policy explains how to resolve problems, request refunds, and handle billing disputes for VallaPOS, offered by VallaPOS ("VallaPOS," "we," "us," or "our"). It applies to both the VallaPOS Cloud subscription and the VallaPOS Offline one-time license, and it is part of our Terms of Use. Effective date: July 15, 2026.</p>
+
+<h2>1. Contact us first</h2>
+<p>Most issues are resolved quickly and informally. Before starting a formal dispute, arbitration, or a card chargeback, please contact us so we can help. Email support@vallapos.com for billing, refunds, and product problems, or legal@vallapos.com for legal matters. Tell us your account email or license key, what happened, and the outcome you want. We aim to acknowledge your message within <strong>3 business days</strong> and to work in good faith toward a resolution within <strong>30 days</strong>. This informal step is a required first stage before either of us pursues arbitration.</p>
+
+<h2>2. Refunds and cancellation</h2>
+<h3>2.1 VallaPOS Cloud (subscription)</h3>
+<p>You may cancel your Cloud subscription at any time from your account or by contacting support@vallapos.com. Cancellation stops future renewals and takes effect at the end of your current billing period, so you keep access through the period you already paid for. Except where required by law, subscription fees are non-refundable, and we do not provide refunds or credits for partial billing periods, unused time, or periods during which your account remained open but unused. If you were charged after canceling, or charged in error, contact us and we will make it right.</p>
+<h3>2.2 VallaPOS Offline (one-time $99 license)</h3>
+<p>We want you to be satisfied with the Offline edition. If it does not work for your business, you may request a refund of the US$99 license fee within <strong>30 days</strong> of purchase by emailing support@vallapos.com from the address used to buy it. Approved refunds are returned to your original payment method through Stripe. On refund, your license is revoked and you must stop using and delete the software. We may decline refunds where we reasonably believe the request is fraudulent, abusive, or the license has been shared, resold, or otherwise misused.</p>
+
+<h2>3. Card chargebacks — please talk to us first</h2>
+<p>If you see a VallaPOS charge you do not recognize or believe is wrong, contact support@vallapos.com before disputing it with your bank or card issuer. We can usually resolve billing questions faster than a chargeback and without affecting your account. Filing a chargeback for a charge that was valid under these terms may result in suspension of your account or license while the dispute is investigated. (Note: chargebacks that your own customers file against your card sales are your responsibility as the merchant of record, not ours.)</p>
+
+<h2>4. Binding arbitration and class-action waiver</h2>
+<p><strong>Please read this section carefully. It affects your legal rights, including your right to go to court and to participate in a class action.</strong></p>
+<h3>4.1 Agreement to arbitrate</h3>
+<p>Except for the small-claims and opt-out exceptions below, you and VallaPOS agree that any dispute, claim, or controversy arising out of or relating to VallaPOS, these terms, or our relationship will be resolved by <strong>final and binding arbitration</strong> on an individual basis, rather than in court. Arbitration will be administered by a recognized arbitration provider under its consumer or commercial rules then in effect, and will take place in or near the State of Texas, USA, or by remote/video hearing where available. The arbitrator has authority to decide the dispute and to award the same individual relief a court could.</p>
+<h3>4.2 Small-claims exception</h3>
+<p>Either of us may bring an individual claim in a small-claims court with jurisdiction, instead of arbitration, as long as the matter stays in that court and is brought on an individual (non-class) basis.</p>
+<h3>4.3 Class-action waiver</h3>
+<p><strong>Class-action waiver: you and VallaPOS agree that each may bring claims against the other only in an individual capacity, and not as a plaintiff or class member in any purported class, collective, consolidated, or representative proceeding.</strong> The arbitrator may not consolidate more than one person's claims or preside over any class or representative proceeding. If this class-action waiver is found unenforceable as to a particular claim, that claim (and only that claim) will proceed in court, while all other claims remain in arbitration.</p>
+<h3>4.4 How to opt out</h3>
+<p>You may opt out of this arbitration agreement and class-action waiver. To opt out, email legal@vallapos.com with the subject line "Arbitration Opt-Out," stating your name, account email or license key, and a clear statement that you decline arbitration, within <strong>30 days</strong> of first accepting these terms. Opting out will not affect any other part of your agreement with us, and we will not penalize you for it. If you opt out, disputes will be resolved in the courts identified below.</p>
+
+<h2>5. Governing law and venue</h2>
+<p>This Dispute Policy and any dispute are governed by the laws of the State of Texas, USA, without regard to conflict-of-laws rules. For any dispute not subject to arbitration — including matters within the small-claims exception, an enforced class-waiver carve-out, or claims by anyone who validly opts out — the state and federal courts located in the State of Texas, USA will have exclusive jurisdiction and venue, and you consent to that jurisdiction.</p>
+
+<h2>6. Time limit to bring a claim</h2>
+<p>To the fullest extent permitted by law, any claim arising out of or relating to VallaPOS must be filed within <strong>one (1) year</strong> after the claim arose; otherwise it is permanently barred.</p>
+
+<h2>7. Contact</h2>
+<p>Support and refunds: support@vallapos.com. Legal notices, arbitration, and opt-out requests: legal@vallapos.com. Mailing address: [mailing address].</p>
+</article>
+      <article class="legal-doc" id="doc-do-not-sell">
+<p class="legal-note">This notice is a template provided for your convenience and is not legal advice; VallaPOS should have qualified counsel review and tailor it before publishing.</p>
+<p class="legal-lead">This notice explains VallaPOS's practices regarding the "sale" and "sharing" of personal information under the California Consumer Privacy Act as amended by the California Privacy Rights Act (CCPA/CPRA) and similar US state privacy laws.</p>
+
+<h2>We do not sell or share your personal information</h2>
+<p>VallaPOS does not sell your personal information for money or other valuable consideration, and we do not share it for cross-context behavioral advertising, as the terms "sell" and "share" are defined under the CCPA/CPRA and comparable US state laws. We do not disclose your information to third parties so they can advertise to you across other sites and services, and we do not build advertising profiles from it.</p>
+<p>The vendors we use — such as Stripe for payment processing, our United States hosting provider for VallaPOS Cloud, and our email delivery provider — act as service providers or processors on our behalf. They may only use the personal information we entrust to them to perform services for VallaPOS, not for their own marketing. That is not a "sale" or "share."</p>
+
+<h2>There is nothing to opt out of — but you can still submit a request</h2>
+<p>Because we do not sell or share personal information, there is no opt-out for you to complete. We still welcome your request if you would like written confirmation of our practices or wish to exercise any of your other rights described below.</p>
+
+<h2>Your rights</h2>
+<p>Depending on your state of residence, you may have the right to:</p>
+<ul>
+<li><strong>Know / access</strong> — request the categories and specific pieces of personal information we have collected about you and how we use it.</li>
+<li><strong>Delete</strong> — request that we delete the personal information we have collected from you, subject to legal exceptions such as records we must keep for tax and accounting.</li>
+<li><strong>Correct</strong> — request that we fix inaccurate personal information about you.</li>
+<li><strong>Opt out of sale or sharing</strong> — which does not apply here because we do not sell or share, but the right is yours nonetheless.</li>
+<li><strong>Non-discrimination</strong> — we will not deny you service, charge you a different price, or provide a lesser level of service because you exercised any of these rights.</li>
+</ul>
+<p>Note that the VallaPOS Offline desktop edition stores your data locally on your own device and sends nothing to us, so for that edition there is generally no personal information for us to disclose, correct, or delete.</p>
+
+<h2>How to submit a request</h2>
+<p>Email <a href="mailto:privacy@vallapos.com">privacy@vallapos.com</a> or use our [request form link]. Please tell us which right you want to exercise and include enough information for us to locate your account. To protect your data, we may need to verify your identity before we act, and we will respond within the timeframe required by applicable law. You may use an authorized agent to submit a request on your behalf where the law allows, subject to verification.</p>
+
+<h2>Contact</h2>
+<p>VallaPOS, [mailing address]. Questions about this notice: <a href="mailto:privacy@vallapos.com">privacy@vallapos.com</a>. Governed by the laws of the State of Texas, USA.</p>
+<p><strong>Effective date:</strong> July 15, 2026</p>
+</article>
+      <article class="legal-doc" id="doc-dmca">
+<p class="legal-note">This document is a template, not legal advice. Before publishing, VallaPOS should have qualified counsel review this policy and must formally designate and register a DMCA agent with the U.S. Copyright Office (the safe-harbor protections of 17 U.S.C. § 512 are unavailable until a Designated Agent is registered and the registration is kept current).</p>
+<p class="legal-lead">VallaPOS provides point-of-sale software through our cloud web application at vallapos.com and a downloadable offline desktop edition. Our business customers create and upload their own catalog content, including item names and, in some cases, product images and logos. VallaPOS respects the intellectual property rights of others and expects the businesses that use VallaPOS to do the same. This policy explains how we respond to claims of copyright infringement under the U.S. Digital Millennium Copyright Act ("DMCA"), 17 U.S.C. § 512.</p>
+
+<h2>Our respect for intellectual property</h2>
+<p>It is our policy to respond to clear notices of alleged copyright infringement that comply with the DMCA, to remove or disable access to infringing material hosted on our cloud service, and, in appropriate circumstances, to terminate the accounts of users who are repeat infringers. Because the offline desktop edition stores catalog data locally on the customer's own device and is not hosted by us, this policy's takedown and restoration procedures apply to content stored on or made accessible through our cloud service.</p>
+
+<h2>Submitting a takedown notice</h2>
+<p>If you believe that content stored on the VallaPOS cloud service infringes a copyright you own or are authorized to enforce, you may submit a written notification of claimed infringement to our Designated Agent. To be effective under § 512(c)(3), your notification must include substantially all of the following:</p>
+<ul>
+<li><strong>Signature.</strong> A physical or electronic signature of the copyright owner or a person authorized to act on the owner's behalf.</li>
+<li><strong>Identification of the work.</strong> Identification of the copyrighted work you claim has been infringed, or, if multiple works are covered by a single notification, a representative list of those works.</li>
+<li><strong>Identification of the infringing material.</strong> Identification of the material you claim is infringing and that you want removed or disabled, with information reasonably sufficient to let us locate it — for example, the URL, business or account name, item name, or other specific location within the VallaPOS service.</li>
+<li><strong>Contact information.</strong> Your name, mailing address, telephone number, and email address so we can reach you.</li>
+<li><strong>Good-faith statement.</strong> A statement that you have a good-faith belief that the disputed use is not authorized by the copyright owner, its agent, or the law.</li>
+<li><strong>Statement of accuracy and authority.</strong> A statement that the information in the notification is accurate, and, under penalty of perjury, that you are the copyright owner or are authorized to act on the owner's behalf.</li>
+</ul>
+
+<h2>Where to send notices</h2>
+<p>Send your takedown notice to our DMCA Designated Agent:</p>
+<ul>
+<li>[DMCA Designated Agent name]</li>
+<li>VallaPOS</li>
+<li>[mailing address]</li>
+<li>Email: <a href="mailto:dmca@vallapos.com">dmca@vallapos.com</a></li>
+</ul>
+<p>Using email to dmca@vallapos.com is the fastest way to reach us.</p>
+
+<h2>What we do when we receive a notice</h2>
+<p>Upon receiving a notification that substantially complies with § 512(c)(3), we will act expeditiously to remove or disable access to the material identified in the notice. We will take reasonable steps to notify the affected business or user that the material has been removed or disabled, and we will provide them a copy of the takedown notice so they may submit a counter-notification if they believe the removal was in error.</p>
+
+<h2>Counter-notification</h2>
+<p>If you are a VallaPOS user whose content was removed or disabled and you believe this was the result of a mistake or misidentification, you may submit a written counter-notification to our Designated Agent. Under § 512(g)(3), your counter-notification must include substantially all of the following:</p>
+<ul>
+<li><strong>Signature.</strong> Your physical or electronic signature.</li>
+<li><strong>Identification of the removed material.</strong> Identification of the material that was removed or disabled and the location at which it appeared before it was removed or disabled.</li>
+<li><strong>Statement under penalty of perjury.</strong> A statement, under penalty of perjury, that you have a good-faith belief the material was removed or disabled as a result of mistake or misidentification.</li>
+<li><strong>Consent to jurisdiction.</strong> Your name, address, and telephone number, and a statement that you consent to the jurisdiction of the federal district court for the judicial district in which your address is located (or, if your address is outside the United States, any judicial district in which VallaPOS may be found), and that you will accept service of process from the complainant or its agent.</li>
+<li><strong>Contact information.</strong> Contact information sufficient for us and the complainant to reach you.</li>
+</ul>
+
+<h2>Restoration timeline</h2>
+<p>If we receive a valid counter-notification, we will forward it to the party that submitted the original takedown notice. Unless that party notifies us that it has filed a court action seeking to restrain the allegedly infringing activity, we may restore the removed material in not less than 10 and not more than 14 business days after we receive your counter-notification.</p>
+
+<h2>Warning about misrepresentations</h2>
+<p>Under § 512(f), any person who knowingly materially misrepresents that material is infringing, or that material was removed or disabled by mistake or misidentification, may be liable for damages, including costs and attorneys' fees. Do not make false claims. If you are unsure whether material is infringing or whether your use is authorized, consult an attorney before submitting a notice or counter-notification.</p>
+
+<h2>Repeat-infringer policy</h2>
+<p>Consistent with § 512(i), VallaPOS has adopted and will reasonably implement a policy of terminating, in appropriate circumstances, the accounts of businesses or users who are repeat infringers. We may also suspend or terminate accounts, remove content, or take other action in our discretion, with or without notice, for conduct we believe infringes the rights of others or violates our Terms of Use.</p>
+</article>
+    </div>
+  </section>
+</main>
+
+<!-- ====================== footer ====================== -->
+<footer class="footer">
+  <div class="wrap">
+    <div class="footer__top">
+      <div class="footer__brand">
+        <a href="#/" class="brand">
+          <span class="brand__mark"><svg class="icon"><use href="#i-logo"/></svg></span>
+          <span>Valla<b>POS</b></span>
+        </a>
+        <p>The register for people who sell on the move. Fast, offline-ready, and fair — no cut of your sales.</p>
+        <div class="footer__social">
+          <a href="#/" aria-label="Storefront"><svg class="icon"><use href="#i-store"/></svg></a>
+          <a href="#/" aria-label="Contact"><svg class="icon"><use href="#i-globe"/></svg></a>
+        </div>
+      </div>
+      <div class="fcol">
+        <h4>Product</h4>
+        <a href="#/#features">Features</a>
+        <a href="#/#editions">Editions</a>
+        <a href="#/#pricing">Pricing</a>
+        <a href="#/#how">How it works</a>
+      </div>
+      <div class="fcol">
+        <h4>Company</h4>
+        <a href="#/about">About us</a>
+        <a href="#/#faq">FAQ</a>
+        <a href="mailto:support@vallapos.com">Support</a>
+        <a href="mailto:hello@vallapos.com">Contact</a>
+      </div>
+      <div class="fcol">
+        <h4>Legal</h4>
+        <a href="#/privacy">Privacy Statement</a>
+        <a href="#/terms">Terms of Use</a>
+        <a href="#/disputes">Dispute Policy</a>
+        <a href="#/do-not-sell">Do Not Sell My Info</a>
+        <a href="#/dmca">DMCA Policy</a>
+      </div>
+    </div>
+    <div class="footer__bottom">
+      <span>© <span id="year">2026</span> VallaPOS. VallaPOS is a product of VallaPOS. All rights reserved.</span>
+      <nav>
+        <a href="#/privacy">Privacy</a>
+        <a href="#/terms">Terms</a>
+        <a href="#/disputes">Disputes</a>
+        <a href="#/do-not-sell">Do Not Sell</a>
+        <a href="#/dmca">DMCA</a>
+      </nav>
+    </div>
+  </div>
+</footer>`;
