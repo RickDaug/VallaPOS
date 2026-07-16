@@ -1,8 +1,20 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { CheckCircle2, Minus, Plus, ShoppingBag, Trash2, X } from "lucide-react";
+import {
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  ExternalLink,
+  Minus,
+  Plus,
+  ShoppingBag,
+  Trash2,
+  X,
+} from "lucide-react";
 import { formatMoney } from "@/lib/money";
 import { computePricedOrder, type PricedLineInput } from "@/features/register/pricing";
 import { isOutOfStock } from "@/features/catalog/stock";
@@ -10,6 +22,7 @@ import type { SellableEntry } from "@/features/catalog/queries";
 import { submitOnlineOrder } from "@/features/online/actions";
 import { isOnlineConfirmation, type OnlineOrderConfirmation } from "@/features/online/schema";
 import type { PublicMenu } from "@/features/online/queries";
+import { parsePayHandle } from "@/features/online/pay-link";
 
 interface CartLine {
   key: string;
@@ -34,7 +47,14 @@ export function PublicOrder({ menu }: { menu: PublicMenu }) {
   const [customerPhone, setCustomerPhone] = useState("");
   const [confirmation, setConfirmation] = useState<OnlineOrderConfirmation | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [pending, startTransition] = useTransition();
+
+  // Idempotency key for the CURRENT cart attempt. Generated ONCE and reused across
+  // retries so a lost-response retry hits the server's idempotency guard instead of
+  // minting a duplicate order. Rotated only after a success (fresh cart) — see below.
+  const clientUuidRef = useRef<string>("");
+  if (!clientUuidRef.current) clientUuidRef.current = crypto.randomUUID();
 
   const priced = useMemo(() => {
     const inputs: PricedLineInput[] = cart.map((line) => {
@@ -56,6 +76,12 @@ export function PublicOrder({ menu }: { menu: PublicMenu }) {
   }, [cart, menu.taxRateBps, menu.taxInclusive]);
 
   const itemCount = cart.reduce((n, l) => n + l.quantity, 0);
+
+  // Reassure the customer they aren't being charged now (v1 is pay-on-pickup / the
+  // merchant's static pay handle — no card is captured on this screen).
+  const chargeNote = menu.qrPay
+    ? `You won't be charged now — pay with ${menu.qrPay.label?.trim() || "the store's pay link"} or when you pick up.`
+    : "You won't be charged now — pay when you pick up.";
 
   // Group entries by category, preserving first-seen order.
   const categories = useMemo(() => {
@@ -103,30 +129,42 @@ export function PublicOrder({ menu }: { menu: PublicMenu }) {
     if (cart.length === 0 || pending) return;
     setError(null);
     startTransition(async () => {
-      const result = await submitOnlineOrder({
-        businessId: menu.businessId,
-        clientUuid: crypto.randomUUID(),
-        lines: cart.map((l) => ({
-          variationId: l.entry.variationId,
-          quantity: l.quantity,
-          modifierIds: l.modifierIds.length ? l.modifierIds : undefined,
-        })),
-        customerName: customerName.trim() || undefined,
-        customerPhone: customerPhone.trim() || undefined,
-        tipCents: 0,
-      });
-      if (isOnlineConfirmation(result)) {
-        setConfirmation(result);
-        setCart([]);
-        return;
+      try {
+        const result = await submitOnlineOrder({
+          businessId: menu.businessId,
+          // Stable across retries (see clientUuidRef) so a resent request is deduped.
+          clientUuid: clientUuidRef.current,
+          lines: cart.map((l) => ({
+            variationId: l.entry.variationId,
+            quantity: l.quantity,
+            modifierIds: l.modifierIds.length ? l.modifierIds : undefined,
+          })),
+          customerName: customerName.trim() || undefined,
+          customerPhone: customerPhone.trim() || undefined,
+          tipCents: 0,
+        });
+        if (isOnlineConfirmation(result)) {
+          setConfirmation(result);
+          setCart([]);
+          setReviewOpen(false);
+          // Success: rotate the key so the NEXT cart is a distinct order.
+          clientUuidRef.current = crypto.randomUUID();
+          return;
+        }
+        setError(
+          result.error === "rate_limited"
+            ? "You're ordering a bit fast — please wait a moment and try again."
+            : result.error === "unavailable"
+              ? "Online ordering isn't available right now."
+              : "One or more items are no longer available. Please review your order, remove anything sold out, and try again.",
+        );
+      } catch {
+        // Thrown error (network drop, server 500, etc.) — the cart is preserved, so
+        // the customer can simply retry; the stable clientUuid keeps it idempotent.
+        setError(
+          "We couldn't reach the store just now. Your order wasn't placed — please check your connection and try again.",
+        );
       }
-      setError(
-        result.error === "rate_limited"
-          ? "You're ordering a bit fast — please wait a moment and try again."
-          : result.error === "unavailable"
-            ? "Online ordering isn't available right now."
-            : "Something in your cart is no longer available. Please review and try again.",
-      );
     });
   }
 
@@ -235,7 +273,7 @@ export function PublicOrder({ menu }: { menu: PublicMenu }) {
                       type="button"
                       aria-label="Decrease quantity"
                       onClick={() => setQuantity(line.key, -1)}
-                      className="grid size-9 place-items-center rounded-full border border-border active:scale-95"
+                      className="grid size-11 place-items-center rounded-full border border-border active:scale-95"
                     >
                       <Minus size={16} />
                     </button>
@@ -244,7 +282,7 @@ export function PublicOrder({ menu }: { menu: PublicMenu }) {
                       type="button"
                       aria-label="Increase quantity"
                       onClick={() => setQuantity(line.key, 1)}
-                      className="grid size-9 place-items-center rounded-full border border-border active:scale-95"
+                      className="grid size-11 place-items-center rounded-full border border-border active:scale-95"
                     >
                       <Plus size={16} />
                     </button>
@@ -252,7 +290,7 @@ export function PublicOrder({ menu }: { menu: PublicMenu }) {
                       type="button"
                       aria-label="Remove item"
                       onClick={() => removeLine(line.key)}
-                      className="ml-1 grid size-9 place-items-center rounded-full text-muted-foreground hover:text-destructive active:scale-95"
+                      className="ml-1 grid size-11 place-items-center rounded-full text-muted-foreground hover:text-destructive active:scale-95"
                     >
                       <Trash2 size={16} />
                     </button>
@@ -297,26 +335,69 @@ export function PublicOrder({ menu }: { menu: PublicMenu }) {
 
       {/* Sticky totals / place-order bar */}
       {cart.length > 0 && (
-        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-card/95 p-4 backdrop-blur">
-          <div className="mx-auto flex max-w-2xl items-center gap-4">
-            <div className="min-w-0">
-              <p className="text-xs text-muted-foreground">
-                {itemCount} item{itemCount === 1 ? "" : "s"} ·{" "}
-                {menu.taxInclusive ? "tax incl." : `+ ${formatMoney(priced.taxCents, menu.currency)} tax`}
-              </p>
-              <p className="numeric text-lg font-black">
-                {formatMoney(priced.totalCents, menu.currency)}
-              </p>
+        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-card/95 backdrop-blur">
+          <div className="mx-auto max-w-2xl px-4 py-3">
+            {/* Tap-to-expand review of the line items (they're a scroll away above). */}
+            {reviewOpen && (
+              <div className="mb-3 max-h-56 overflow-y-auto rounded-xl border border-border bg-background p-3">
+                <ul className="divide-y divide-border">
+                  {cart.map((line) => {
+                    const mods = flatModifiers(line.entry).filter((m) =>
+                      line.modifierIds.includes(m.id),
+                    );
+                    const unit =
+                      line.entry.priceCents + mods.reduce((s, m) => s + m.priceDeltaCents, 0);
+                    return (
+                      <li key={line.key} className="flex items-center justify-between gap-3 py-2">
+                        <span className="min-w-0 truncate text-sm">
+                          <span className="numeric font-semibold">{line.quantity}×</span>{" "}
+                          {line.entry.label}
+                        </span>
+                        <span className="numeric shrink-0 text-sm text-muted-foreground">
+                          {formatMoney(unit * line.quantity, menu.currency)}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+
+            <p className="mb-2 text-center text-xs text-muted-foreground">{chargeNote}</p>
+
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={() => setReviewOpen((v) => !v)}
+                aria-expanded={reviewOpen}
+                className="flex min-w-0 items-center gap-1.5 rounded-lg py-1 text-left active:scale-[0.98]"
+              >
+                <span className="min-w-0">
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                    {itemCount} item{itemCount === 1 ? "" : "s"} ·{" "}
+                    {menu.taxInclusive
+                      ? "tax incl."
+                      : `+ ${formatMoney(priced.taxCents, menu.currency)} tax`}
+                    {reviewOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+                  </span>
+                  <span className="numeric block text-lg font-black">
+                    {formatMoney(priced.totalCents, menu.currency)}
+                  </span>
+                </span>
+                <span className="sr-only">
+                  {reviewOpen ? "Hide order details" : "Review order details"}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={placeOrder}
+                disabled={pending}
+                className="ml-auto inline-flex h-12 items-center gap-2 rounded-xl bg-primary px-6 font-semibold text-primary-foreground shadow-sm active:scale-[0.98] disabled:opacity-60"
+              >
+                <ShoppingBag size={18} />
+                {pending ? "Placing…" : "Place order"}
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={placeOrder}
-              disabled={pending}
-              className="ml-auto inline-flex h-12 items-center gap-2 rounded-xl bg-primary px-6 font-semibold text-primary-foreground shadow-sm active:scale-[0.98] disabled:opacity-60"
-            >
-              <ShoppingBag size={18} />
-              {pending ? "Placing…" : "Place order"}
-            </button>
           </div>
         </div>
       )}
@@ -366,6 +447,13 @@ function ModifierPicker({
   const groups = entry.modifierGroups.filter((g) => g.modifiers.length > 0);
   const unmet = groups.filter((g) => (selected[g.id] ?? []).length < g.minSelect);
   const chosen = groups.flatMap((g) => selected[g.id] ?? []);
+  // Running item price = base + selected modifier deltas (reflects choices live).
+  const runningCents =
+    entry.priceCents +
+    groups
+      .flatMap((g) => g.modifiers)
+      .filter((m) => chosen.includes(m.id))
+      .reduce((s, m) => s + m.priceDeltaCents, 0);
 
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/50 sm:items-center">
@@ -429,16 +517,25 @@ function ModifierPicker({
           type="button"
           disabled={unmet.length > 0}
           onClick={() => onConfirm(chosen)}
-          className="mt-5 h-12 w-full rounded-xl bg-primary font-semibold text-primary-foreground active:scale-[0.98] disabled:opacity-60"
+          className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary font-semibold text-primary-foreground active:scale-[0.98] disabled:opacity-60"
         >
-          {unmet.length > 0 ? `Choose ${unmet[0]!.name}` : "Add to order"}
+          {unmet.length > 0 ? (
+            `Choose ${unmet[0]!.name}`
+          ) : (
+            <>
+              <span>Add to order</span>
+              <span className="numeric opacity-90">
+                · {formatMoney(runningCents, currency)}
+              </span>
+            </>
+          )}
         </button>
       </div>
     </div>
   );
 }
 
-/** Post-submit confirmation: order number, total, pickup instructions, pay QR. */
+/** Post-submit confirmation: order number, total, pickup instructions, tappable pay. */
 function Confirmation({
   menu,
   confirmation,
@@ -448,6 +545,9 @@ function Confirmation({
   confirmation: OnlineOrderConfirmation;
   onReset: () => void;
 }) {
+  const [done, setDone] = useState(false);
+  const total = formatMoney(confirmation.totalCents, menu.currency);
+
   return (
     <div className="mx-auto flex min-h-screen max-w-md flex-col items-center px-4 py-12 text-center text-foreground">
       <CheckCircle2 className="text-success" size={56} />
@@ -457,9 +557,7 @@ function Confirmation({
       <div className="mt-6 w-full rounded-2xl border border-border bg-card p-6 shadow-sm">
         <p className="text-sm text-muted-foreground">Your order number</p>
         <p className="numeric text-5xl font-black">#{confirmation.number}</p>
-        <p className="numeric mt-2 text-lg font-semibold">
-          {formatMoney(confirmation.totalCents, menu.currency)}
-        </p>
+        <p className="numeric mt-2 text-lg font-semibold">{total}</p>
       </div>
 
       {menu.instructions && (
@@ -469,33 +567,121 @@ function Confirmation({
         </div>
       )}
 
+      <PaySection menu={menu} total={total} />
+
+      {done ? (
+        <p className="mt-8 text-sm text-muted-foreground">
+          Show order <span className="numeric font-semibold text-foreground">#{confirmation.number}</span>{" "}
+          at pickup. You can close this page.
+        </p>
+      ) : (
+        <div className="mt-8 flex w-full flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => setDone(true)}
+            className="inline-flex h-12 items-center justify-center rounded-xl bg-primary px-6 font-semibold text-primary-foreground shadow-sm active:scale-[0.98]"
+          >
+            Done
+          </button>
+          <button
+            type="button"
+            onClick={onReset}
+            className="inline-flex h-11 items-center justify-center rounded-xl border border-border px-6 font-medium text-muted-foreground active:scale-[0.98]"
+          >
+            Place another order
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The pay moment. The customer is holding the ONLY phone, so we lead with a
+ * TAPPABLE pay action derived from the merchant's handle (see parsePayHandle) and
+ * demote the QR to an "or scan from another device" secondary affordance.
+ */
+function PaySection({ menu, total }: { menu: PublicMenu; total: string }) {
+  const [copied, setCopied] = useState(false);
+
+  if (!menu.qrPay) {
+    return (
       <div className="mt-4 w-full rounded-xl border border-border bg-card p-5">
-        {menu.qrPay ? (
-          <div className="flex flex-col items-center">
-            <p className="mb-3 text-sm font-semibold">
-              Pay from your phone{menu.qrPay.label ? ` · ${menu.qrPay.label}` : ""}
-            </p>
-            <div className="rounded-lg bg-white p-3">
-              <QRCodeSVG value={menu.qrPay.value} size={168} />
-            </div>
-            <p className="mt-3 text-xs text-muted-foreground">
-              Scan to pay, then show your order number at pickup.
-            </p>
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            Pay when you pick up. Just show your order number.
-          </p>
-        )}
+        <p className="text-sm text-muted-foreground">
+          Pay when you pick up. Just show your order number.
+        </p>
+      </div>
+    );
+  }
+
+  const label = menu.qrPay.label?.trim() || "your payment app";
+  const action = parsePayHandle(menu.qrPay.value);
+
+  async function copyHandle() {
+    try {
+      await navigator.clipboard.writeText(action.display);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard blocked (permissions / insecure context) — the handle is shown
+      // in full above, so the customer can still copy it manually.
+      setCopied(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 w-full rounded-2xl border border-border bg-card p-5">
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="text-sm font-semibold">Pay {menu.name}</p>
+        <p className="numeric text-lg font-black">{total}</p>
       </div>
 
-      <button
-        type="button"
-        onClick={onReset}
-        className="mt-8 h-11 rounded-xl border border-border px-6 font-medium active:scale-[0.98]"
-      >
-        Place another order
-      </button>
+      {action.kind === "link" ? (
+        <a
+          href={action.href}
+          {...(action.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+          className="mt-3 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary px-6 font-semibold text-primary-foreground shadow-sm active:scale-[0.98]"
+        >
+          Pay with {menu.qrPay.label?.trim() || "your app"}
+          {action.external && <ExternalLink size={16} />}
+        </a>
+      ) : (
+        <div className="mt-3">
+          <p className="mb-2 text-left text-sm text-muted-foreground">
+            Open {label} and pay {menu.name} using this handle:
+          </p>
+          <div className="flex items-center gap-2">
+            <code className="min-w-0 flex-1 truncate rounded-lg border border-border bg-muted/40 px-3 py-2 text-left text-sm font-semibold">
+              {action.display}
+            </code>
+            <button
+              type="button"
+              onClick={copyHandle}
+              aria-label="Copy pay handle"
+              className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground active:scale-[0.98]"
+            >
+              {copied ? <Check size={16} /> : <Copy size={16} />}
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Secondary: the QR still works when a SECOND device can scan it. */}
+      <details className="mt-4 text-left">
+        <summary className="cursor-pointer text-xs text-muted-foreground">
+          Or scan from another device
+        </summary>
+        <div className="mt-3 flex flex-col items-center">
+          <div className="rounded-lg bg-white p-3">
+            <QRCodeSVG value={menu.qrPay.value} size={140} />
+          </div>
+        </div>
+      </details>
+
+      <p className="mt-3 text-xs text-muted-foreground">
+        After paying, show your order number at pickup.
+      </p>
     </div>
   );
 }
