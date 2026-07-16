@@ -138,6 +138,13 @@ model Business {
   // the (future) QR sale rail create a charge on this account. Flipped by the
   // account webhook, never trusted from the client.
   stripeChargesEnabled Boolean @default(false)
+  // QR self-ordering & pay (docs/ONLINE_ORDERING.md). When false (the default) the
+  // public /order/[businessId] page 404s and the whole feature is INERT — existing
+  // businesses are byte-for-byte unchanged until a merchant turns it on. The
+  // instructions are shown to the customer on the order-confirmation screen
+  // (pickup/collection details). Both additive/defaulted/nullable.
+  onlineOrderingEnabled   Boolean @default(false)
+  onlineOrderInstructions String?
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
@@ -385,6 +392,26 @@ enum PaymentMethod {
   MANUAL
 }
 
+// How an order originated. IN_PERSON is the default (register/tabs) so every
+// existing order is unchanged. ONLINE marks a customer self-order placed from the
+// public /order/[businessId] page (QR self-ordering — docs/ONLINE_ORDERING.md).
+enum OrderChannel {
+  IN_PERSON
+  ONLINE
+}
+
+// Fulfilment lifecycle for an ONLINE order (null for IN_PERSON). SUBMITTED lands
+// on the merchant's incoming board; staff ACCEPT (stock decrements here) → mark
+// READY → COMPLETED (an OPEN sale the cashier settles on the register, or already
+// paid-ahead). REJECTED cancels it (restocking if it had been accepted).
+enum OnlineOrderStatus {
+  SUBMITTED
+  ACCEPTED
+  READY
+  COMPLETED
+  REJECTED
+}
+
 enum PaymentStatus {
   PENDING
   CAPTURED
@@ -400,6 +427,14 @@ model Order {
   number        Int // human-friendly per-business sequence
   cashierId     String? // Membership.id
   customerName  String?
+  // Customer phone for an ONLINE self-order (optional, for pickup contact). Null
+  // for in-person sales. Additive/nullable so existing rows are unchanged.
+  customerPhone String?
+  // Order origin + online-fulfilment lifecycle. `channel` defaults to IN_PERSON so
+  // every existing/register/tab order is unchanged; `onlineStatus` is null unless
+  // channel == ONLINE (see the OrderChannel/OnlineOrderStatus enums above).
+  channel       OrderChannel @default(IN_PERSON)
+  onlineStatus  OnlineOrderStatus?
   status        OrderStatus  @default(OPEN)
   subtotalCents Int          @default(0)
   discountCents Int          @default(0)
@@ -417,6 +452,8 @@ model Order {
   @@unique([businessId, number])
   @@index([businessId])
   @@index([businessId, createdAt])
+  // Merchant incoming-online-orders board: filter by channel + onlineStatus.
+  @@index([businessId, channel, onlineStatus])
 }
 
 model OrderLine {

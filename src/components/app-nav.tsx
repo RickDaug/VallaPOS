@@ -11,6 +11,7 @@ import {
   Receipt,
   Settings,
   ShoppingCart,
+  Smartphone,
   Users,
   Wallet,
   type LucideIcon,
@@ -28,13 +29,17 @@ export interface NavOperator {
 }
 
 // The "Floor" screen is the restaurant home, so it sits right after Register and
-// only appears in RESTAURANT mode. Each item is gated by the active operator's
+// only appears in RESTAURANT mode. "Online" appears only when the merchant has
+// enabled QR self-ordering. Each item is gated by the active operator's
 // capability, so a worker only sees the screens they're permitted to use.
-function navFor(mode: BusinessMode, operator: NavOperator): NavItem[] {
+function navFor(mode: BusinessMode, operator: NavOperator, onlineEnabled: boolean): NavItem[] {
   const all: NavItem[] = [
     { slug: "register", label: "Register", Icon: ShoppingCart, cap: "take_orders" },
     ...(mode === "RESTAURANT"
       ? [{ slug: "floor", label: "Floor", Icon: LayoutGrid, cap: "take_orders" as Capability }]
+      : []),
+    ...(onlineEnabled
+      ? [{ slug: "online", label: "Online", Icon: Smartphone, cap: "take_orders" as Capability }]
       : []),
     { slug: "orders", label: "Orders", Icon: Receipt, cap: "take_orders" },
     { slug: "products", label: "Products", Icon: Boxes, cap: "manage_products" },
@@ -44,6 +49,19 @@ function navFor(mode: BusinessMode, operator: NavOperator): NavItem[] {
     { slug: "settings", label: "Settings", Icon: Settings, cap: "manage_settings" },
   ];
   return all.filter((item) => can(operator.role, operator.permissions, item.cap));
+}
+
+/** A small count pill rendered on the Online nav item when orders are waiting. */
+function NavBadge({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <span
+      aria-label={`${count} incoming`}
+      className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground"
+    >
+      {count > 99 ? "99+" : count}
+    </span>
+  );
 }
 
 function useActive(businessId: string) {
@@ -62,7 +80,7 @@ function isMuted(slug: string, firstRun: boolean, active: boolean): boolean {
 // On phones the bottom bar shows only the sale-critical tabs as first-class; the
 // rest go behind a "More" sheet so the bar stays scannable (audit R2 #2). Floor
 // is sale-critical in RESTAURANT mode (it's the restaurant home).
-const BOTTOM_PRIMARY = new Set(["register", "floor", "orders", "products"]);
+const BOTTOM_PRIMARY = new Set(["register", "floor", "online", "orders", "products"]);
 
 /** Desktop sidebar nav (vertical). */
 export function SideNav({
@@ -70,16 +88,20 @@ export function SideNav({
   mode,
   operator,
   firstRun = false,
+  onlineEnabled = false,
+  onlineBadge = 0,
 }: {
   businessId: string;
   mode: BusinessMode;
   operator: NavOperator;
   firstRun?: boolean;
+  onlineEnabled?: boolean;
+  onlineBadge?: number;
 }) {
   const isActive = useActive(businessId);
   return (
     <nav className="space-y-1">
-      {navFor(mode, operator).map(({ slug, label, Icon }) => (
+      {navFor(mode, operator, onlineEnabled).map(({ slug, label, Icon }) => (
         <Link
           key={slug}
           href={`/${businessId}/${slug}`}
@@ -94,6 +116,7 @@ export function SideNav({
         >
           <Icon size={18} />
           {label}
+          {slug === "online" && <NavBadge count={onlineBadge} />}
         </Link>
       ))}
     </nav>
@@ -114,11 +137,15 @@ export function BottomNav({
   mode,
   operator,
   firstRun = false,
+  onlineEnabled = false,
+  onlineBadge = 0,
 }: {
   businessId: string;
   mode: BusinessMode;
   operator: NavOperator;
   firstRun?: boolean;
+  onlineEnabled?: boolean;
+  onlineBadge?: number;
 }) {
   const isActive = useActive(businessId);
   const pathname = usePathname();
@@ -129,7 +156,7 @@ export function BottomNav({
     setMoreOpen(false);
   }, [pathname]);
 
-  const items = navFor(mode, operator);
+  const items = navFor(mode, operator, onlineEnabled);
   const primary = items.filter((i) => BOTTOM_PRIMARY.has(i.slug));
   const overflow = items.filter((i) => !BOTTOM_PRIMARY.has(i.slug));
   const overflowActive = overflow.some((i) => isActive(i.slug));
@@ -193,7 +220,17 @@ export function BottomNav({
               isMuted(slug, firstRun, isActive(slug)) && "opacity-50",
             )}
           >
-            <Icon size={20} />
+            <span className="relative">
+              <Icon size={20} />
+              {slug === "online" && onlineBadge > 0 && (
+                <span
+                  aria-label={`${onlineBadge} incoming`}
+                  className="absolute -right-2 -top-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground"
+                >
+                  {onlineBadge > 99 ? "99+" : onlineBadge}
+                </span>
+              )}
+            </span>
             {label}
           </Link>
         ))}
