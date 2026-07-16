@@ -13,11 +13,11 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
   // App runtime uses the POOLED Neon endpoint (host contains "-pooler",
   // query has pgbouncer=true) so serverless functions share a small pool of
   // Postgres connections via PgBouncer instead of each holding direct ones.
-  url = env("DATABASE_URL")
+  url       = env("DATABASE_URL")
   // The Prisma CLI (migrate/db/introspect) needs a DIRECT, non-pooled
   // connection — PgBouncer's transaction pooling can't run DDL/advisory-lock
   // migrations. Only evaluated by CLI commands, never by the client at runtime,
@@ -99,58 +99,77 @@ enum BusinessMode {
 }
 
 model Business {
-  id           String       @id @default(cuid())
-  name         String
-  mode         BusinessMode @default(STORE)
+  id                   String       @id @default(cuid())
+  name                 String
+  mode                 BusinessMode @default(STORE)
   // Single configurable rate for MVP; multi-rate/tax API comes later.
-  taxRateBps   Int          @default(0) // basis points; 825 = 8.25%
-  taxInclusive Boolean      @default(false)
-  currency     String       @default("USD")
+  taxRateBps           Int          @default(0) // basis points; 825 = 8.25%
+  taxInclusive         Boolean      @default(false)
+  currency             String       @default("USD")
   // IANA timezone (e.g. "America/New_York", "America/Mexico_City",
   // "America/Sao_Paulo"). Drives Z-report day boundaries and every displayed
   // timestamp (receipts, order history) so a merchant's "today" is their local
   // day, not the server's UTC day. Defaults to US Eastern for existing rows.
-  timezone     String       @default("America/New_York")
+  timezone             String       @default("America/New_York")
   // Single-operator ("stay unlocked") mode: when true the register does NOT
   // re-lock the terminal after each sale, so a solo owner selling from one phone
   // isn't re-authenticating before every transaction. Default OFF keeps the
   // secure shared-till behavior for multi-employee businesses. See Register.tsx.
-  singleOperatorMode Boolean @default(false)
+  singleOperatorMode   Boolean      @default(false)
   // Merchant-configured QR payment (confirm-based, no PSP): the cashier shows
   // qrPayValue as a QR (a payment handle/link — PIX key, UPI id, Venmo,
   // PayPal.me, a payment-link URL), the customer scans + pays out-of-band, and
   // the sale is recorded as method=QR. qrPayLabel is the rail name shown to the
   // cashier (e.g. "PIX"). All nullable/defaulted so existing businesses are
   // untouched and QR is simply off until configured.
-  qrPayEnabled Boolean      @default(false)
-  qrPayLabel   String? // e.g. "PIX", "UPI", "Venmo"
-  qrPayValue   String? // the string encoded into the QR
+  qrPayEnabled         Boolean      @default(false)
+  qrPayLabel           String? // e.g. "PIX", "UPI", "Venmo"
+  qrPayValue           String? // the string encoded into the QR
   // Integrated payments (Stripe Connect, PAYMENTS.md §9). All nullable/defaulted
   // so existing businesses are untouched and the rail stays OFF until onboarded.
   // `country` selects the Connect account country + which local payment methods
   // are eligible (US | MX | BR at launch); ISO-3166 alpha-2, uppercased.
-  country              String  @default("US")
+  country              String       @default("US")
   // The connected account id (acct_...) once onboarding starts. Null = not
   // connected. Unique so the account webhook can resolve exactly one business
   // from an acct id, and a business can never hold two connected accounts.
-  stripeAccountId      String? @unique
+  stripeAccountId      String?      @unique
   // Mirrors the Accounts v2 `card_payments` capability status. Only when true may
   // the (future) QR sale rail create a charge on this account. Flipped by the
   // account webhook, never trusted from the client.
-  stripeChargesEnabled Boolean @default(false)
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  stripeChargesEnabled Boolean      @default(false)
+  // Payroll-tax provider (embedded payroll — Check — docs/PAYROLL_TAX.md). All
+  // additive + nullable/defaulted so existing businesses are untouched and the
+  // integration stays DORMANT until CHECK_* keys are set AND a merchant onboards.
+  // We store ONLY the provider's tokenized company id + a mirrored onboarding
+  // status string — NEVER any SSN/EIN/bank data (those live only in the provider,
+  // tokenized). Unique so a payroll webhook can resolve exactly one business from
+  // a company id, and a business can never hold two provider companies.
+  checkCompanyId             String?  @unique
+  // Raw provider onboarding status string, mirrored by the refresh action +
+  // webhook. Null = onboarding never started. Normalized to a typed status in
+  // src/features/payroll/tax/gateway.ts.
+  payrollTaxOnboardingStatus String?
+  // Master switch for the automated-withholding path for THIS business. Default
+  // OFF: with it false the payroll v1 gross/net display + CSV are unchanged.
+  payrollTaxEnabled          Boolean  @default(false)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
 
-  memberships    Membership[]
-  categories     Category[]
-  items          Item[]
-  modifierGroups ModifierGroup[]
-  orders         Order[]
-  orderCounter   OrderCounter?
-  drawerSessions CashDrawerSession[]
-  timeEntries    TimeEntry[]
-  rooms          FloorRoom[]
-  floorTables    FloorTable[]
+  memberships        Membership[]
+  categories         Category[]
+  items              Item[]
+  modifierGroups     ModifierGroup[]
+  orders             Order[]
+  orderCounter       OrderCounter?
+  drawerSessions     CashDrawerSession[]
+  timeEntries        TimeEntry[]
+  rooms              FloorRoom[]
+  floorTables        FloorTable[]
+  payRates           PayRate[]
+  payPeriods         PayPeriod[]
+  payslips           Payslip[]
+  payslipAdjustments PayslipAdjustment[]
 }
 
 // Per-business monotonic order-number allocator. One row per business; the
@@ -182,10 +201,16 @@ model Membership {
   permissions String[]    @default([])
   active      Boolean     @default(true) // deactivate a member without deleting their history
   pinHash     String? // optional shared-device PIN (v1)
+  // Payroll-tax provider worker token (Check employee id). Nullable; set when a
+  // worker is synced to the provider. NO SSN/bank data is stored here — only the
+  // opaque provider id (the sensitive data lives tokenized in the provider). See
+  // docs/PAYROLL_TAX.md.
+  checkEmployeeId String? @unique
   createdAt   DateTime    @default(now())
   user        User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
   business    Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
   timeEntries TimeEntry[]
+  payRate     PayRate?
 
   @@unique([userId, businessId])
   @@index([businessId])
@@ -493,4 +518,144 @@ model CashDrawerSession {
   business          Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Payroll (v1) — turns clocked hours (TimeEntry) + pay rates into reviewable,
+// exportable pay runs. See docs/PAYROLL.md.
+//
+// HARD BOUNDARY: this system RECORDS gross / adjustments / net and EXPORTS a pay
+// run (CSV). It deliberately does NOT compute statutory tax withholding, FICA,
+// or filings — the business hands the export to their accountant / payroll
+// provider. All money is integer cents; all rates are integers.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum PayType {
+  HOURLY // paid rateCents per hour worked (from TimeEntry); overtime-eligible
+  SALARY // paid a fixed annual amount, prorated to the pay period; no overtime
+}
+
+enum PayPeriodStatus {
+  DRAFT // being built/edited; payslips can be (re)computed and adjusted
+  FINALIZED // locked for review; no recompute (reopen to DRAFT to change)
+  PAID // marked as paid out to workers
+}
+
+enum AdjustmentKind {
+  ADDITION // bonus, reimbursement, tip payout — increases net
+  DEDUCTION // advance repayment, employer deduction — decreases net
+}
+
+// One pay-rate configuration per worker (Membership). Editable by manage_payroll.
+// Money is integer cents; the overtime multiplier is basis points (15000 = 1.5×).
+model PayRate {
+  id                 String     @id @default(cuid())
+  businessId         String
+  membershipId       String     @unique // one active rate per worker
+  payType            PayType    @default(HOURLY)
+  // HOURLY: pay per hour worked, in cents (e.g. 1500 = $15.00/hr).
+  hourlyCents        Int        @default(0)
+  // SALARY: fixed annual salary in cents (e.g. 5_200_000 = $52,000/yr), prorated
+  // to the pay period by days/365.
+  annualCents        Int        @default(0)
+  // Overtime (HOURLY only). When otEnabled, minutes over otThresholdMinutes in a
+  // workweek are paid at hourlyCents × otMultiplierBps / 10000. Null threshold /
+  // multiplier fall back to the calc defaults (40h / 1.5×).
+  otEnabled          Boolean    @default(true)
+  otThresholdMinutes Int? // e.g. 2400 = 40h/week; null = default (2400)
+  otMultiplierBps    Int? // e.g. 15000 = 1.5×; null = default (15000)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  business           Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  membership         Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+}
+
+// A pay run over [startDate, endDate). Payslips are computed from TimeEntry within
+// the window. DRAFT → FINALIZED → PAID.
+model PayPeriod {
+  id          String          @id @default(cuid())
+  businessId  String
+  label       String? // optional human label ("Jul 1–15")
+  startDate   DateTime // inclusive window start (UTC instant)
+  endDate     DateTime // EXCLUSIVE window end (UTC instant)
+  status      PayPeriodStatus @default(DRAFT)
+  notes       String?
+  finalizedAt DateTime?
+  paidAt      DateTime?
+  // Payroll-tax provider run linkage (Check payroll) + mirrored status. Nullable;
+  // set once a provider tax preview/approval runs for this period. Additive — the
+  // v1 DRAFT→FINALIZED→PAID lifecycle above is unchanged. See docs/PAYROLL_TAX.md.
+  checkPayrollId     String?
+  checkPayrollStatus String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  business    Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  payslips    Payslip[]
+
+  @@index([businessId])
+  @@index([businessId, startDate])
+}
+
+// A per-worker payslip inside a pay period. Hours + money are SNAPSHOTS captured
+// at compute time (rate/name can change later without altering a finalized run).
+// gross = regularPay + overtimePay (hourly) or prorated salary; net = gross +
+// additions − deductions. NO tax withholding is computed (see docs/PAYROLL.md).
+model Payslip {
+  id               String              @id @default(cuid())
+  businessId       String
+  payPeriodId      String
+  membershipId     String
+  nameSnapshot     String // worker display name at compute time
+  payType          PayType             @default(HOURLY)
+  // Hours worked (from TimeEntry), split by the weekly overtime rule.
+  regularMinutes   Int                 @default(0)
+  overtimeMinutes  Int                 @default(0)
+  openShiftCount   Int                 @default(0) // shifts still open at compute time (measured to compute instant)
+  // Rate snapshots.
+  hourlyCents      Int                 @default(0)
+  annualCents      Int                 @default(0)
+  otMultiplierBps  Int                 @default(15000)
+  // Money (integer cents).
+  regularPayCents  Int                 @default(0)
+  overtimePayCents Int                 @default(0)
+  grossCents       Int                 @default(0)
+  additionsCents   Int                 @default(0) // Σ ADDITION adjustments
+  deductionsCents  Int                 @default(0) // Σ DEDUCTION adjustments
+  netCents         Int                 @default(0) // gross + additions − deductions (PRE-TAX v1 figure)
+  // Payroll-tax provider MIRROR (Check) — provider-computed withholding + net.
+  // All nullable and ADDITIVE: `netCents` above stays the PRE-TAX v1 figure; these
+  // are populated ONLY when a provider tax preview runs. No PII — just integer-cent
+  // tax/net mirrors sourced from the provider. See docs/PAYROLL_TAX.md.
+  providerPayslipId String?
+  employeeTaxCents  Int? // provider-computed employee withholding (all statutory taxes)
+  employerTaxCents  Int? // provider-computed employer-side tax (employer's cost, not withheld)
+  netPayCents       Int? // provider net-after-tax take-home (distinct from the pre-tax netCents)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  business         Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  payPeriod        PayPeriod           @relation(fields: [payPeriodId], references: [id], onDelete: Cascade)
+  adjustments      PayslipAdjustment[]
+
+  @@unique([payPeriodId, membershipId]) // one payslip per worker per period
+  @@index([businessId])
+  @@index([payPeriodId])
+}
+
+// A manual adjustment line on a payslip. amountCents is always POSITIVE; `kind`
+// determines the sign in net (ADDITION adds, DEDUCTION subtracts).
+model PayslipAdjustment {
+  id          String         @id @default(cuid())
+  businessId  String
+  payslipId   String
+  kind        AdjustmentKind
+  label       String
+  amountCents Int // always positive; sign comes from `kind`
+  createdAt   DateTime       @default(now())
+  business    Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  payslip     Payslip        @relation(fields: [payslipId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([payslipId])
 }

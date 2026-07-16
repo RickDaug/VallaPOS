@@ -6,6 +6,8 @@ import { DevicesManager } from "@/features/peripherals/components/DevicesManager
 import { HardwareReadiness } from "@/features/peripherals/components/HardwareReadiness";
 import { PaymentsConnect } from "@/features/payments/components/PaymentsConnect";
 import { getPaymentsConnectStatus } from "@/features/payments/connect-queries";
+import { PayrollTaxOnboarding } from "@/features/payroll/tax/components/PayrollTaxOnboarding";
+import { getPayrollTaxSettings } from "@/features/payroll/tax/queries";
 import { FloorPlanEditor } from "@/features/floor/components/FloorPlanEditor";
 import { getFloorLayout } from "@/features/floor/queries";
 import { pageHasCapability } from "@/lib/operator-guard";
@@ -23,7 +25,8 @@ export default async function SettingsPage({
   // and/or the floor plan (manage_products). No access to either → NoAccess.
   const canSettings = await pageHasCapability(businessId, "manage_settings");
   const canFloor = await pageHasCapability(businessId, "manage_products");
-  if (!canSettings && !canFloor) return <NoAccess what="settings" />;
+  const canPayroll = await pageHasCapability(businessId, "manage_payroll");
+  if (!canSettings && !canFloor && !canPayroll) return <NoAccess what="settings" />;
 
   const business = await db.business.findUnique({
     where: { id: businessId },
@@ -46,6 +49,7 @@ export default async function SettingsPage({
   const rooms = showFloorEditor ? await getFloorLayout(businessId) : [];
 
   const paymentsStatus = canSettings ? await getPaymentsConnectStatus(businessId) : null;
+  const payrollTaxStatus = canPayroll ? await getPayrollTaxSettings(businessId) : null;
 
   return (
     <section className="space-y-10">
@@ -90,6 +94,22 @@ export default async function SettingsPage({
             </p>
           </header>
           <PaymentsConnect businessId={businessId} initial={paymentsStatus} />
+        </div>
+      )}
+
+      {canPayroll && payrollTaxStatus?.flagEnabled && (
+        <div>
+          <header className="mb-4">
+            <h2 className="text-xl font-black">
+              Payroll Tax <span className="align-middle text-xs font-bold uppercase tracking-wide text-muted-foreground">Beta</span>
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Add automated tax withholding on top of payroll. An embedded payroll provider computes
+              withholding and files/remits; you stay the employer of record. VallaPOS is software, not
+              a payroll company or tax advisor.
+            </p>
+          </header>
+          <PayrollTaxOnboarding businessId={businessId} initial={payrollTaxStatus} />
         </div>
       )}
 

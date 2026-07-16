@@ -69,6 +69,17 @@ const optionalStripeWebhookSecret = z
   .optional()
   .catch(undefined);
 
+// Payroll-tax provider (embedded payroll — Check; docs/PAYROLL_TAX.md). ALL
+// optional: when CHECK_API_KEY is unset the automated-withholding path stays
+// DORMANT (isPayrollTaxConfigured() is false → the registry returns the dev fake
+// or a disabled state) and the app/build behave exactly as before. `.catch(
+// undefined)` mirrors the Stripe/Upstash handling so a malformed value pasted into
+// Vercel degrades to "off" instead of crashing the boot. CHECK_ENV selects the
+// sandbox vs production API host (defaults to sandbox when unset/invalid).
+const optionalCheckKey = z.string().min(1).optional().catch(undefined);
+const optionalCheckWebhookSecret = z.string().min(1).optional().catch(undefined);
+const optionalCheckEnv = z.enum(["sandbox", "production"]).optional().catch(undefined);
+
 const schema = z.object({
   // App runtime connection — use the POOLED Neon endpoint (pgbouncer=true).
   // Cloud-required; in the local build it's a SQLite path the Tauri shell owns,
@@ -108,6 +119,11 @@ const schema = z.object({
   STRIPE_SECRET_KEY: optionalStripeSecret,
   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: optionalStripePublishable,
   STRIPE_WEBHOOK_SECRET: optionalStripeWebhookSecret,
+  // Optional: Check payroll-tax provider (docs/PAYROLL_TAX.md). Unset = the
+  // automated-withholding path is dormant (see src/features/payroll/tax/).
+  CHECK_API_KEY: optionalCheckKey,
+  CHECK_ENV: optionalCheckEnv,
+  CHECK_WEBHOOK_SECRET: optionalCheckWebhookSecret,
 });
 
 const parsed = schema.safeParse(process.env);

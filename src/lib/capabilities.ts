@@ -19,6 +19,7 @@ export const CAPABILITIES = [
   "view_reports",
   "cash_drawer",
   "manage_team",
+  "manage_payroll",
   "manage_settings",
 ] as const;
 
@@ -32,6 +33,7 @@ export const CAPABILITY_LABELS: Record<Capability, string> = {
   view_reports: "View reports",
   cash_drawer: "Cash drawer",
   manage_team: "Manage team",
+  manage_payroll: "Manage payroll",
   manage_settings: "Business settings",
 };
 
