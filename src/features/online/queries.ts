@@ -87,6 +87,9 @@ export interface IncomingOnlineOrder {
   customerName: string | null;
   customerPhone: string | null;
   onlineStatus: OnlineStatus;
+  /** True once a Payment has been recorded (Order.status === "PAID"). Drives the
+   *  board's paid chip + whether the "Take payment" control is shown. */
+  paid: boolean;
   subtotalCents: number;
   taxCents: number;
   tipCents: number;
@@ -96,15 +99,24 @@ export interface IncomingOnlineOrder {
 }
 
 /**
- * The merchant's incoming online orders (SUBMITTED / ACCEPTED / READY), oldest
- * first so staff work the queue in order. Tenant-scoped by businessId.
+ * The merchant's incoming online orders, oldest first so staff work the queue in
+ * order. Tenant-scoped by businessId. Includes the ACTIVE statuses
+ * (SUBMITTED / ACCEPTED / READY) AND any COMPLETED order that is still UNPAID
+ * (status OPEN) so it stays visible for the merchant to settle — otherwise a
+ * completed-but-unsettled order would drop off the board with no way to take
+ * payment (the A1 stranded-revenue trap). A PAID or VOIDED order drops off.
  */
 export async function listOnlineOrders(businessId: string): Promise<IncomingOnlineOrder[]> {
   const orders = await db.order.findMany({
     where: {
       businessId,
       channel: "ONLINE",
-      onlineStatus: { in: ACTIVE_ONLINE_STATUSES },
+      OR: [
+        { onlineStatus: { in: ACTIVE_ONLINE_STATUSES } },
+        // Completed but not yet settled — keep it on the board so staff can still
+        // take payment (flips it to PAID, then it drops off).
+        { onlineStatus: "COMPLETED", status: "OPEN" },
+      ],
     },
     orderBy: { createdAt: "asc" },
     select: {
@@ -113,6 +125,7 @@ export async function listOnlineOrders(businessId: string): Promise<IncomingOnli
       customerName: true,
       customerPhone: true,
       onlineStatus: true,
+      status: true,
       subtotalCents: true,
       taxCents: true,
       tipCents: true,
@@ -138,6 +151,7 @@ export async function listOnlineOrders(businessId: string): Promise<IncomingOnli
     customerPhone: o.customerPhone,
     // onlineStatus is non-null here by the query filter; assert the narrowed type.
     onlineStatus: o.onlineStatus as OnlineStatus,
+    paid: o.status === "PAID",
     subtotalCents: o.subtotalCents,
     taxCents: o.taxCents,
     tipCents: o.tipCents,

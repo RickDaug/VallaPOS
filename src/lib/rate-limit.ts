@@ -38,6 +38,16 @@ export interface RateLimitOptions {
   limit: number;
   /** Window length in seconds. */
   windowSeconds: number;
+  /**
+   * What to do when the Redis backend ERRORS mid-check (A5). Default `"open"`
+   * (allow the request) preserves the historical behavior for surfaces where a
+   * limiter outage must never break the flow. `"memory"` FAILS SAFE instead: it
+   * falls through to the strict per-instance in-memory counter so a Redis outage
+   * can't silently remove ALL throttling on a sensitive anonymous write (the sole
+   * guard on the public self-order submit). It's per-instance rather than global,
+   * so it's a floor, not the full distributed cap — but never "unlimited".
+   */
+  onError?: "open" | "memory";
 }
 
 /** Lazily created singleton Redis client, or `null` when Upstash isn't configured. */
@@ -62,7 +72,7 @@ const memStore = new Map<string, Window>();
  */
 export async function rateLimit(
   key: string,
-  { limit, windowSeconds }: RateLimitOptions,
+  { limit, windowSeconds, onError = "open" }: RateLimitOptions,
 ): Promise<RateLimitResult> {
   const redis = getRedis();
   const namespaced = `ratelimit:${key}`;
@@ -82,12 +92,17 @@ export async function rateLimit(
         resetSeconds,
       };
     } catch {
-      // Fail open: never let a limiter outage break the endpoint.
-      return { ok: true, remaining: limit, resetSeconds: windowSeconds };
+      // Redis errored mid-check. `open` (default): allow — a limiter outage must
+      // not break that surface. `memory` (A5, sensitive anonymous writes): fall
+      // THROUGH to the strict in-memory counter below so throttling never fully
+      // disappears on a Redis outage.
+      if (onError === "open") {
+        return { ok: true, remaining: limit, resetSeconds: windowSeconds };
+      }
     }
   }
 
-  // In-memory fallback.
+  // In-memory fallback (no Redis configured, OR a `memory`-mode Redis outage).
   const now = Date.now();
   const existing = memStore.get(namespaced);
   if (!existing || existing.expiresAt <= now) {

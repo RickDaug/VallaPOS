@@ -2,6 +2,15 @@ import { z } from "zod";
 import { ONLINE_ORDER_ACTIONS } from "./status";
 
 /**
+ * Tenders a merchant can record when settling an online order. Mirrors the
+ * register's non-card tenders (`TENDER_METHODS`) and the `PaymentMethod` enum:
+ * CASH (in hand), QR (the merchant's confirm-based pay handle), or MANUAL/"Other".
+ * CARD is reserved for the later PSP-backed path (docs/PAYMENTS.md).
+ */
+export const ONLINE_SETTLE_METHODS = ["CASH", "QR", "MANUAL"] as const;
+export type OnlineSettleMethod = (typeof ONLINE_SETTLE_METHODS)[number];
+
+/**
  * Input schemas for QR self-ordering (docs/ONLINE_ORDERING.md).
  *
  * The public submit is UNAUTHENTICATED, so every bound here is a security control:
@@ -13,9 +22,12 @@ import { ONLINE_ORDER_ACTIONS } from "./status";
  * only pick catalog items + linked modifiers and (optionally) add a tip.
  */
 
-// Upper bound on a tip (cents). Generous but bounded so a fat-finger/abusive tip
-// can't record an absurd total.
-const MAX_TIP_CENTS = 100_000_000;
+// Upper bound on a tip (cents). SECURITY (#13): this is CLIENT-AUTHORITATIVE money
+// added on top of the server-recomputed subtotal — the one amount the customer can
+// influence — so it is capped HARD at a small fixed ceiling ($1,000). The public
+// self-order UI sends 0; a direct caller can still add a tip, but never an absurd
+// one. (The old $1M ceiling let a raw call bolt a seven-figure "tip" onto any cart.)
+const MAX_TIP_CENTS = 100_000;
 
 // A public order can't realistically carry hundreds of distinct lines; the caps
 // bound the per-request DB work (each line triggers modifier validation + a
@@ -57,6 +69,31 @@ export const onlineOrderActionSchema = z.object({
 });
 
 export type OnlineOrderActionInput = z.infer<typeof onlineOrderActionSchema>;
+
+/**
+ * Merchant SETTLEMENT of one online order (records a Payment + flips it to PAID so
+ * it becomes realized revenue/tax). `take_orders`-gated, tenant-scoped. `tipCents`
+ * is an OPTIONAL staff-entered tip added on top of the order's server-stored total;
+ * it reuses the same hard cap as the public tip (never an absurd amount).
+ */
+export const settleOnlineOrderSchema = z.object({
+  businessId: z.string().min(1),
+  orderId: z.string().min(1),
+  method: z.enum(ONLINE_SETTLE_METHODS).default("CASH"),
+  tipCents: z.number().int().min(0).max(MAX_TIP_CENTS).default(0),
+});
+
+// z.input (not z.infer/output): `method` and `tipCents` have defaults, so a caller
+// may omit them (the board sends only businessId/orderId/method; tests omit tip).
+export type SettleOnlineOrderInput = z.input<typeof settleOnlineOrderSchema>;
+
+/** Result of settling an online order (idempotent: re-settling is a no-op). */
+export interface SettleOnlineOrderResult {
+  /** "paid" = we recorded the payment now; "already_paid" = it was settled already. */
+  status: "paid" | "already_paid";
+  /** The order's total after any staff tip (what was captured / already captured). */
+  totalCents: number;
+}
 
 /** Settings update: enable/disable online ordering + pickup instructions. */
 export const updateOnlineOrderingSchema = z.object({

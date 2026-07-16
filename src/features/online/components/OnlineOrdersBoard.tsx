@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { Clock, Phone, Smartphone, User } from "lucide-react";
 import { useToast } from "@/components/ui/toast";
 import { formatMoney } from "@/lib/money";
-import { transitionOnlineOrder } from "@/features/online/actions";
+import { settleOnlineOrder, transitionOnlineOrder } from "@/features/online/actions";
+import { ONLINE_SETTLE_METHODS, type OnlineSettleMethod } from "@/features/online/schema";
 import type { OnlineOrderAction } from "@/features/online/status";
 import type { IncomingOnlineOrder } from "@/features/online/queries";
 
@@ -13,12 +14,21 @@ const STATUS_LABEL: Record<string, string> = {
   SUBMITTED: "New",
   ACCEPTED: "Preparing",
   READY: "Ready",
+  COMPLETED: "Completed",
 };
 
 const STATUS_STYLE: Record<string, string> = {
   SUBMITTED: "border-primary/40 bg-primary/10 text-primary",
   ACCEPTED: "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400",
   READY: "border-success/40 bg-success/10 text-success",
+  COMPLETED: "border-border bg-muted text-muted-foreground",
+};
+
+/** Tender labels for the "Take payment" picker (values match ONLINE_SETTLE_METHODS). */
+const METHOD_LABEL: Record<OnlineSettleMethod, string> = {
+  CASH: "Cash",
+  QR: "QR",
+  MANUAL: "Other",
 };
 
 /** The action buttons available at each status (label + action + primary flag). */
@@ -66,6 +76,8 @@ export function OnlineOrdersBoard({
   const router = useRouter();
   const { toast } = useToast();
   const [pendingId, setPendingId] = useState<string | null>(null);
+  // Which order (if any) has its "Take payment" tender picker open.
+  const [payingId, setPayingId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   function runAction(orderId: string, action: OnlineOrderAction) {
@@ -73,12 +85,43 @@ export function OnlineOrdersBoard({
     setPendingId(orderId);
     startTransition(async () => {
       try {
-        await transitionOnlineOrder({ businessId, orderId, action });
-        toast({ title: ACTION_DONE[action], variant: action === "reject" ? "default" : "success" });
+        const result = await transitionOnlineOrder({ businessId, orderId, action });
+        toast({
+          title: result.status === "already" ? "Order already updated" : ACTION_DONE[action],
+          variant: action === "reject" || result.status === "already" ? "default" : "success",
+        });
         router.refresh();
       } catch (err) {
         toast({
           title: "Couldn't update the order",
+          description: err instanceof Error ? err.message : undefined,
+          variant: "error",
+        });
+      } finally {
+        setPendingId(null);
+      }
+    });
+  }
+
+  function takePayment(orderId: string, method: OnlineSettleMethod) {
+    if (pendingId) return;
+    setPendingId(orderId);
+    startTransition(async () => {
+      try {
+        const result = await settleOnlineOrder({ businessId, orderId, method });
+        toast({
+          title: result.status === "already_paid" ? "Already paid" : "Payment recorded",
+          description:
+            result.status === "already_paid"
+              ? undefined
+              : `${formatMoney(result.totalCents, currency)} · ${METHOD_LABEL[method]}`,
+          variant: result.status === "already_paid" ? "default" : "success",
+        });
+        setPayingId(null);
+        router.refresh();
+      } catch (err) {
+        toast({
+          title: "Couldn't take payment",
           description: err instanceof Error ? err.message : undefined,
           variant: "error",
         });
@@ -123,13 +166,24 @@ export function OnlineOrdersBoard({
                     })}
                   </p>
                 </div>
-                <span
-                  className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
-                    STATUS_STYLE[order.onlineStatus] ?? "border-border"
-                  }`}
-                >
-                  {STATUS_LABEL[order.onlineStatus] ?? order.onlineStatus}
-                </span>
+                <div className="flex flex-col items-end gap-1">
+                  <span
+                    className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                      STATUS_STYLE[order.onlineStatus] ?? "border-border"
+                    }`}
+                  >
+                    {STATUS_LABEL[order.onlineStatus] ?? order.onlineStatus}
+                  </span>
+                  <span
+                    className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                      order.paid
+                        ? "border-success/40 bg-success/10 text-success"
+                        : "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                    }`}
+                  >
+                    {order.paid ? "Paid" : "Unpaid"}
+                  </span>
+                </div>
               </div>
 
               {(order.customerName || order.customerPhone) && (
@@ -198,6 +252,47 @@ export function OnlineOrdersBoard({
                     {a.label}
                   </button>
                 ))}
+
+                {/* A1: take payment — records a Payment + flips the order to PAID so
+                    it becomes revenue/tax. Hidden once paid. */}
+                {!order.paid &&
+                  (payingId === order.id ? (
+                    <div
+                      role="group"
+                      aria-label={`Take payment for order ${order.number}`}
+                      className="flex flex-wrap items-center gap-2"
+                    >
+                      <span className="text-sm font-medium text-muted-foreground">Tender:</span>
+                      {ONLINE_SETTLE_METHODS.map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          disabled={pendingId === order.id}
+                          onClick={() => takePayment(order.id, m)}
+                          className="inline-flex h-10 items-center rounded-lg border border-border px-3 text-sm font-semibold transition-colors hover:bg-muted active:scale-[0.98] disabled:opacity-60"
+                        >
+                          {METHOD_LABEL[m]}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        disabled={pendingId === order.id}
+                        onClick={() => setPayingId(null)}
+                        className="inline-flex h-10 items-center rounded-lg px-3 text-sm font-medium text-muted-foreground hover:text-foreground disabled:opacity-60"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={pendingId === order.id}
+                      onClick={() => setPayingId(order.id)}
+                      className="inline-flex h-10 items-center rounded-lg border border-success/50 bg-success/10 px-4 text-sm font-semibold text-success transition-colors hover:bg-success/20 active:scale-[0.98] disabled:opacity-60"
+                    >
+                      Take payment
+                    </button>
+                  ))}
               </div>
             </li>
           ))}
