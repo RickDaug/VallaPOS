@@ -13,11 +13,11 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
   // App runtime uses the POOLED Neon endpoint (host contains "-pooler",
   // query has pgbouncer=true) so serverless functions share a small pool of
   // Postgres connections via PgBouncer instead of each holding direct ones.
-  url = env("DATABASE_URL")
+  url       = env("DATABASE_URL")
   // The Prisma CLI (migrate/db/introspect) needs a DIRECT, non-pooled
   // connection — PgBouncer's transaction pooling can't run DDL/advisory-lock
   // migrations. Only evaluated by CLI commands, never by the client at runtime,
@@ -99,58 +99,59 @@ enum BusinessMode {
 }
 
 model Business {
-  id           String       @id @default(cuid())
-  name         String
-  mode         BusinessMode @default(STORE)
+  id                   String       @id @default(cuid())
+  name                 String
+  mode                 BusinessMode @default(STORE)
   // Single configurable rate for MVP; multi-rate/tax API comes later.
-  taxRateBps   Int          @default(0) // basis points; 825 = 8.25%
-  taxInclusive Boolean      @default(false)
-  currency     String       @default("USD")
+  taxRateBps           Int          @default(0) // basis points; 825 = 8.25%
+  taxInclusive         Boolean      @default(false)
+  currency             String       @default("USD")
   // IANA timezone (e.g. "America/New_York", "America/Mexico_City",
   // "America/Sao_Paulo"). Drives Z-report day boundaries and every displayed
   // timestamp (receipts, order history) so a merchant's "today" is their local
   // day, not the server's UTC day. Defaults to US Eastern for existing rows.
-  timezone     String       @default("America/New_York")
+  timezone             String       @default("America/New_York")
   // Single-operator ("stay unlocked") mode: when true the register does NOT
   // re-lock the terminal after each sale, so a solo owner selling from one phone
   // isn't re-authenticating before every transaction. Default OFF keeps the
   // secure shared-till behavior for multi-employee businesses. See Register.tsx.
-  singleOperatorMode Boolean @default(false)
+  singleOperatorMode   Boolean      @default(false)
   // Merchant-configured QR payment (confirm-based, no PSP): the cashier shows
   // qrPayValue as a QR (a payment handle/link — PIX key, UPI id, Venmo,
   // PayPal.me, a payment-link URL), the customer scans + pays out-of-band, and
   // the sale is recorded as method=QR. qrPayLabel is the rail name shown to the
   // cashier (e.g. "PIX"). All nullable/defaulted so existing businesses are
   // untouched and QR is simply off until configured.
-  qrPayEnabled Boolean      @default(false)
-  qrPayLabel   String? // e.g. "PIX", "UPI", "Venmo"
-  qrPayValue   String? // the string encoded into the QR
+  qrPayEnabled         Boolean      @default(false)
+  qrPayLabel           String? // e.g. "PIX", "UPI", "Venmo"
+  qrPayValue           String? // the string encoded into the QR
   // Integrated payments (Stripe Connect, PAYMENTS.md §9). All nullable/defaulted
   // so existing businesses are untouched and the rail stays OFF until onboarded.
   // `country` selects the Connect account country + which local payment methods
   // are eligible (US | MX | BR at launch); ISO-3166 alpha-2, uppercased.
-  country              String  @default("US")
+  country              String       @default("US")
   // The connected account id (acct_...) once onboarding starts. Null = not
   // connected. Unique so the account webhook can resolve exactly one business
   // from an acct id, and a business can never hold two connected accounts.
-  stripeAccountId      String? @unique
+  stripeAccountId      String?      @unique
   // Mirrors the Accounts v2 `card_payments` capability status. Only when true may
   // the (future) QR sale rail create a charge on this account. Flipped by the
   // account webhook, never trusted from the client.
-  stripeChargesEnabled Boolean @default(false)
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  stripeChargesEnabled Boolean      @default(false)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
 
-  memberships    Membership[]
-  categories     Category[]
-  items          Item[]
-  modifierGroups ModifierGroup[]
-  orders         Order[]
-  orderCounter   OrderCounter?
-  drawerSessions CashDrawerSession[]
-  timeEntries    TimeEntry[]
-  rooms          FloorRoom[]
-  floorTables    FloorTable[]
+  memberships      Membership[]
+  categories       Category[]
+  items            Item[]
+  modifierGroups   ModifierGroup[]
+  orders           Order[]
+  orderCounter     OrderCounter?
+  drawerSessions   CashDrawerSession[]
+  timeEntries      TimeEntry[]
+  rooms            FloorRoom[]
+  floorTables      FloorTable[]
+  checkoutSessions CheckoutSession[]
 }
 
 // Per-business monotonic order-number allocator. One row per business; the
@@ -393,25 +394,26 @@ enum PaymentStatus {
 }
 
 model Order {
-  id            String       @id @default(cuid())
-  businessId    String
+  id               String            @id @default(cuid())
+  businessId       String
   // Client-generated UUID — idempotency key for offline sync (never double-insert).
-  clientUuid    String
-  number        Int // human-friendly per-business sequence
-  cashierId     String? // Membership.id
-  customerName  String?
-  status        OrderStatus  @default(OPEN)
-  subtotalCents Int          @default(0)
-  discountCents Int          @default(0)
-  taxCents      Int          @default(0)
-  tipCents      Int          @default(0)
-  totalCents    Int          @default(0)
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  business      Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  lines         OrderLine[]
-  payments      Payment[]
-  tables        OrderTable[] // empty for store/to-go orders; 1+ for restaurant tabs
+  clientUuid       String
+  number           Int // human-friendly per-business sequence
+  cashierId        String? // Membership.id
+  customerName     String?
+  status           OrderStatus       @default(OPEN)
+  subtotalCents    Int               @default(0)
+  discountCents    Int               @default(0)
+  taxCents         Int               @default(0)
+  tipCents         Int               @default(0)
+  totalCents       Int               @default(0)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  business         Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  lines            OrderLine[]
+  payments         Payment[]
+  tables           OrderTable[] // empty for store/to-go orders; 1+ for restaurant tabs
+  checkoutSessions CheckoutSession[] // async processor-backed sale attempts (Stripe Checkout)
 
   @@unique([businessId, clientUuid]) // idempotent offline sync
   @@unique([businessId, number])
@@ -455,23 +457,77 @@ model OrderLineModifier {
 }
 
 model Payment {
-  id            String        @id @default(cuid())
-  businessId    String
-  orderId       String
-  method        PaymentMethod @default(CASH)
-  status        PaymentStatus @default(CAPTURED)
-  amountCents   Int
-  tenderedCents Int? // cash given
-  changeCents   Int? // change due
+  id              String           @id @default(cuid())
+  businessId      String
+  orderId         String
+  method          PaymentMethod    @default(CASH)
+  status          PaymentStatus    @default(CAPTURED)
+  amountCents     Int
+  tenderedCents   Int? // cash given
+  changeCents     Int? // change due
   // Non-sensitive card metadata only (FACTA/PCI): brand + last4, never PAN/expiry.
-  cardBrand     String?
-  cardLast4     String?
-  processorRef  String? // Stripe payment intent id, later
-  createdAt     DateTime      @default(now())
-  order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  cardBrand       String?
+  cardLast4       String?
+  processorRef    String? // Stripe payment intent id, later
+  createdAt       DateTime         @default(now())
+  order           Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
   // Restaurant split checks: the order lines this (split) payment settled.
-  settledLines  OrderLine[]   @relation("LineSettlement")
+  settledLines    OrderLine[]      @relation("LineSettlement")
+  // Set when this Payment was created by settling a processor CheckoutSession
+  // (Stripe QR/card). Null for cash / confirm-QR / manual tenders. Lets reports
+  // tell a processor-VERIFIED sale from the #72 operator-confirmed QR.
+  checkoutSession CheckoutSession?
 
+  @@index([businessId])
+  @@index([orderId])
+}
+
+// Lifecycle of an async, processor-backed sale (Stripe hosted Checkout on the
+// merchant's connected account — see docs/PAYMENTS.md §9).
+enum CheckoutSessionStatus {
+  OPEN // session created on Stripe; awaiting the customer's payment
+  CAPTURED // webhook confirmed payment; the settling Payment row now exists
+  FAILED // an async/delayed payment method ultimately failed
+  EXPIRED // the Stripe session expired or was canceled without payment
+}
+
+// One row per hosted Stripe Checkout Session created to collect payment for an
+// OPEN Order on a merchant's connected account. The money ledger (Payment) is
+// written ONLY when the webhook settles this row to CAPTURED — there is never a
+// PENDING Payment, so the drawer/Z-report totals are never inflated by an unpaid
+// attempt. The order stays OPEN until the webhook marks it PAID (the client can
+// never settle a card sale). Entirely dormant until PAYMENTS_V2 + the business's
+// Connect account is charges-enabled; additive/nullable so existing rows are
+// untouched and cash/confirm-QR/manual are byte-for-byte unchanged.
+model CheckoutSession {
+  id              String                @id @default(cuid())
+  businessId      String
+  orderId         String
+  // Register-generated idempotency key: re-tapping "Pay" for the same cart
+  // reuses this row (per-business unique) instead of opening a duplicate session.
+  clientUuid      String
+  // Stripe Checkout Session id (cs_...). GLOBALLY unique, so the webhook resolves
+  // the tenant from THIS row — never from event payload/metadata.
+  stripeSessionId String                @unique
+  // The connected account the session was created on. The webhook asserts
+  // event.account === this before touching any tenant data.
+  stripeAccountId String
+  status          CheckoutSessionStatus @default(OPEN)
+  // Server-recomputed order total the session was opened for; re-verified against
+  // Stripe's amount_total before the order is ever marked PAID.
+  amountCents     Int
+  currency        String
+  expiresAt       DateTime?
+  // Set to the CAPTURED Payment on settlement. @unique ⇒ at most one Payment per
+  // session, so a replayed/duplicate webhook can never double-capture.
+  paymentId       String?               @unique
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  business        Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  order           Order                 @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  payment         Payment?              @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@unique([businessId, clientUuid]) // idempotent "Pay" re-tap
   @@index([businessId])
   @@index([orderId])
 }
