@@ -8,6 +8,58 @@ _Prior anchor: 2026-07-08 — see the **"2026-07-08 — Stripe Connect scaffold 
 
 _Prior anchor: 2026-06-24 — team operator model + …batch (team PIN-lock #54–#56 + the #57–#60 feature batch; 339 tests green). Older history follows. Phase 1 + full Phase 2 + two security-hardening batches merged. **2026-06-22:** fixed a live Vercel deploy break — an invalid optional `UPSTASH_REDIS_REST_URL` in Vercel was crashing every build; `env.ts` now degrades invalid optional Upstash vars to undefined (in-memory fallback) instead of throwing (#46, Vercel-deploy-verified). Added the missing R-3 concurrent-race idempotency test (#47). Confirmed the re-audit batch #44 already shipped **R-2/R-3/R-4/R-6/R-8** (this file's old "Still open" listed them as open — corrected below). **219 tests green; `npm audit` = 0.** **GitHub Actions billing: RESOLVED 2026-06-26** — the `quality` CI gate runs again (it was billing-suspended for most of June). Earlier (2026-06-14): security audit (#38) → fixes #39–#42, #40; re-audit hardening batch #44; #37 Radix modifier-picker; #21/#23/#24/#26/#28/#29/#30/#31/#32/#34. Open PRs: **#45** (R-1 SW cache, awaiting human offline sign-off)._
 
+## 2026-07-19 — Payments PR-C: QR sale rail (branch `feat/payments-qr-rail`)
+
+Wires the **processor-backed QR sale rail** on top of PR-B's `CheckoutSession`
+model (`docs/PAYMENTS.md §9`). A merchant whose Connect account is charges-enabled
+collects a sale via a **Stripe hosted Checkout Session created ON their connected
+account** (direct charge, no platform fee); the customer scans a QR to the
+Checkout URL and pays; a **webhook settles it** (`OPEN`→`CAPTURED`). Entirely
+**dormant** behind `isPaymentsV2Enabled()` + `isPaymentsConfigured()` + per-business
+`stripeChargesEnabled` + `isConnectCountry`. **Cash / confirm-QR (#64) / manual
+(#62) paths are byte-for-byte unchanged.**
+
+- **New (`src/features/payments/`):** `checkout-gateway.ts` (PORT + deterministic
+  `FakeCheckoutGateway`), `checkout-stripe.ts` (REAL gateway — SDK via dynamic
+  `import("stripe")` 22.3.0, `checkout.sessions.create` with `stripeAccount`,
+  `payment_method_types` OMITTED for dynamic methods, idempotencyKey
+  `qr-sale-${businessId}-${clientUuid}`), `checkout-service.ts` (pure URL/metadata
+  orchestration), `sale-store.ts` (idempotent create/reuse + `captureQrSale`/
+  `failQrSale`/`expireQrSale`), `sale-actions.ts` (`createStripeQrSale` +
+  `getStripeQrSaleState`), `sale-webhook.ts` (pure `extractSaleSettlement`),
+  `sale-queries.ts` (poll), `sale-schema.ts` (zod; **no priceSnapshot** — online-only).
+  Plus `src/features/register/stock-decrement.ts` (`applyStockDecrements`, shared
+  with the cash checkout so both money paths move stock identically).
+- **Edits:** `connect-stripe.ts` `constructConnectEvent`→**`constructStripeEvent`**
+  (now also surfaces `id` + top-level `account`); `app/api/payments/webhook/route.ts`
+  extended to settle sales (raw-body verify → account.updated OR
+  `extractSaleSettlement` → capture/fail/expire; always 200, 400 only on bad sig);
+  `Register.tsx` + register `page.tsx` gained a **"Card / QR"** tender (renders only
+  when the config is on AND online; opens the session, shows the QR + link, polls
+  to `CAPTURED`/`EXPIRED`/`FAILED` — NEVER routed through the offline queue);
+  `report-aggregate.ts`/`orders/queries.ts` mark a **processor-verified** QR
+  (Payment with a linked `CheckoutSession`) as *verified* vs the #72
+  operator-confirmed QR; `app/pay/success/page.tsx` customer landing;
+  tenant-isolation guard extended with `checkoutSession`.
+- **Invariants enforced:** tenant resolved ONLY from the signed `stripeSessionId`
+  → row (never metadata) + `event.account===row.stripeAccountId` assert
+  (`sale-store.captureQrSale`); double-capture impossible (compare-and-set
+  `updateMany where status=OPEN` + `CheckoutSession.paymentId @unique`); amount
+  tamper-proof (server recompute + re-verify `amount_total`+currency before PAID,
+  else mark FAILED + alarm); raw-body signature verify before parsing; cards never
+  queued offline; all gates default off.
+- **Verified:** `933 tests` green (908→+25) · typecheck · lint · `next build` all
+  pass. `scripts/stripe-qr-smoke.mjs` added (sandbox wire-format check, env-guarded).
+- **⚠ GATE (before this rail can take a live payment):** env vars already exist in
+  Vercel (PR-A). (1) In the Stripe Dashboard, ensure the webhook endpoint
+  `/api/payments/webhook` **"listens to events on Connected accounts"** and
+  subscribes to `checkout.session.completed`/`.async_payment_succeeded`/
+  `.async_payment_failed`/`.expired` (plus the existing `account.updated`). (2) Run
+  `STRIPE_SMOKE_ACCOUNT=acct_… node --env-file=.env.local scripts/stripe-qr-smoke.mjs`
+  and pay the printed URL in the sandbox. (3) Flip `PAYMENTS_V2_ENABLED=true` only
+  after the smoke passes end-to-end (session → scan → pay → webhook → order PAID).
+  The customer success page + poll are shipped.
+
 ## 2026-07-19 — Payments PR-B: CheckoutSession schema (branch `feat/payments-checkout-session`)
 
 Resumes the **locked payments sequence** (`docs/PAYMENTS.md §9`; PR-A #91 Connect onboarding already merged + sandbox-smoke-passed). Now that the Stripe **sandbox** account (`acct_1TqfdEA3QpU5FI7C`) is connected, building **PR-B → PR-C → PR-D**. This is **PR-B — schema only, no runtime code, dormant.**

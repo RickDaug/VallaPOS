@@ -195,15 +195,31 @@ export function createStripeConnectGateway(): ConnectGateway {
   };
 }
 
+/** A verified Stripe event, narrowed to what our handlers read. `account` is the
+ *  connected account the event fired for (Connect webhooks) — the sale webhook
+ *  asserts it against the stored `stripeAccountId` before touching tenant data. */
+export interface VerifiedStripeEvent {
+  id: string;
+  type: string;
+  /** The connected account id (`acct_…`) for a Connect event; null otherwise. */
+  account: string | null;
+  object: unknown;
+}
+
 /**
- * Verify + parse a Connect webhook using the SDK (dynamic import keeps it off any
+ * Verify + parse ANY Stripe webhook using the SDK (dynamic import keeps it off any
  * client bundle, per the email.ts convention). Throws on a bad signature or a
  * missing STRIPE_WEBHOOK_SECRET so the route returns 400 and Stripe retries.
+ *
+ * Generalized from the PR-A account-only `constructConnectEvent`: it now also
+ * surfaces the event `id` and top-level `account` so the QR sale webhook can
+ * assert `event.account === CheckoutSession.stripeAccountId` (PR-C, invariant #1).
+ * Behavior for account.updated is unchanged (same `type`/`object`).
  */
-export async function constructConnectEvent(
+export async function constructStripeEvent(
   rawBody: string,
   signature: string,
-): Promise<{ type: string; object: unknown }> {
+): Promise<VerifiedStripeEvent> {
   const secret = requireSecret();
   const webhookSecret = env.STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {
@@ -215,5 +231,10 @@ export async function constructConnectEvent(
   // SDK's LatestApiVersion literal type.
   const stripe = new Stripe(secret);
   const event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
-  return { type: event.type, object: event.data.object as unknown };
+  return {
+    id: event.id,
+    type: event.type,
+    account: typeof event.account === "string" ? event.account : null,
+    object: event.data.object as unknown,
+  };
 }

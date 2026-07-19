@@ -119,7 +119,10 @@ export async function getDailyReport(
   // settled today counts today even if it was opened earlier.
   const payments = await db.payment.findMany({
     where: { businessId, createdAt: { gte: start, lt: end }, order: { businessId } },
-    select: { method: true, amountCents: true },
+    // `checkoutSession` presence marks a PROCESSOR-verified QR/card sale (PR-C):
+    // a Stripe hosted-Checkout webhook created this Payment, so it counts as
+    // verified (independent PSP evidence), unlike the #72 operator-confirmed QR.
+    select: { method: true, amountCents: true, checkoutSession: { select: { id: true } } },
   });
 
   const report: DailyReport = {
@@ -183,7 +186,14 @@ export async function getDailyReport(
   report.byMethod = [...methodTotals.entries()].map(([method, v]) => ({ method, ...v }));
   // Audit breakdown: classify each tender as drawer-verified vs operator-
   // confirmed. Derived from the same payment movements (refunds netted in).
-  report.tenders = aggregateTenders(payments);
+  report.tenders = aggregateTenders(
+    payments.map((p) => ({
+      method: p.method,
+      amountCents: p.amountCents,
+      // A linked CheckoutSession = webhook-settled ⇒ processor-verified.
+      processorVerified: p.checkoutSession != null,
+    })),
+  );
   return report;
 }
 

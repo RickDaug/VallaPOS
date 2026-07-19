@@ -6,6 +6,7 @@ import { can } from "@/lib/capabilities";
 import { computePricedOrder } from "./pricing";
 import { resolveOrderLines, type LineInput } from "./resolve-lines";
 import { APPROVE_UNVERIFIED_TENDER, verifyManagerApproval } from "./manager-approval";
+import { applyStockDecrements } from "./stock-decrement";
 import {
   checkoutSchema,
   type CheckoutInput,
@@ -310,22 +311,14 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
         },
       });
 
-      // STOCK DECREMENT (inventory). For each resolved line whose parent item
-      // tracks stock, atomically decrement the variation's on-hand count IN THIS
-      // SAME transaction, so stock only moves if the order commits. OVERSELL IS
-      // ALLOWED — we never block the sale and the count may go negative; a POS
-      // must not freeze a real transaction over inventory, and a negative reading
-      // is an honest "you sold more than you had" signal. Applies on BOTH the
-      // online and offline-replay paths (this whole action is shared). Ownership
+      // STOCK DECREMENT (inventory, #129). Shared with the webhook-settled QR
+      // sale (payments/sale-store.ts) via `applyStockDecrements` so both money
+      // paths move stock identically: decrement each stock-tracking line IN THIS
+      // SAME transaction (stock only moves if the order commits), oversell
+      // allowed. Applies on BOTH the online and offline-replay paths. Ownership
       // is already established: `resolveOrderLines` looked these variations up
-      // scoped to `businessId`, so `l.variationId` is this tenant's.
-      for (const l of lineRecords) {
-        if (!l.trackStock) continue;
-        await tx.variation.update({
-          where: { id: l.variationId },
-          data: { stock: { decrement: l.quantity } },
-        });
-      }
+      // scoped to `businessId`, so each `variationId` is this tenant's.
+      await applyStockDecrements(tx, lineRecords);
 
       return created;
     });
