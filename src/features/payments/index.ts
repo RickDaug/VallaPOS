@@ -26,3 +26,12 @@ export { isPaymentsV2Enabled, PAYMENTS_V2_DEFAULT_ENABLED } from "./flags";
 export * from "./connect-gateway";
 export * from "./connect-service";
 export * from "./connect-webhook";
+
+// QR sale rail (PAYMENTS.md §9, PR-C). Same rule — only the PURE modules
+// (gateway port + fake, orchestration, webhook extractor, zod schemas) are
+// re-exported; the server-only real gateway/store/queries + the "use server"
+// actions are imported directly so this barrel stays client-safe.
+export * from "./checkout-gateway";
+export * from "./checkout-service";
+export * from "./sale-webhook";
+export * from "./sale-schema";

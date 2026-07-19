@@ -43,14 +43,23 @@ export interface CashierSalesRow {
  * Whether a tender's "collected" amount is backed by independent evidence.
  *
  * CASH is reconciled against the physical drawer count, so it is `verified`.
- * QR and MANUAL ("Other") are operator-confirmed — the cashier marks them paid
- * with no cash drawer and no PSP/webhook to prove the money actually arrived —
- * so they are `unverified` (a shrinkage / audit blind spot to surface).
+ * A QR/CARD Payment that was SETTLED BY A PROCESSOR CHECKOUT SESSION (PR-C — a
+ * Stripe hosted Checkout webhook created the Payment) is `verified` too: the PSP
+ * webhook is independent evidence the money arrived. Everything else — the #72
+ * operator-confirmed QR (merchant-configured scan-to-pay, no PSP) and MANUAL
+ * ("Other") — is `unverified` (the cashier marks it paid with no drawer and no
+ * PSP/webhook), a shrinkage / audit blind spot to surface.
+ *
+ * `processorVerified` is passed true by the caller when the Payment has a linked
+ * CheckoutSession (`Payment.checkoutSession != null`).
  */
 export type TenderVerification = "verified" | "unverified";
 
-export function tenderVerification(method: string): TenderVerification {
-  return method === "CASH" ? "verified" : "unverified";
+export function tenderVerification(
+  method: string,
+  processorVerified = false,
+): TenderVerification {
+  return method === "CASH" || processorVerified ? "verified" : "unverified";
 }
 
 export interface TenderRow {
@@ -80,12 +89,16 @@ export interface TenderBreakdown {
  * method ascending for a stable tie-break.
  */
 export function aggregateTenders(
-  payments: { method: string; amountCents: number }[],
+  payments: { method: string; amountCents: number; processorVerified?: boolean }[],
 ): TenderBreakdown {
+  // Key by (method, verification): a processor-verified QR sale (PR-C) and a #72
+  // operator-confirmed QR are both `method: "QR"` but roll up SEPARATELY so the
+  // verified/unverified subtotals stay honest.
   const map = new Map<string, TenderRow>();
   for (const p of payments) {
-    const verification = tenderVerification(p.method);
-    const row = map.get(p.method) ?? {
+    const verification = tenderVerification(p.method, p.processorVerified);
+    const key = `${p.method}::${verification}`;
+    const row = map.get(key) ?? {
       method: p.method,
       count: 0,
       amountCents: 0,
@@ -93,11 +106,14 @@ export function aggregateTenders(
     };
     row.count += 1;
     row.amountCents += p.amountCents;
-    map.set(p.method, row);
+    map.set(key, row);
   }
 
   const rows = [...map.values()].sort(
-    (a, b) => b.amountCents - a.amountCents || a.method.localeCompare(b.method),
+    (a, b) =>
+      b.amountCents - a.amountCents ||
+      a.method.localeCompare(b.method) ||
+      a.verification.localeCompare(b.verification),
   );
 
   let verifiedCollectedCents = 0;

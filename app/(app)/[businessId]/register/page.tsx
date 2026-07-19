@@ -3,6 +3,9 @@ import { db } from "@/lib/db";
 import { requireMembership } from "@/lib/tenant";
 import { getRegisterCatalog } from "@/features/catalog/queries";
 import { Register } from "@/features/register/components/Register";
+import { isPaymentsConfigured } from "@/features/payments/connect-stripe";
+import { isPaymentsV2Enabled } from "@/features/payments/flags";
+import { isConnectCountry } from "@/features/payments/connect-gateway";
 
 export default async function RegisterPage({
   params,
@@ -22,6 +25,8 @@ export default async function RegisterPage({
       qrPayEnabled: true,
       qrPayLabel: true,
       qrPayValue: true,
+      country: true,
+      stripeChargesEnabled: true,
     },
   });
   if (!business) notFound();
@@ -33,6 +38,17 @@ export default async function RegisterPage({
     business.qrPayEnabled && business.qrPayValue
       ? { label: business.qrPayLabel, value: business.qrPayValue }
       : null;
+
+  // Processor-backed "Card / QR" (Stripe hosted Checkout, PR-C) is available only
+  // when the flag is on, platform Stripe keys are configured, THIS business's
+  // Connect account is charges-enabled, and it's a supported country. Dormant
+  // (invisible) otherwise. The client additionally requires the terminal to be
+  // ONLINE (cards are never queued offline).
+  const stripeQrEnabled =
+    isPaymentsV2Enabled() &&
+    isPaymentsConfigured() &&
+    Boolean(business.stripeChargesEnabled) &&
+    isConnectCountry(business.country);
 
   return (
     <section>
@@ -48,6 +64,7 @@ export default async function RegisterPage({
         taxInclusive={business.taxInclusive}
         singleOperatorMode={business.singleOperatorMode}
         qrPay={qrPay}
+        stripeQrEnabled={stripeQrEnabled}
       />
     </section>
   );

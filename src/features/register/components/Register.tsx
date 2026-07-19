@@ -29,6 +29,10 @@ import type { SellableEntry, SellableModifierGroup } from "@/features/catalog/qu
 import { stockStatus } from "@/features/catalog/stock";
 import { QRCodeSVG } from "qrcode.react";
 import type { Receipt, TenderMethod } from "@/features/register/schema";
+import {
+  createStripeQrSale,
+  getStripeQrSaleState,
+} from "@/features/payments/sale-actions";
 
 /** Merchant-configured QR payment (confirm-based). null when not enabled. */
 type QrPayConfig = { label: string | null; value: string };
@@ -143,6 +147,7 @@ export function Register({
   taxInclusive,
   singleOperatorMode,
   qrPay,
+  stripeQrEnabled = false,
 }: {
   businessId: string;
   catalog: SellableEntry[];
@@ -151,6 +156,9 @@ export function Register({
   taxInclusive: boolean;
   singleOperatorMode: boolean;
   qrPay: QrPayConfig | null;
+  /** Processor-backed "Card / QR" (Stripe hosted Checkout, PR-C) is available for
+   *  this business. The tender still only renders when the terminal is ONLINE. */
+  stripeQrEnabled?: boolean;
 }) {
   const router = useRouter();
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -164,6 +172,11 @@ export function Register({
   const [tendering, setTendering] = useState(false);
   // CASH (numpad + change) vs MANUAL/"Other" (payment taken outside the app).
   const [tenderMethod, setTenderMethod] = useState<TenderMethod>("CASH");
+  // Processor-backed "Card / QR" (Stripe hosted Checkout, PR-C) is a SEPARATE
+  // rail from the cash/confirm-QR/manual tenders: it opens a Stripe session and
+  // settles via webhook, NEVER through submit()/the offline queue. When selected
+  // the CartPanel renders the StripeQrPanel instead of the normal tender body.
+  const [stripeQrSelected, setStripeQrSelected] = useState(false);
   const [tenderDollars, setTenderDollars] = useState("");
   const [manualNote, setManualNote] = useState("");
   const [receipt, setReceipt] = useState<Receipt | null>(null);
@@ -411,6 +424,7 @@ export function Register({
     setDiscountDollars("");
     setTenderDollars("");
     setTenderMethod("CASH");
+    setStripeQrSelected(false);
     setManualNote("");
     setTendering(false);
     setReceipt(null);
@@ -647,6 +661,13 @@ export function Register({
       setTenderMethod={setTenderMethod}
       tenderLabel={tenderLabel}
       qrPay={qrPay}
+      stripeQrEnabled={stripeQrEnabled}
+      online={online}
+      stripeQrSelected={stripeQrSelected}
+      setStripeQrSelected={setStripeQrSelected}
+      businessId={businessId}
+      cartDiscountCents={cartDiscountCents}
+      onNewSale={finishAndLock}
       tenderDollars={tenderDollars}
       setTenderDollars={setTenderDollars}
       manualNote={manualNote}
@@ -1131,6 +1152,13 @@ function CartPanel({
   setTenderMethod,
   tenderLabel,
   qrPay,
+  stripeQrEnabled,
+  online,
+  stripeQrSelected,
+  setStripeQrSelected,
+  businessId,
+  cartDiscountCents,
+  onNewSale,
   tenderDollars,
   setTenderDollars,
   manualNote,
@@ -1160,6 +1188,13 @@ function CartPanel({
   setTenderMethod: (v: TenderMethod) => void;
   tenderLabel: (m: TenderMethod) => string;
   qrPay: QrPayConfig | null;
+  stripeQrEnabled: boolean;
+  online: boolean;
+  stripeQrSelected: boolean;
+  setStripeQrSelected: (v: boolean) => void;
+  businessId: string;
+  cartDiscountCents: number;
+  onNewSale: () => void;
   tenderDollars: string;
   setTenderDollars: (v: string) => void;
   manualNote: string;
@@ -1172,6 +1207,16 @@ function CartPanel({
   completeSale: () => void;
   tap: () => void;
 }) {
+  // Available tender rails. "Card / QR" (processor-backed Stripe Checkout) shows
+  // ONLY when enabled for the business AND the terminal is online (cards are
+  // never queued offline — invariant #5).
+  const showStripeQr = stripeQrEnabled && online;
+  const tenderSlots: (TenderMethod | "STRIPE_QR")[] = [
+    "CASH",
+    ...(qrPay ? (["QR"] as const) : []),
+    ...(showStripeQr ? (["STRIPE_QR"] as const) : []),
+    "MANUAL",
+  ];
   return (
     <>
       <h2 className="mb-4 hidden text-lg font-bold xl:block">Current sale</h2>
@@ -1288,35 +1333,58 @@ function CartPanel({
           </Button>
         ) : (
           <div className="mt-2 space-y-3 rounded-lg bg-muted p-4">
-            {/* Tender method: Cash (numpad + change), QR (scan to pay) when the
-                merchant has configured it, and Other (any out-of-band payment). */}
+            {/* Tender method: Cash (numpad + change), confirm-QR (scan to pay)
+                when the merchant configured it, processor-backed Card / QR (Stripe
+                Checkout, online only), and Other (any out-of-band payment). */}
             <div
-              className={cn("grid gap-2", qrPay ? "grid-cols-3" : "grid-cols-2")}
+              className="grid gap-2"
+              style={{ gridTemplateColumns: `repeat(${tenderSlots.length}, minmax(0, 1fr))` }}
               role="tablist"
               aria-label="Payment method"
             >
-              {(qrPay ? (["CASH", "QR", "MANUAL"] as const) : (["CASH", "MANUAL"] as const)).map(
-                (m) => (
+              {tenderSlots.map((m) => {
+                const selected =
+                  m === "STRIPE_QR" ? stripeQrSelected : !stripeQrSelected && tenderMethod === m;
+                const label = m === "STRIPE_QR" ? "Card / QR" : tenderLabel(m);
+                return (
                   <button
                     key={m}
                     type="button"
                     role="tab"
-                    aria-selected={tenderMethod === m}
-                    onClick={() => setTenderMethod(m)}
+                    aria-selected={selected}
+                    onClick={() => {
+                      if (m === "STRIPE_QR") {
+                        setStripeQrSelected(true);
+                      } else {
+                        setStripeQrSelected(false);
+                        setTenderMethod(m);
+                      }
+                    }}
                     className={cn(
                       "h-11 rounded-md text-sm font-semibold transition-colors",
-                      tenderMethod === m
+                      selected
                         ? "bg-primary text-primary-foreground"
                         : "bg-card text-foreground hover:bg-secondary",
                     )}
                   >
-                    {tenderLabel(m)}
+                    {label}
                   </button>
-                ),
-              )}
+                );
+              })}
             </div>
 
-            {tenderMethod === "CASH" ? (
+            {stripeQrSelected ? (
+              <StripeQrPanel
+                businessId={businessId}
+                cart={cart}
+                tipCents={totals.tipCents}
+                cartDiscountCents={cartDiscountCents}
+                totalCents={totals.totalCents}
+                money={money}
+                onNewSale={onNewSale}
+                onBack={() => setStripeQrSelected(false)}
+              />
+            ) : tenderMethod === "CASH" ? (
               <>
                 <div>
                   <span className="mb-1 block font-medium">Cash received</span>
@@ -1395,32 +1463,218 @@ function CartPanel({
               </>
             )}
 
-            <Button
-              variant="success"
-              size="lg"
-              onClick={() => {
-                tap();
-                completeSale();
-              }}
-              disabled={
-                pending ||
-                (tenderMethod === "CASH" && dollarsToCents(tenderDollars) < totals.totalCents)
-              }
-              className="w-full"
-            >
-              {pending
-                ? "Saving…"
-                : tenderMethod !== "CASH"
-                  ? `Record ${money(totals.totalCents)}`
-                  : "Complete sale"}
-            </Button>
-            <Button variant="outline" onClick={() => setTendering(false)} className="w-full">
-              Back
-            </Button>
+            {/* Card / QR (Stripe) drives its own actions inside StripeQrPanel;
+                the cash/confirm-QR/manual rails use the shared complete button. */}
+            {!stripeQrSelected && (
+              <>
+                <Button
+                  variant="success"
+                  size="lg"
+                  onClick={() => {
+                    tap();
+                    completeSale();
+                  }}
+                  disabled={
+                    pending ||
+                    (tenderMethod === "CASH" && dollarsToCents(tenderDollars) < totals.totalCents)
+                  }
+                  className="w-full"
+                >
+                  {pending
+                    ? "Saving…"
+                    : tenderMethod !== "CASH"
+                      ? `Record ${money(totals.totalCents)}`
+                      : "Complete sale"}
+                </Button>
+                <Button variant="outline" onClick={() => setTendering(false)} className="w-full">
+                  Back
+                </Button>
+              </>
+            )}
           </div>
         )}
       </div>
     </>
+  );
+}
+
+/** Map cart lines to the QR-sale action payload (catalog modifiers by id; ad-hoc
+ *  ones carry their cashier-typed name + upcharge). The server re-looks-up every
+ *  price — nothing here is trusted. Mirrors the cash checkout's line mapping. */
+function cartToQrLines(cart: CartLine[]) {
+  return cart.map((l) => {
+    const custom = l.modifiers.filter((m) => m.id.startsWith("custom:"));
+    return {
+      variationId: l.variationId,
+      quantity: l.qty,
+      modifierIds: l.modifiers.filter((m) => !m.id.startsWith("custom:")).map((m) => m.id),
+      customModifiers: custom.length
+        ? custom.map((m) => ({ name: m.name, priceDeltaCents: m.priceDeltaCents }))
+        : undefined,
+    };
+  });
+}
+
+/**
+ * Processor-backed "Card / QR" tender (PAYMENTS.md §9, PR-C). On mount it opens a
+ * Stripe hosted Checkout Session on the merchant's connected account
+ * (`createStripeQrSale`, which recomputes the total SERVER-SIDE — the cart is sent
+ * for pricing, never a price), renders the returned Checkout URL as a QR + a
+ * tappable link, and POLLS `getStripeQrSaleState` until the WEBHOOK settles it.
+ *
+ * This rail NEVER goes through submit()/the offline queue — a card sale is only
+ * ever attempted online, and it's the webhook (not the client) that marks it paid.
+ */
+function StripeQrPanel({
+  businessId,
+  cart,
+  tipCents,
+  cartDiscountCents,
+  totalCents,
+  money,
+  onNewSale,
+  onBack,
+}: {
+  businessId: string;
+  cart: CartLine[];
+  tipCents: number;
+  cartDiscountCents: number;
+  totalCents: number;
+  money: (c: number) => string;
+  onNewSale: () => void;
+  onBack: () => void;
+}) {
+  type Phase = "creating" | "awaiting" | "paid" | "failed" | "error";
+  const [phase, setPhase] = useState<Phase>("creating");
+  const [qrUrl, setQrUrl] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  // One idempotency key per attempt. Reset on retry so an EXPIRED/FAILED attempt
+  // mints a fresh session (a Stripe session can't be reused once it's expired).
+  const clientUuidRef = useRef<string | null>(null);
+  const startedRef = useRef(false);
+
+  async function start() {
+    clientUuidRef.current = crypto.randomUUID();
+    setPhase("creating");
+    setMessage(null);
+    setQrUrl(null);
+    setSessionId(null);
+    try {
+      const res = await createStripeQrSale({
+        businessId,
+        clientUuid: clientUuidRef.current,
+        lines: cartToQrLines(cart),
+        tipCents,
+        cartDiscountCents,
+      });
+      if (!res.ok) {
+        setPhase("error");
+        setMessage("Card payments aren’t available right now.");
+        return;
+      }
+      setQrUrl(res.qrUrl);
+      setSessionId(res.stripeSessionId);
+      setPhase("awaiting");
+    } catch (err) {
+      setPhase("error");
+      setMessage(err instanceof Error ? err.message : "Couldn’t start the card payment.");
+    }
+  }
+
+  // Open the session once when this panel first mounts.
+  useEffect(() => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+    void start();
+    // start() closes over the cart at mount time — a one-shot on select.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Poll the webhook-settled session state while awaiting payment.
+  useEffect(() => {
+    if (phase !== "awaiting" || !sessionId) return;
+    let active = true;
+    const interval = setInterval(async () => {
+      try {
+        const state = await getStripeQrSaleState({ businessId, stripeSessionId: sessionId });
+        if (!active || !state) return;
+        if (state.status === "CAPTURED") setPhase("paid");
+        else if (state.status === "EXPIRED" || state.status === "FAILED") setPhase("failed");
+      } catch {
+        /* transient network — keep polling */
+      }
+    }, 3000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [phase, sessionId, businessId]);
+
+  if (phase === "paid") {
+    return (
+      <div className="flex flex-col items-center gap-3 rounded-md border border-success/40 bg-success/10 p-4 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-success/20 text-success">
+          <Check size={26} />
+        </div>
+        <p className="font-bold text-success">Card payment received</p>
+        <p className="numeric text-2xl font-black">{money(totalCents)}</p>
+        <Button size="lg" className="w-full" onClick={onNewSale}>
+          New sale
+        </Button>
+      </div>
+    );
+  }
+
+  if (phase === "failed" || phase === "error") {
+    return (
+      <div className="space-y-3 rounded-md border border-destructive/40 bg-destructive/10 p-4 text-center">
+        <p className="font-semibold text-destructive">
+          {phase === "failed" ? "Payment didn’t complete" : message}
+        </p>
+        {phase === "failed" && (
+          <p className="text-sm text-muted-foreground">
+            The session expired or the payment failed. Start a new card payment or choose another tender.
+          </p>
+        )}
+        <div className="flex gap-2">
+          <Button className="flex-1" onClick={() => void start()}>
+            Try again
+          </Button>
+          <Button variant="outline" onClick={onBack}>
+            Back
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-3 rounded-md border border-border bg-card p-4">
+      {phase === "creating" || !qrUrl ? (
+        <p className="py-8 text-sm text-muted-foreground">Starting card payment…</p>
+      ) : (
+        <>
+          <div className="rounded-lg bg-white p-3">
+            <QRCodeSVG value={qrUrl} size={176} />
+          </div>
+          <p className="text-center text-sm text-muted-foreground">Scan to pay by card / wallet</p>
+          <p className="numeric text-2xl font-black">{money(totalCents)}</p>
+          <Link
+            href={qrUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm font-medium text-primary hover:underline"
+          >
+            Open payment page
+          </Link>
+          <p className="text-xs text-muted-foreground">Waiting for the customer to pay…</p>
+          <Button variant="outline" className="w-full" onClick={onBack}>
+            Cancel
+          </Button>
+        </>
+      )}
+    </div>
   );
 }
 

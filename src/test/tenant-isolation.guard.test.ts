@@ -77,6 +77,11 @@ const TENANT_MODELS = [
   "order",
   "orderLine",
   "payment",
+  // Processor-backed sale attempts (Stripe hosted Checkout, PR-C). Carries
+  // businessId; the webhook resolves the tenant from the globally-unique
+  // stripeSessionId (a single-row findUnique, not a scanned filter op) and the
+  // filter/bulk ops (findFirst/updateMany) are all businessId-scoped.
+  "checkoutSession",
   "cashDrawerSession",
   "orderCounter",
   "timeEntry",
