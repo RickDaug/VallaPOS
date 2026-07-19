@@ -6,9 +6,13 @@ import { DevicesManager } from "@/features/peripherals/components/DevicesManager
 import { HardwareReadiness } from "@/features/peripherals/components/HardwareReadiness";
 import { PaymentsConnect } from "@/features/payments/components/PaymentsConnect";
 import { getPaymentsConnectStatus } from "@/features/payments/connect-queries";
+import { SubscriptionCard } from "@/features/billing/components/SubscriptionCard";
+import { getSubscriptionState } from "@/features/billing/billing-queries";
+import { isBillingConfigured } from "@/features/billing/subscription-access";
 import { FloorPlanEditor } from "@/features/floor/components/FloorPlanEditor";
 import { getFloorLayout } from "@/features/floor/queries";
 import { pageHasCapability } from "@/lib/operator-guard";
+import { getActiveOperator } from "@/lib/operator";
 import { NoAccess } from "@/components/no-access";
 
 export default async function SettingsPage({
@@ -46,6 +50,14 @@ export default async function SettingsPage({
   const rooms = showFloorEditor ? await getFloorLayout(businessId) : [];
 
   const paymentsStatus = canSettings ? await getPaymentsConnectStatus(businessId) : null;
+
+  // Flat SaaS subscription (PAYMENTS.md §9, PR-D). Shown only when billing is
+  // configured on this deployment; actions are OWNER-only (others see read-only).
+  const billingConfigured = isBillingConfigured();
+  const subscriptionState =
+    canSettings && billingConfigured ? await getSubscriptionState(businessId) : null;
+  const operator = billingConfigured ? await getActiveOperator(businessId) : null;
+  const isOwner = operator?.role === "OWNER";
 
   return (
     <section className="space-y-10">
@@ -90,6 +102,19 @@ export default async function SettingsPage({
             </p>
           </header>
           <PaymentsConnect businessId={businessId} initial={paymentsStatus} />
+        </div>
+      )}
+
+      {canSettings && subscriptionState && (
+        <div>
+          <header className="mb-4">
+            <h2 className="text-xl font-black">Subscription</h2>
+            <p className="text-sm text-muted-foreground">
+              Your VallaPOS plan — a flat monthly subscription for the cloud POS. This is separate
+              from the Stripe account you connect above to accept your own customers&apos; payments.
+            </p>
+          </header>
+          <SubscriptionCard businessId={businessId} initial={subscriptionState} isOwner={isOwner} />
         </div>
       )}
 

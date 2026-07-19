@@ -13,6 +13,12 @@ import { OperatorBar } from "@/features/employees/components/OperatorBar";
 import { getFirstRunState } from "@/features/onboarding/queries";
 import { isFirstRun, onboardingView } from "@/features/onboarding/first-run";
 import { FirstRunChecklist } from "@/features/onboarding/components/FirstRunChecklist";
+import {
+  isBillingEnforced,
+  resolveSubscriptionAccess,
+} from "@/features/billing/subscription-access";
+import { SubscriptionRequired } from "@/features/billing/components/SubscriptionRequired";
+import { GraceBanner } from "@/features/billing/components/GraceBanner";
 
 export default async function BusinessLayout({
   children,
@@ -24,9 +30,11 @@ export default async function BusinessLayout({
   const { businessId } = await params;
 
   let deviceMembershipId: string;
+  let deviceRole: string;
   try {
     const ctx = await requireMembership(businessId);
     deviceMembershipId = ctx.membershipId;
+    deviceRole = ctx.role;
   } catch (err) {
     if (err instanceof AuthError) redirect("/sign-in");
     if (err instanceof ForbiddenError) notFound();
@@ -35,9 +43,29 @@ export default async function BusinessLayout({
 
   const business = await db.business.findUnique({
     where: { id: businessId },
-    select: { name: true, mode: true, singleOperatorMode: true },
+    select: { name: true, mode: true, singleOperatorMode: true, subscriptionStatus: true },
   });
   if (!business) notFound();
+
+  // Subscription gate (PAYMENTS.md §9, PR-D). INERT unless enforcement is armed
+  // (`isBillingEnforced()` — cloud + configured + BILLING_ENFORCE_GATE on). When
+  // armed and access is "blocked", render the block INSTEAD of the app; the owner
+  // can still reach Subscribe from it. "grace" (past_due) shows a banner but the
+  // app stays usable. Existing tenants at subscriptionStatus=null are NEVER
+  // blocked until enforcement is deliberately armed.
+  const billingEnforced = isBillingEnforced();
+  const subscriptionAccess = billingEnforced
+    ? resolveSubscriptionAccess(business.subscriptionStatus)
+    : "allowed";
+  if (billingEnforced && subscriptionAccess === "blocked") {
+    return (
+      <SubscriptionRequired
+        businessId={businessId}
+        businessName={business.name}
+        isOwner={deviceRole === "OWNER"}
+      />
+    );
+  }
 
   // First-run activation state (derived from data — no completed sale yet), used
   // to soften the lock framing, show the get-started checklist, and emphasize the
@@ -118,6 +146,9 @@ export default async function BusinessLayout({
 
       {/* Content (offset for mobile top bar + bottom nav) */}
       <main className="flex-1 px-4 pb-24 pt-20 md:px-6 lg:p-6">
+        {subscriptionAccess === "grace" && (
+          <GraceBanner businessId={businessId} isOwner={deviceRole === "OWNER"} />
+        )}
         {showOnboarding && (
           <FirstRunChecklist businessId={businessId} state={firstRun} caps={onboardingCaps} />
         )}
