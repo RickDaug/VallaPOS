@@ -53,6 +53,10 @@ const optionalReceiptFrom = z.string().email().optional().catch(undefined);
 const STRIPE_SECRET_RE = /^(sk|rk)_(test|live)_[A-Za-z0-9]+$/;
 const STRIPE_PUBLISHABLE_RE = /^pk_(test|live)_[A-Za-z0-9]+$/;
 const STRIPE_WEBHOOK_RE = /^whsec_[A-Za-z0-9]+$/;
+// Platform subscription Price id (PAYMENTS.md §9, PR-D). Loosely shaped like the
+// other optional Stripe vars: a `price_…` id. A wrong-shape paste degrades to
+// undefined (billing stays OFF) instead of crashing the boot.
+const STRIPE_PRICE_RE = /^price_[A-Za-z0-9]+$/;
 const optionalStripeSecret = z
   .string()
   .regex(STRIPE_SECRET_RE)
@@ -66,6 +70,11 @@ const optionalStripePublishable = z
 const optionalStripeWebhookSecret = z
   .string()
   .regex(STRIPE_WEBHOOK_RE)
+  .optional()
+  .catch(undefined);
+const optionalStripePriceId = z
+  .string()
+  .regex(STRIPE_PRICE_RE)
   .optional()
   .catch(undefined);
 
@@ -108,6 +117,15 @@ const schema = z.object({
   STRIPE_SECRET_KEY: optionalStripeSecret,
   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: optionalStripePublishable,
   STRIPE_WEBHOOK_SECRET: optionalStripeWebhookSecret,
+  // Flat SaaS subscription (PAYMENTS.md §9, PR-D) — OUR platform billing, separate
+  // from the Connect sale rail above. Both OPTIONAL: unset ⇒ billing is dormant
+  // (isBillingConfigured() is false, no Subscribe/Manage UI, no block). The
+  // subscription webhook secret is a DISTINCT platform endpoint secret — never the
+  // Connect STRIPE_WEBHOOK_SECRET. (BILLING_ENFORCE_GATE, the enforcement flag, is
+  // read via raw process.env in src/features/billing/flags.ts — like
+  // PAYMENTS_V2_ENABLED — not here.)
+  STRIPE_SUBSCRIPTION_PRICE_ID: optionalStripePriceId,
+  STRIPE_SUBSCRIPTION_WEBHOOK_SECRET: optionalStripeWebhookSecret,
 });
 
 const parsed = schema.safeParse(process.env);
@@ -196,6 +214,20 @@ if (setButDropped("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", env.NEXT_PUBLIC_STRIPE_P
   console.error(
     "⚠ SECURITY: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is set but does not look like a " +
       "Stripe publishable key (expected pk_test_… / pk_live_…) — ignoring it.",
+  );
+}
+if (setButDropped("STRIPE_SUBSCRIPTION_PRICE_ID", env.STRIPE_SUBSCRIPTION_PRICE_ID)) {
+  console.error(
+    "⚠ STRIPE_SUBSCRIPTION_PRICE_ID is set but does not look like a Stripe Price id " +
+      "(expected price_…) — ignoring it. The flat SaaS subscription stays DISABLED " +
+      "until a valid Price id is provided.",
+  );
+}
+if (setButDropped("STRIPE_SUBSCRIPTION_WEBHOOK_SECRET", env.STRIPE_SUBSCRIPTION_WEBHOOK_SECRET)) {
+  console.error(
+    "⚠ SECURITY: STRIPE_SUBSCRIPTION_WEBHOOK_SECRET is set but does not look like a " +
+      "Stripe webhook signing secret (expected whsec_…) — ignoring it. The platform " +
+      "subscription webhook cannot be verified and billing stays DISABLED until fixed.",
   );
 }
 

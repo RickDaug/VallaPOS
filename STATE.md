@@ -2,11 +2,76 @@
 
 > **Read this first.** This is the single source of truth for what exists, what's wired, and what's next. Update it as work lands.
 
-_Last updated: 2026-07-19 — see the **"2026-07-19 — Payments PR-B: CheckoutSession schema"** section just below for the newest work. Prior: 2026-07-13 — see the **"2026-07-13 — Editions Stages 3–7"** section for the editions work (offline edition data+auth+Tauri-seam+license+release scaffolding; #119–#125; the whole TS/build seam is done + tested, cloud unchanged; what's left needs the Rust/Tauri toolchain + signing certs). Older history follows unchanged._
+_Last updated: 2026-07-19 — see the **"2026-07-19 — Payments PR-D: flat SaaS subscription"** section just below for the newest work. Prior: 2026-07-13 — see the **"2026-07-13 — Editions Stages 3–7"** section for the editions work (offline edition data+auth+Tauri-seam+license+release scaffolding; #119–#125; the whole TS/build seam is done + tested, cloud unchanged; what's left needs the Rust/Tauri toolchain + signing certs). Older history follows unchanged._
 
 _Prior anchor: 2026-07-08 — see the **"2026-07-08 — Stripe Connect scaffold + hardware self-check + bulk catalog entry"** section (#91–#93 merged; #94/#95 open; ~586 tests green).
 
 _Prior anchor: 2026-06-24 — team operator model + …batch (team PIN-lock #54–#56 + the #57–#60 feature batch; 339 tests green). Older history follows. Phase 1 + full Phase 2 + two security-hardening batches merged. **2026-06-22:** fixed a live Vercel deploy break — an invalid optional `UPSTASH_REDIS_REST_URL` in Vercel was crashing every build; `env.ts` now degrades invalid optional Upstash vars to undefined (in-memory fallback) instead of throwing (#46, Vercel-deploy-verified). Added the missing R-3 concurrent-race idempotency test (#47). Confirmed the re-audit batch #44 already shipped **R-2/R-3/R-4/R-6/R-8** (this file's old "Still open" listed them as open — corrected below). **219 tests green; `npm audit` = 0.** **GitHub Actions billing: RESOLVED 2026-06-26** — the `quality` CI gate runs again (it was billing-suspended for most of June). Earlier (2026-06-14): security audit (#38) → fixes #39–#42, #40; re-audit hardening batch #44; #37 Radix modifier-picker; #21/#23/#24/#26/#28/#29/#30/#31/#32/#34. Open PRs: **#45** (R-1 SW cache, awaiting human offline sign-off)._
+
+## 2026-07-19 — Payments PR-D: flat SaaS subscription (branch `feat/payments-subscription`)
+
+OUR monetization — the flat **$19.99/mo** VallaPOS subscription (`docs/PAYMENTS.md §9`),
+**entirely SEPARATE** from the Connect sale rail (PR-A/PR-C). Here the Business is a
+**Customer of VallaPOS's PLATFORM Stripe account** and pays *us* for the software;
+this uses the PLATFORM key (`STRIPE_SECRET_KEY`), a platform Price id, and a SEPARATE
+platform webhook + secret. **No `stripeAccount` param anywhere on this rail.** Per
+`docs/EDITIONS.md`, billing applies to the **cloud edition only** (the offline desktop
+edition is a one-time $99 license — never gated).
+
+**Shipped DORMANT + UNARMED — nothing changes for any tenant.** With the subscription
+env unset, `isBillingConfigured()` is false (no Subscribe/Manage UI) and
+`isBillingEnforced()` is false (no hard block); the app is byte-for-byte the current
+app. Even fully configured, the hard block requires the SEPARATE
+**`BILLING_ENFORCE_GATE=true`** flag — so you can collect voluntary subs and backfill
+trials WITHOUT locking anyone out, then arm enforcement later. Existing tenants at
+`subscriptionStatus=null` are NOT blocked until it's armed.
+
+- **New (`src/features/billing/`):** `billing-gateway.ts` (PORT + deterministic
+  `FakeBillingGateway`), `billing-stripe.ts` (`server-only` REAL gateway — SDK via
+  dynamic `import("stripe")` 22.3.0 on the PLATFORM account; `checkout.sessions.create`
+  `mode:"subscription"` with `client_reference_id`+`subscription_data.metadata.businessId`,
+  idempotencyKey `sub-checkout-${businessId}`; `billingPortal.sessions.create`; plus
+  `constructPlatformEvent` verifying against `STRIPE_SUBSCRIPTION_WEBHOOK_SECRET`),
+  `billing-service.ts` (pure URL/orchestration — unit-testable with the fake),
+  `billing-store.ts` (`applySubscriptionState` — resolves by unique
+  `stripeSubscriptionId`→`stripeCustomerId`→`businessId`, `updateMany` last-write-wins,
+  count 0 ⇒ unknown → 200), `billing-webhook.ts` (pure `extractSubscriptionEvent` for
+  `checkout.session.completed`/`customer.subscription.created|updated|deleted`/
+  `invoice.payment_failed`), `subscription-access.ts` (pure `resolveSubscriptionAccess`
+  + the two gate flags `isBillingConfigured`/`isBillingEnforced`), `billing-actions.ts`
+  (`startSubscriptionCheckout`/`openBillingPortal` — **OWNER-only**),
+  `billing-queries.ts` (`getSubscriptionState`, tenant-scoped), `billing-schema.ts`,
+  `flags.ts` (`isBillingEnforceGateOn` — raw `process.env`, default OFF), `index.ts`
+  barrel, and `components/{SubscriptionCard,SubscriptionRequired,GraceBanner}.tsx`.
+- **Edits:** `src/lib/env.ts` (+ OPTIONAL `STRIPE_SUBSCRIPTION_PRICE_ID` /
+  `STRIPE_SUBSCRIPTION_WEBHOOK_SECRET`, shape-validated → degrade to undefined so an
+  unset/bad value never breaks the build); NEW `app/api/billing/webhook/route.ts`
+  (raw-body verify vs the SEPARATE subscription secret → extract → apply; 503
+  unconfigured / 400 bad-sig / 200 otherwise); `app/(app)/[businessId]/layout.tsx`
+  (gate wiring — inert unless `isBillingEnforced()`: `blocked` → `<SubscriptionRequired>`
+  instead of the app with Subscribe reachable for an OWNER / "ask the owner" for others;
+  `grace`/`past_due` → `<GraceBanner>` above the usable app); the settings page
+  (`<SubscriptionCard>`, visible when `isBillingConfigured()`, OWNER sees actions);
+  `scripts/stripe-billing-smoke.mjs` (sandbox smoke — subscription Checkout + portal).
+- **Tests (+31; 964 total green):** `subscription-access.test.ts` (status mapping + both
+  gate flags incl. local-edition off), `billing-service.test.ts` (checkout/portal inputs
+  vs the fake), `billing-webhook.test.ts` (each event → extraction, garbage → null),
+  `billing-store.test.ts` (resolve-by-unique-id order + unknown → count 0). Full gate
+  green: `vitest run` 964, `typecheck`, `lint`, `build` all clean.
+- **Migration gate (unchanged rule):** the schema change (5 nullable `Business` columns —
+  `stripeCustomerId @unique`, `stripeSubscriptionId @unique`, `subscriptionStatus`,
+  `subscriptionPriceId`, `subscriptionCurrentPeriodEnd`) + its migration
+  `20260719140216_saas_subscription` are on this branch. **Apply to Neon FROM THIS BRANCH
+  (`prisma migrate deploy`) BEFORE merge**, or authed requests 500 on the missing columns.
+- **Go-live steps (later, human):** in the Stripe **Dashboard** create a Product + a
+  **$19.99/mo recurring Price** + configure the **Customer Portal**; add a SEPARATE
+  **platform** webhook endpoint (`/api/billing/webhook`) subscribed to
+  `checkout.session.completed` + `customer.subscription.*` + `invoice.payment_failed` and
+  copy its signing secret; set `STRIPE_SUBSCRIPTION_PRICE_ID` +
+  `STRIPE_SUBSCRIPTION_WEBHOOK_SECRET` in Vercel Production (verify with
+  `scripts/stripe-billing-smoke.mjs`). Owners can then subscribe voluntarily. **ONLY
+  after backfilling trials for existing tenants**, set `BILLING_ENFORCE_GATE=true` to arm
+  the hard block.
 
 ## 2026-07-19 — Payments PR-C: QR sale rail (branch `feat/payments-qr-rail`)
 
