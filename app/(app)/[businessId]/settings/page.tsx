@@ -11,6 +11,7 @@ import { getSubscriptionState } from "@/features/billing/billing-queries";
 import { isBillingConfigured } from "@/features/billing/subscription-access";
 import { FloorPlanEditor } from "@/features/floor/components/FloorPlanEditor";
 import { getFloorLayout } from "@/features/floor/queries";
+import { OnlineOrderingSettings } from "@/features/online/components/OnlineOrderingSettings";
 import { pageHasCapability } from "@/lib/operator-guard";
 import { getActiveOperator } from "@/lib/operator";
 import { NoAccess } from "@/components/no-access";
@@ -42,6 +43,8 @@ export default async function SettingsPage({
       qrPayEnabled: true,
       qrPayLabel: true,
       qrPayValue: true,
+      onlineOrderingEnabled: true,
+      onlineOrderInstructions: true,
     },
   });
   if (!business) notFound();
@@ -89,6 +92,25 @@ export default async function SettingsPage({
             <HardwareReadiness />
             <DevicesManager businessName={business.name} />
           </div>
+        </div>
+      )}
+
+      {canSettings && (
+        <div>
+          <header className="mb-4">
+            <h2 className="text-xl font-black">Online ordering</h2>
+            <p className="text-sm text-muted-foreground">
+              Let customers scan a QR to order from their phone. Orders land on your Online screen to
+              accept and fulfill.
+            </p>
+          </header>
+          <OnlineOrderingSettings
+            businessId={businessId}
+            initial={{
+              onlineOrderingEnabled: business.onlineOrderingEnabled,
+              onlineOrderInstructions: business.onlineOrderInstructions,
+            }}
+          />
         </div>
       )}
 

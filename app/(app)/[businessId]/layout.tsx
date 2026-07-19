@@ -19,6 +19,8 @@ import {
 } from "@/features/billing/subscription-access";
 import { SubscriptionRequired } from "@/features/billing/components/SubscriptionRequired";
 import { GraceBanner } from "@/features/billing/components/GraceBanner";
+import { countIncomingOnlineOrders } from "@/features/online/queries";
+import { OnlineOrderAlerts } from "@/features/online/components/OnlineOrderAlerts";
 
 export default async function BusinessLayout({
   children,
@@ -43,7 +45,13 @@ export default async function BusinessLayout({
 
   const business = await db.business.findUnique({
     where: { id: businessId },
-    select: { name: true, mode: true, singleOperatorMode: true, subscriptionStatus: true },
+    select: {
+      name: true,
+      mode: true,
+      singleOperatorMode: true,
+      subscriptionStatus: true,
+      onlineOrderingEnabled: true,
+    },
   });
   if (!business) notFound();
 
@@ -100,6 +108,12 @@ export default async function BusinessLayout({
     onboardingView(firstRun) !== "none" &&
     (onboardingCaps.canManageSettings || onboardingCaps.canManageProducts);
 
+  // QR self-ordering: the "Online" nav tab + live new-order badge/alerts show only
+  // when the merchant has enabled online ordering AND this operator can take sales.
+  const onlineEnabled = business.onlineOrderingEnabled;
+  const showOnline = onlineEnabled && can(operator.role, operator.permissions, "take_orders");
+  const onlineBadge = showOnline ? (await countIncomingOnlineOrders(businessId)).submitted : 0;
+
   return (
     <div className="flex min-h-screen bg-background text-foreground">
       {/* Desktop sidebar */}
@@ -108,7 +122,14 @@ export default async function BusinessLayout({
           <div className="text-xl font-black tracking-tight">VallaPOS</div>
           <p className="mt-0.5 truncate text-sm text-sidebar-muted">{business.name}</p>
         </div>
-        <SideNav businessId={businessId} mode={business.mode} operator={operator} firstRun={brandNew} />
+        <SideNav
+          businessId={businessId}
+          mode={business.mode}
+          operator={operator}
+          firstRun={brandNew}
+          onlineEnabled={onlineEnabled}
+          onlineBadge={onlineBadge}
+        />
         <div className="mt-auto flex items-center gap-2 pt-6">
           <div className="flex-1">
             <SignOutButton />
@@ -155,7 +176,17 @@ export default async function BusinessLayout({
         {children}
       </main>
 
-      <BottomNav businessId={businessId} mode={business.mode} operator={operator} firstRun={brandNew} />
+      <BottomNav
+        businessId={businessId}
+        mode={business.mode}
+        operator={operator}
+        firstRun={brandNew}
+        onlineEnabled={onlineEnabled}
+        onlineBadge={onlineBadge}
+      />
+
+      {/* Global live poller: new-order toast + nav-badge refresh (poll-on-visible). */}
+      {showOnline && <OnlineOrderAlerts businessId={businessId} />}
     </div>
   );
 }
