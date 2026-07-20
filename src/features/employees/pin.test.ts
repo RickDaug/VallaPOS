@@ -28,7 +28,12 @@ describe("hashPin", () => {
 
   it("never embeds the plaintext PIN in the hash", () => {
     const hash = hashPin("8675");
-    expect(hash).not.toContain("8675");
+    // Deterministic proof the PIN is hashed (not recoverable plaintext): verifyPin
+    // recomputes scrypt from the salt embedded in the hash. (Asserting the hash
+    // string merely "doesn't contain 8675" was FLAKY — a random ~150-hex-char
+    // scrypt hash can contain those four hex digits by chance.)
+    expect(verifyPin("8675", hash)).toBe(true);
+    expect(verifyPin("0000", hash)).toBe(false);
   });
 
   it("salts: the same PIN hashes differently each time", () => {
