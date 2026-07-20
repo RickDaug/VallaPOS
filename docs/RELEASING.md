@@ -41,6 +41,61 @@ Set these in the repo's Actions secrets for the workflow's notarization step:
 `APPLE_ID`, `APPLE_PASSWORD` (app-specific), `APPLE_TEAM_ID`. Windows signing is configured
 per the chosen provider (Azure Trusted Signing action or an OV cert in `tauri.conf.json`).
 
+### Windows signing (steps)
+
+Signing is wired through `src-tauri/tauri.conf.json` → `bundle.windows`. When set, `tauri build`
+signs `vallapos.exe`, the MSI, **and** the NSIS installer automatically (via `signtool` from the
+Windows SDK — no manual post-signing). Config keys:
+
+```json
+"bundle": {
+  "windows": {
+    "certificateThumbprint": "<40-hex SHA1 thumbprint of a cert in the Windows store>",
+    "digestAlgorithm": "sha256",
+    "timestampUrl": "http://timestamp.digicert.com"
+  }
+}
+```
+
+- **`certificateThumbprint`** — SHA1 thumbprint of a code-signing cert in the `CurrentUser\My`
+  (or `LocalMachine\My`) store. Find it: `Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert |
+  Select-Object Thumbprint, Subject`.
+- **`timestampUrl`** — an RFC3161 server so the signature outlives the cert's validity.
+- **Do not commit a machine-specific thumbprint.** Either set it only in CI, or pass it at build
+  time and keep it out of the repo:
+  `tauri build -c '{"bundle":{"windows":{"certificateThumbprint":"<THUMB>"}}}'`.
+
+**Buying the cert (post-June-2023 reality).** OV/EV code-signing certs now ship on a FIPS hardware
+token (YubiKey/HSM) — there is no downloadable `.pfx`. Two shipping paths:
+
+1. **Azure Trusted Signing** (cheapest, ~$10/mo; needs a US/CA org with 3+ yr history). Sign in CI
+   with `azure/trusted-signing-action`; leave `certificateThumbprint` unset.
+2. **OV/EV cert on a token.** Signing runs against the token's CSP, so use a custom
+   `bundle.windows.signCommand` instead of a thumbprint (the token middleware must be installed +
+   unlocked); `%1` is the file Tauri passes:
+   ```json
+   "signCommand": "signtool sign /tr http://timestamp.digicert.com /td sha256 /fd sha256 /sha1 <THUMBPRINT> %1"
+   ```
+   EV gives instant SmartScreen reputation; OV earns it over time.
+
+**Test the pipeline for free (self-signed).** Proves the whole mechanism without buying anything —
+the binary is genuinely signed, but shows "unknown publisher" on machines that don't trust the cert:
+
+```powershell
+$c = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=VallaPOS Test" `
+  -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddYears(3)
+$c.Thumbprint   # → paste into bundle.windows.certificateThumbprint, then run `tauri build`
+Get-AuthenticodeSignature <path> | Format-List Status, SignerCertificate, TimeStamperCertificate
+```
+
+A self-signed cert reports `Status = UnknownError` (untrusted chain) — that is **expected**; only a
+CA-issued cert reports `Valid` and clears SmartScreen. To remove the test cert afterward:
+`Get-ChildItem Cert:\CurrentUser\My | Where-Object Subject -eq 'CN=VallaPOS Test' | Remove-Item`.
+
+**CI signing.** `desktop-release.yml` runs `tauri-action` on `windows-latest`; provide the cert to
+the runner (the Azure action, or import a `.pfx`/token from an Actions secret into the runner store)
+and set `certificateThumbprint`/`signCommand` to match.
+
 ## Cutting a release
 
 1. Bump `version` in `src-tauri/tauri.conf.json` (+ `Cargo.toml`).
