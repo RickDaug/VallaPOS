@@ -381,9 +381,12 @@ app builds as a real static export and boots the local store in the Tauri webvie
   `@tauri-apps/plugin-sql` + `@tauri-apps/plugin-store` installed (pinned, lockfiled).
 
 **Stage 5b-runtime — the native shell finish (DEFERRED, needs the toolchain + a real device).**
-Only runnable on a machine with Rust + Tauri:
-- `cargo build` the shell (resolves `Cargo.lock`); `npx tauri icon` for `icons/`; register the
-  `tauri-plugin-sql` + `tauri-plugin-store` plugins in `src-tauri` (the JS side already calls them).
+Only runnable on a machine with Rust + Tauri. NOTE: the `sql` + `store` plugins are ALREADY fully
+registered — Cargo deps resolved in `Cargo.lock` (sql 2.4.0 / store 2.4.4), `.plugin(…)` builder
+calls in `src-tauri/src/lib.rs`, `sql:default`/`store:default` capabilities, and the JS packages
+pinned to the SAME versions (no JS↔Rust skew). So what remains is:
+- `cargo build` / `tauri build` the shell (compiles the already-declared deps); `icons/` already
+  generated (`npx tauri icon` was run — android/ios/desktop icons present).
 - Wire auto-print: call `printOrderById` after checkout (auto-print on by default in local) and
   swap the native transport into `DevicesManager.tsx` (offline receipts currently render via the
   `/receipt` page for browser/OS printing).
