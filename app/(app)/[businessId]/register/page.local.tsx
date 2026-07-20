@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { SellableEntry } from "@/features/catalog/queries";
 import { type Receipt, isReceipt } from "@/features/register/schema";
+import { autoPrintOrder } from "@/features/peripherals/native-print";
 
 /**
  * Offline-edition Register (docs/EDITIONS.md §5b) — the CLIENT cash-only counterpart
@@ -30,6 +31,7 @@ export default function LocalRegisterPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [printNote, setPrintNote] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -85,7 +87,10 @@ export default function LocalRegisterPage() {
       const result = await getLocalStore().store.checkout({
         businessId: LOCAL_BUSINESS_ID,
         clientUuid: crypto.randomUUID(),
-        lines: Object.values(cart).map((l) => ({ variationId: l.entry.variationId, quantity: l.qty })),
+        lines: Object.values(cart).map((l) => ({
+          variationId: l.entry.variationId,
+          quantity: l.qty,
+        })),
         tipCents: 0,
         cartDiscountCents: 0,
         method: "CASH",
@@ -95,6 +100,15 @@ export default function LocalRegisterPage() {
         setReceipt(result);
         setCart({});
         setTender("");
+        setPrintNote(null);
+        // Best-effort native auto-print (no-op unless a printer is set in Settings).
+        // The sale is already committed, so a print failure only shows a notice.
+        void autoPrintOrder({
+          getReceipt: (id) => getLocalStore().store.getOrderReceipt(LOCAL_BUSINESS_ID, id),
+          orderId: result.orderId,
+        }).catch(() => {
+          setPrintNote("Sale saved, but the receipt didn't print. Check the printer in Settings.");
+        });
       } else {
         setError("This sale needs an option to be chosen (not supported offline yet).");
       }
@@ -105,7 +119,7 @@ export default function LocalRegisterPage() {
     }
   }
 
-  if (!catalog) return <p className="text-sm text-muted-foreground">Loading register&hellip;</p>;
+  if (!catalog) return <p className="text-muted-foreground text-sm">Loading register&hellip;</p>;
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
@@ -113,17 +127,17 @@ export default function LocalRegisterPage() {
       <section>
         <h1 className="mb-4 text-2xl font-black md:text-3xl">Register</h1>
         {catalog.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No items yet. Add products first.</p>
+          <p className="text-muted-foreground text-sm">No items yet. Add products first.</p>
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {catalog.map((e) => (
               <button
                 key={e.variationId}
                 onClick={() => addItem(e)}
-                className="flex h-24 flex-col items-start justify-between rounded-xl border border-border bg-card p-3 text-left transition active:scale-[0.98] hover:border-primary/40"
+                className="border-border bg-card hover:border-primary/40 flex h-24 flex-col items-start justify-between rounded-xl border p-3 text-left transition active:scale-[0.98]"
               >
                 <span className="line-clamp-2 text-sm font-semibold">{e.label}</span>
-                <span className="numeric text-sm text-muted-foreground">
+                <span className="numeric text-muted-foreground text-sm">
                   {formatMoney(e.priceCents, USD)}
                 </span>
               </button>
@@ -137,21 +151,25 @@ export default function LocalRegisterPage() {
         <Card>
           <CardContent className="flex flex-col gap-4 p-4">
             {receipt ? (
-              <div className="rounded-lg bg-muted p-4 text-center">
+              <div className="bg-muted rounded-lg p-4 text-center">
                 <p className="text-lg font-black">Sale #{receipt.number} complete</p>
-                <p className="numeric mt-1 text-sm text-muted-foreground">
+                <p className="numeric text-muted-foreground mt-1 text-sm">
                   Total {formatMoney(receipt.totalCents, USD)} · Change{" "}
                   {formatMoney(receipt.changeCents, USD)}
                 </p>
+                {printNote ? <p className="text-destructive mt-2 text-xs">{printNote}</p> : null}
               </div>
             ) : null}
 
             <ul className="flex-1 space-y-1">
               {Object.values(cart).length === 0 ? (
-                <li className="py-6 text-center text-sm text-muted-foreground">Cart is empty</li>
+                <li className="text-muted-foreground py-6 text-center text-sm">Cart is empty</li>
               ) : (
                 Object.values(cart).map((l) => (
-                  <li key={l.entry.variationId} className="flex items-center justify-between gap-2 text-sm">
+                  <li
+                    key={l.entry.variationId}
+                    className="flex items-center justify-between gap-2 text-sm"
+                  >
                     <button
                       onClick={() => removeItem(l.entry.variationId)}
                       className="flex-1 text-left"
@@ -165,11 +183,11 @@ export default function LocalRegisterPage() {
               )}
             </ul>
 
-            <div className="flex items-center justify-between border-t border-border pt-3 font-bold">
+            <div className="border-border flex items-center justify-between border-t pt-3 font-bold">
               <span>Subtotal</span>
               <span className="numeric">{formatMoney(subtotalCents, USD)}</span>
             </div>
-            <p className="-mt-2 text-xs text-muted-foreground">Tax is added at checkout.</p>
+            <p className="text-muted-foreground -mt-2 text-xs">Tax is added at checkout.</p>
 
             <label className="text-sm font-medium">
               Cash tendered
@@ -181,11 +199,11 @@ export default function LocalRegisterPage() {
                 value={tender}
                 onChange={(ev) => setTender(ev.target.value)}
                 placeholder="0.00"
-                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-right numeric"
+                className="border-border bg-background numeric mt-1 w-full rounded-lg border px-3 py-2 text-right"
               />
             </label>
 
-            {error ? <p className="text-sm text-destructive">{error}</p> : null}
+            {error ? <p className="text-destructive text-sm">{error}</p> : null}
 
             <Button
               onClick={checkout}

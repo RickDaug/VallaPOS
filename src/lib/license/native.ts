@@ -9,6 +9,10 @@
  * `@tauri-apps/api/core` is imported DYNAMICALLY, and only when actually invoking, so
  * the cloud bundle never includes `@tauri-apps` (matching the rest of the local seam).
  */
+import { isTauriRuntime } from "@/lib/tauri/runtime";
+
+// Re-export so existing importers of `isTauriRuntime` from this module keep working.
+export { isTauriRuntime };
 
 /** The `check_license` error codes Rust returns (the `Err(String)` payloads, lib.rs). */
 export type LicenseErrorCode =
@@ -38,11 +42,6 @@ const ERROR_CODES: ReadonlySet<string> = new Set<LicenseErrorCode>([
 export function toLicenseErrorCode(thrown: unknown): LicenseErrorCode {
   const code = typeof thrown === "string" ? thrown : "";
   return ERROR_CODES.has(code) ? (code as LicenseErrorCode) : "malformed";
-}
-
-/** True only inside the Tauri webview (vs. a plain browser / SSR / test). */
-export function isTauriRuntime(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
 /**
