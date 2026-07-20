@@ -39,7 +39,11 @@ const BIZ = "biz1";
 
 async function seedCatalog(driver: SqlDriver) {
   await driver.execute(`INSERT INTO business (id, name) VALUES (?, ?)`, [BIZ, "Taco Truck"]);
-  await driver.execute(`INSERT INTO category (id, businessId, name) VALUES (?, ?, ?)`, ["cat1", BIZ, "Drinks"]);
+  await driver.execute(`INSERT INTO category (id, businessId, name) VALUES (?, ?, ?)`, [
+    "cat1",
+    BIZ,
+    "Drinks",
+  ]);
   // Uncategorized item (categoryId NULL) — exercises the "Uncategorized" fallback.
   await driver.execute(
     `INSERT INTO item (id, businessId, categoryId, name, type, active) VALUES (?, ?, ?, ?, ?, ?)`,
@@ -78,7 +82,10 @@ async function seedCatalog(driver: SqlDriver) {
     `INSERT INTO modifier (id, businessId, groupId, name, priceDeltaCents, sortOrder) VALUES (?, ?, ?, ?, ?, ?)`,
     ["mod1", BIZ, "grp1", "Cheese", 50, 0],
   );
-  await driver.execute(`INSERT INTO item_modifier_group (itemId, groupId) VALUES (?, ?)`, ["itemB", "grp1"]);
+  await driver.execute(`INSERT INTO item_modifier_group (itemId, groupId) VALUES (?, ?)`, [
+    "itemB",
+    "grp1",
+  ]);
 }
 
 describe("SqliteDataStore.getRegisterCatalog", () => {
@@ -181,8 +188,19 @@ describe("SqliteDataStore order reads", () => {
     expect(rows.map((r) => r.id)).toEqual(["ord2", "ord1"]);
     const [first, second] = rows;
     if (!first || !second) throw new Error("expected 2 orders");
-    expect(first).toMatchObject({ number: 2, customerName: null, totalCents: 300, method: "CARD", status: "PAID" });
-    expect(second).toMatchObject({ number: 1, customerName: "Alice", totalCents: 641, method: "CASH" });
+    expect(first).toMatchObject({
+      number: 2,
+      customerName: null,
+      totalCents: 300,
+      method: "CARD",
+      status: "PAID",
+    });
+    expect(second).toMatchObject({
+      number: 1,
+      customerName: "Alice",
+      totalCents: 641,
+      method: "CASH",
+    });
   });
 
   it("listOrders honors the limit", async () => {
@@ -208,7 +226,12 @@ describe("SqliteDataStore order reads", () => {
     expect(receipt.lines).toHaveLength(1);
     const line = receipt.lines[0];
     if (!line) throw new Error("expected a line");
-    expect(line).toMatchObject({ name: "Classic Burger", quantity: 1, unitPriceCents: 500, taxCents: 41 });
+    expect(line).toMatchObject({
+      name: "Classic Burger",
+      quantity: 1,
+      unitPriceCents: 500,
+      taxCents: 41,
+    });
     expect(line.modifiers).toEqual([{ id: "m1", name: "Cheese", priceDeltaCents: 50 }]);
     expect(receipt.payments).toEqual([
       { method: "CASH", amountCents: 641, tenderedCents: 700, changeCents: 59, manualNote: null },
@@ -233,7 +256,10 @@ let seedSaleSeq = 0;
 
 // `CheckoutInput` is the schema's OUTPUT type, so the `.default()` fields are
 // required. This helper fills them so the tests only spell out what they exercise.
-type CoArgs = Omit<CheckoutInput, "tipCents" | "cartDiscountCents" | "method" | "cashTenderedCents"> &
+type CoArgs = Omit<
+  CheckoutInput,
+  "tipCents" | "cartDiscountCents" | "method" | "cashTenderedCents"
+> &
   Partial<Pick<CheckoutInput, "tipCents" | "cartDiscountCents" | "method" | "cashTenderedCents">>;
 
 function co(store: SqliteDataStore, args: CoArgs): Promise<CheckoutResult> {
@@ -366,9 +392,16 @@ describe("SqliteDataStore.checkout", () => {
     });
     if ("error" in receipt) throw new Error("expected a receipt");
     // (500 + 50) = 550 → tax round(45.375) = 45 → total 595.
-    expect(receipt).toMatchObject({ subtotalCents: 550, taxCents: 45, totalCents: 595, changeCents: 5 });
+    expect(receipt).toMatchObject({
+      subtotalCents: 550,
+      taxCents: 45,
+      totalCents: 595,
+      changeCents: 5,
+    });
     const stored = await store.getOrderReceipt(BIZ, receipt.orderId);
-    expect(stored?.lines[0]?.modifiers).toEqual([{ id: expect.any(String), name: "Cheese", priceDeltaCents: 50 }]);
+    expect(stored?.lines[0]?.modifiers).toEqual([
+      { id: expect.any(String), name: "Cheese", priceDeltaCents: 50 },
+    ]);
   });
 
   it("allocates a contiguous per-business order number", async () => {
@@ -414,7 +447,12 @@ describe("SqliteDataStore.checkout", () => {
       manualNote: "Check #1234",
     });
     if ("error" in receipt) throw new Error("expected a receipt");
-    expect(receipt).toMatchObject({ method: "MANUAL", cashTenderedCents: 0, changeCents: 0, manualNote: "Check #1234" });
+    expect(receipt).toMatchObject({
+      method: "MANUAL",
+      cashTenderedCents: 0,
+      changeCents: 0,
+      manualNote: "Check #1234",
+    });
     const stored = await store.getOrderReceipt(BIZ, receipt.orderId);
     expect(stored?.payments[0]).toMatchObject({ method: "MANUAL", manualNote: "Check #1234" });
   });
@@ -665,6 +703,87 @@ describe("SqliteDataStore operators + first-run seed", () => {
     const [op] = await store.listOperators(LOCAL_BUSINESS_ID);
     if (!op) throw new Error("expected an operator");
     expect(await store.verifyOperatorPin(LOCAL_BUSINESS_ID, op.id, "1234")).toBe(false);
+  });
+
+  it("addOperator adds an active operator with a working PIN", async () => {
+    await store.seedFirstRun(); // Owner (FK target business)
+    const { operatorId } = await store.addOperator(LOCAL_BUSINESS_ID, {
+      name: "Marco",
+      pin: "2468",
+    });
+
+    const roster = await store.listOperators(LOCAL_BUSINESS_ID);
+    expect(roster.map((o) => o.name)).toEqual(["Marco", "Owner"]); // ORDER BY name ASC
+    expect(await store.verifyOperatorPin(LOCAL_BUSINESS_ID, operatorId, "2468")).toBe(true);
+  });
+
+  it("setOperatorPin replaces the PIN; deactivateOperator drops from the roster", async () => {
+    await store.seedFirstRun();
+    const { operatorId } = await store.addOperator(LOCAL_BUSINESS_ID, { name: "Lena" });
+
+    // No PIN yet → rejects, then set one and it verifies.
+    expect(await store.verifyOperatorPin(LOCAL_BUSINESS_ID, operatorId, "1111")).toBe(false);
+    await store.setOperatorPin(LOCAL_BUSINESS_ID, operatorId, "1111");
+    expect(await store.verifyOperatorPin(LOCAL_BUSINESS_ID, operatorId, "1111")).toBe(true);
+
+    await store.deactivateOperator(LOCAL_BUSINESS_ID, operatorId);
+    expect((await store.listOperators(LOCAL_BUSINESS_ID)).map((o) => o.name)).toEqual(["Owner"]);
+    // Inactive operators can no longer authenticate.
+    expect(await store.verifyOperatorPin(LOCAL_BUSINESS_ID, operatorId, "1111")).toBe(false);
+  });
+
+  it("scopes operator writes by businessId", async () => {
+    await store.seedFirstRun();
+    const { operatorId } = await store.addOperator(LOCAL_BUSINESS_ID, { name: "Ada", pin: "9999" });
+    // A wrong-tenant write must not touch the row.
+    await store.setOperatorPin("other-biz", operatorId, "0000");
+    await store.deactivateOperator("other-biz", operatorId);
+    expect(await store.verifyOperatorPin(LOCAL_BUSINESS_ID, operatorId, "9999")).toBe(true);
+    expect((await store.listOperators(LOCAL_BUSINESS_ID)).map((o) => o.name)).toContain("Ada");
+  });
+});
+
+describe("SqliteDataStore business settings", () => {
+  let store: SqliteDataStore;
+
+  beforeEach(async () => {
+    ({ store } = await makeStore());
+  });
+
+  it("reads seeded defaults and round-trips an update", async () => {
+    await store.seedFirstRun();
+
+    const initial = await store.getBusinessSettings(LOCAL_BUSINESS_ID);
+    expect(initial).toEqual({
+      name: "My Business",
+      taxRateBps: 0,
+      taxInclusive: false,
+      currency: "USD",
+      timezone: "America/New_York",
+      singleOperatorMode: false,
+    });
+
+    await store.updateBusinessSettings(LOCAL_BUSINESS_ID, {
+      name: "Taco Truck",
+      taxRateBps: 825,
+      taxInclusive: true,
+      currency: "MXN",
+      timezone: "America/Mexico_City",
+      singleOperatorMode: true,
+    });
+
+    expect(await store.getBusinessSettings(LOCAL_BUSINESS_ID)).toEqual({
+      name: "Taco Truck",
+      taxRateBps: 825,
+      taxInclusive: true,
+      currency: "MXN",
+      timezone: "America/Mexico_City",
+      singleOperatorMode: true,
+    });
+  });
+
+  it("returns null before the business is seeded", async () => {
+    expect(await store.getBusinessSettings(LOCAL_BUSINESS_ID)).toBeNull();
   });
 });
 

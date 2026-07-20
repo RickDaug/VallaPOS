@@ -59,6 +59,16 @@ export interface OperatorRow {
   active: boolean;
 }
 
+/** The single local business's editable settings (the `business` row). */
+export interface BusinessSettingsRow {
+  name: string;
+  taxRateBps: number;
+  taxInclusive: boolean;
+  currency: string;
+  timezone: string;
+  singleOperatorMode: boolean;
+}
+
 function labelFor(itemName: string, variationName: string): string {
   return variationName && variationName !== "Default" ? `${itemName} — ${variationName}` : itemName;
 }
@@ -119,7 +129,9 @@ export class SqliteDataStore implements DataStore {
 
   /** Create the cash-subset tables. Idempotent (`CREATE TABLE IF NOT EXISTS`). */
   async migrate(): Promise<void> {
-    for (const stmt of SCHEMA_SQL.split(";").map((s) => s.trim()).filter(Boolean)) {
+    for (const stmt of SCHEMA_SQL.split(";")
+      .map((s) => s.trim())
+      .filter(Boolean)) {
       await this.sql.execute(stmt);
     }
   }
@@ -281,7 +293,13 @@ export class SqliteDataStore implements DataStore {
     const varsByItem = new Map<string, ManagedVariation[]>();
     for (const v of variationRows) {
       const arr = varsByItem.get(v.itemId) ?? [];
-      arr.push({ id: v.id, name: v.name, priceCents: v.priceCents, sku: v.sku, sortOrder: v.sortOrder });
+      arr.push({
+        id: v.id,
+        name: v.name,
+        priceCents: v.priceCents,
+        sku: v.sku,
+        sortOrder: v.sortOrder,
+      });
       varsByItem.set(v.itemId, arr);
     }
 
@@ -627,7 +645,9 @@ export class SqliteDataStore implements DataStore {
       [businessId, start.toISOString(), end.toISOString()],
     );
 
-    const variationIds = [...new Set(lines.map((l) => l.variationId).filter((v): v is string => !!v))];
+    const variationIds = [
+      ...new Set(lines.map((l) => l.variationId).filter((v): v is string => !!v)),
+    ];
     const variations = variationIds.length
       ? await this.sql.select<{ id: string; categoryName: string | null }>(
           `SELECT v.id, c.name AS categoryName
@@ -652,7 +672,11 @@ export class SqliteDataStore implements DataStore {
   }
 
   /** Net sales per cashier (operator) over PAID orders in [start, end). */
-  async getCashierSalesReport(businessId: string, start: Date, end: Date): Promise<CashierSalesRow[]> {
+  async getCashierSalesReport(
+    businessId: string,
+    start: Date,
+    end: Date,
+  ): Promise<CashierSalesRow[]> {
     const orders = await this.sql.select<{
       cashierId: string | null;
       subtotalCents: number;
@@ -714,7 +738,11 @@ export class SqliteDataStore implements DataStore {
    * PAYMENT time, status-agnostic (negative refund reversals included), so a cash
    * refund reduces expected drawer cash. Matches the Z-report's cash figure.
    */
-  async getCashCollectedSince(businessId: string, openedAt: Date, end: Date = new Date()): Promise<number> {
+  async getCashCollectedSince(
+    businessId: string,
+    openedAt: Date,
+    end: Date = new Date(),
+  ): Promise<number> {
     const r = (
       await this.sql.select<{ total: number }>(
         `SELECT COALESCE(SUM(p.amountCents), 0) AS total
@@ -870,7 +898,17 @@ export class SqliteDataStore implements DataStore {
         `INSERT INTO payment
            (id, businessId, orderId, method, status, amountCents, tenderedCents, changeCents, processorRef, createdAt)
          VALUES (?, ?, ?, ?, 'CAPTURED', ?, ?, ?, ?, ?)`,
-        [newId(), businessId, orderId, data.method, priced.totalCents, tenderedCents, changeCents, note, createdAt],
+        [
+          newId(),
+          businessId,
+          orderId,
+          data.method,
+          priced.totalCents,
+          tenderedCents,
+          changeCents,
+          note,
+          createdAt,
+        ],
       );
 
       await this.sql.execute("COMMIT");
@@ -959,7 +997,14 @@ export class SqliteDataStore implements DataStore {
       `UPDATE cash_drawer_session
           SET expectedCents = ?, countedCents = ?, varianceCents = ?, closedAt = ?
         WHERE id = ? AND businessId = ? AND closedAt IS NULL`,
-      [expectedCents, data.countedCents, varianceCents, closedAt.toISOString(), session.id, data.businessId],
+      [
+        expectedCents,
+        data.countedCents,
+        varianceCents,
+        closedAt.toISOString(),
+        session.id,
+        data.businessId,
+      ],
     );
     if (result.rowsAffected === 0) throw new Error("Drawer session was already closed.");
 
@@ -1006,6 +1051,92 @@ export class SqliteDataStore implements DataStore {
     )[0];
     if (!op) return false;
     return verifyPinWebcrypto(pin, op.pinHash);
+  }
+
+  /**
+   * Add an operator to the local business (offline "Staff" screen). An optional
+   * PIN is hashed with Web Crypto (PBKDF2) so it works in the Tauri webview. Cloud
+   * adds staff via Membership invites — this method is local-only.
+   */
+  async addOperator(
+    businessId: string,
+    input: { name: string; pin?: string },
+  ): Promise<{ operatorId: string }> {
+    const operatorId = newId();
+    const pinHash = input.pin ? await hashPinWebcrypto(input.pin) : null;
+    await this.sql.execute(
+      `INSERT INTO operator (id, businessId, name, pinHash, active, createdAt)
+       VALUES (?, ?, ?, ?, 1, ?)`,
+      [operatorId, businessId, input.name, pinHash, new Date().toISOString()],
+    );
+    return { operatorId };
+  }
+
+  /** Set (or replace) an operator's PIN. Tenant-scoped; PBKDF2 hashed. */
+  async setOperatorPin(businessId: string, operatorId: string, pin: string): Promise<void> {
+    const pinHash = await hashPinWebcrypto(pin);
+    await this.sql.execute(`UPDATE operator SET pinHash = ? WHERE id = ? AND businessId = ?`, [
+      pinHash,
+      operatorId,
+      businessId,
+    ]);
+  }
+
+  /** Soft-remove an operator (keeps them off the roster; history stays intact). */
+  async deactivateOperator(businessId: string, operatorId: string): Promise<void> {
+    await this.sql.execute(`UPDATE operator SET active = 0 WHERE id = ? AND businessId = ?`, [
+      operatorId,
+      businessId,
+    ]);
+  }
+
+  // ── Business settings (offline edition — cloud uses the settings server action) ──
+
+  /** The single local business's editable settings, or null if not seeded yet. */
+  async getBusinessSettings(businessId: string): Promise<BusinessSettingsRow | null> {
+    const row = (
+      await this.sql.select<{
+        name: string;
+        taxRateBps: number;
+        taxInclusive: number;
+        currency: string;
+        timezone: string;
+        singleOperatorMode: number;
+      }>(
+        `SELECT name, taxRateBps, taxInclusive, currency, timezone, singleOperatorMode
+           FROM business WHERE id = ?`,
+        [businessId],
+      )
+    )[0];
+    if (!row) return null;
+    return {
+      name: row.name,
+      taxRateBps: row.taxRateBps,
+      taxInclusive: Boolean(row.taxInclusive),
+      currency: row.currency,
+      timezone: row.timezone,
+      singleOperatorMode: Boolean(row.singleOperatorMode),
+    };
+  }
+
+  /** Overwrite the local business's settings in one UPDATE. Tenant-scoped. */
+  async updateBusinessSettings(businessId: string, input: BusinessSettingsRow): Promise<void> {
+    await this.sql.execute(
+      `UPDATE business
+          SET name = ?, taxRateBps = ?, taxInclusive = ?, currency = ?, timezone = ?,
+              singleOperatorMode = ?, updatedAt = ?
+        WHERE id = ?`,
+      [
+        input.name,
+        input.taxRateBps,
+        input.taxInclusive ? 1 : 0,
+        input.currency,
+        input.timezone,
+        input.singleOperatorMode ? 1 : 0,
+        new Date().toISOString(),
+        businessId,
+      ],
+    );
   }
 
   // ── Catalog writes (offline edition — cloud uses catalog server actions) ──
@@ -1055,7 +1186,10 @@ export class SqliteDataStore implements DataStore {
         businessId,
       ]);
       await this.sql.execute(`DELETE FROM item_modifier_group WHERE itemId = ?`, [itemId]);
-      await this.sql.execute(`DELETE FROM item WHERE id = ? AND businessId = ?`, [itemId, businessId]);
+      await this.sql.execute(`DELETE FROM item WHERE id = ? AND businessId = ?`, [
+        itemId,
+        businessId,
+      ]);
       await this.sql.execute("COMMIT");
     } catch (err) {
       await this.sql.execute("ROLLBACK").catch(() => {});
@@ -1074,9 +1208,7 @@ export class SqliteDataStore implements DataStore {
     operatorName?: string;
     pin?: string;
   }): Promise<{ businessId: string }> {
-    const existing = (
-      await this.sql.select<{ id: string }>(`SELECT id FROM business LIMIT 1`)
-    )[0];
+    const existing = (await this.sql.select<{ id: string }>(`SELECT id FROM business LIMIT 1`))[0];
     if (existing) return { businessId: existing.id };
 
     const businessId = opts?.businessId ?? LOCAL_BUSINESS_ID;
@@ -1085,10 +1217,9 @@ export class SqliteDataStore implements DataStore {
       `INSERT INTO business (id, name, createdAt, updatedAt) VALUES (?, ?, ?, ?)`,
       [businessId, opts?.businessName ?? "My Business", now, now],
     );
-    await this.sql.execute(
-      `INSERT INTO order_counter (businessId, lastNumber) VALUES (?, 0)`,
-      [businessId],
-    );
+    await this.sql.execute(`INSERT INTO order_counter (businessId, lastNumber) VALUES (?, 0)`, [
+      businessId,
+    ]);
     const pinHash = opts?.pin ? await hashPinWebcrypto(opts.pin) : null;
     await this.sql.execute(
       `INSERT INTO operator (id, businessId, name, pinHash, active, createdAt) VALUES (?, ?, ?, ?, 1, ?)`,
@@ -1118,7 +1249,10 @@ export class SqliteDataStore implements DataStore {
    * Rebuild a checkout `Receipt` from a committed order + its first payment (the
    * idempotency re-read). Returns null when no order carries this clientUuid.
    */
-  private async receiptByClientUuid(businessId: string, clientUuid: string): Promise<Receipt | null> {
+  private async receiptByClientUuid(
+    businessId: string,
+    clientUuid: string,
+  ): Promise<Receipt | null> {
     const o = (
       await this.sql.select<{
         id: string;
@@ -1147,7 +1281,8 @@ export class SqliteDataStore implements DataStore {
         [o.id],
       )
     )[0];
-    const method: TenderMethod = pay?.method === "MANUAL" || pay?.method === "QR" ? pay.method : "CASH";
+    const method: TenderMethod =
+      pay?.method === "MANUAL" || pay?.method === "QR" ? pay.method : "CASH";
     return {
       orderId: o.id,
       number: o.number,
@@ -1187,7 +1322,11 @@ export class SqliteDataStore implements DataStore {
       const modifierById = new Map<string, ResolvedModifier>();
       for (const g of entry.modifierGroups) {
         for (const m of g.modifiers) {
-          modifierById.set(m.id, { id: m.id, nameSnapshot: m.name, priceDeltaCents: m.priceDeltaCents });
+          modifierById.set(m.id, {
+            id: m.id,
+            nameSnapshot: m.name,
+            priceDeltaCents: m.priceDeltaCents,
+          });
         }
       }
       for (const id of chosenIds) {
@@ -1197,7 +1336,12 @@ export class SqliteDataStore implements DataStore {
         const groupModifierIds = g.modifiers.map((m) => m.id);
         const chosenInGroup = chosenIds.filter((id) => groupModifierIds.includes(id));
         validateGroupSelection(
-          { groupId: g.id, minSelect: g.minSelect, maxSelect: g.maxSelect, modifierIds: groupModifierIds },
+          {
+            groupId: g.id,
+            minSelect: g.minSelect,
+            maxSelect: g.maxSelect,
+            modifierIds: groupModifierIds,
+          },
           chosenInGroup,
         );
       }
