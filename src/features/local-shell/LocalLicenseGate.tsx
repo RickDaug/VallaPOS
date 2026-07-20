@@ -2,7 +2,8 @@
 
 import { type ReactNode, useEffect, useState } from "react";
 import { type LicenseState, resolveLicenseState } from "@/lib/license/gate";
-import { type LicenseKv, createLicenseStore } from "@/lib/license/store";
+import { createLicenseStore } from "@/lib/license/store";
+import { loadLicenseKv } from "@/lib/license/tauri-kv";
 import { webcryptoEd25519Verifier } from "@/lib/license/webcrypto";
 import { LICENSE_PUBLIC_KEY } from "@/lib/license/public-key";
 import { Button } from "@/components/ui/button";
@@ -11,31 +12,16 @@ import { Card, CardContent } from "@/components/ui/card";
 /**
  * Offline-edition license gate (docs/EDITIONS.md §6). On boot it verifies the
  * stored license (Ed25519, our public key) and either renders the app or a
- * license-entry screen. This is the WEBVIEW/UX gate — the Rust `verify_license`
- * (`src-tauri/src/license.rs`) is the authoritative one that refuses to open the
- * store without a valid signature.
+ * license-entry screen. This is the WEBVIEW/UX gate — the Rust `check_license`
+ * (`src-tauri/src/license.rs`) is the authoritative one, enforced at the SQLite
+ * boot-gate (`local-bootstrap.tsx`), which refuses to open the store without a
+ * valid signature.
  *
- * The `@tauri-apps/plugin-store` KV is imported DYNAMICALLY and only here (rendered
- * only by the local layout), so the cloud bundle never includes it. Runtime needs
- * the Tauri `store` plugin registered in `src-tauri`.
+ * The `@tauri-apps/plugin-store` KV (`loadLicenseKv`) is imported DYNAMICALLY and is
+ * shared with the boot-gate so both read/write the same blob; the cloud bundle never
+ * includes it. Runtime needs the Tauri `store` plugin registered in `src-tauri`.
  */
 const verify = webcryptoEd25519Verifier(LICENSE_PUBLIC_KEY);
-
-async function loadKv(): Promise<LicenseKv> {
-  const { load } = await import("@tauri-apps/plugin-store");
-  const store = await load("vallapos-license.json");
-  return {
-    get: (key) => store.get<string>(key),
-    set: async (key, value) => {
-      await store.set(key, value);
-      await store.save();
-    },
-    delete: async (key) => {
-      await store.delete(key);
-      await store.save();
-    },
-  };
-}
 
 function reasonMessage(reason: string): string {
   switch (reason) {
@@ -60,7 +46,7 @@ export function LocalLicenseGate({ children }: { children: ReactNode }) {
     let cancelled = false;
     void (async () => {
       try {
-        const store = createLicenseStore(await loadKv());
+        const store = createLicenseStore(await loadLicenseKv());
         const s = await resolveLicenseState({
           loadBlob: () => store.load(),
           verify,
@@ -85,7 +71,7 @@ export function LocalLicenseGate({ children }: { children: ReactNode }) {
     try {
       const s = await resolveLicenseState({ loadBlob: () => blob, verify, now: Date.now() });
       if (s.status === "licensed") {
-        await createLicenseStore(await loadKv()).save(blob);
+        await createLicenseStore(await loadLicenseKv()).save(blob);
         setState(s);
       } else {
         setErr(s.status === "invalid" ? reasonMessage(s.reason) : "That license key isn't valid.");
