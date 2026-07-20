@@ -112,7 +112,7 @@ export default function LocalOrdersPage() {
                         <td className="p-3 text-muted-foreground">{fmtTime.format(new Date(o.createdAt))}</td>
                         <td className="p-3 text-right">
                           <Link
-                            href={`/${LOCAL_BUSINESS_ID}/orders/${o.id}/receipt`}
+                            href={`/${LOCAL_BUSINESS_ID}/receipt?order=${o.id}`}
                             className="font-medium text-primary hover:underline"
                           >
                             Receipt
@@ -129,7 +129,7 @@ export default function LocalOrdersPage() {
                 {orders.map((o) => (
                   <li key={o.id}>
                     <Link
-                      href={`/${LOCAL_BUSINESS_ID}/orders/${o.id}/receipt`}
+                      href={`/${LOCAL_BUSINESS_ID}/receipt?order=${o.id}`}
                       className="flex items-center justify-between rounded-lg border border-border p-3 hover:border-primary/40"
                     >
                       <div>
