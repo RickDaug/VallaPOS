@@ -563,3 +563,31 @@ model CashDrawerSession {
 
   @@index([businessId])
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Desktop-edition licensing (docs/EDITIONS.md §6, SHIP_DESKTOP.md §2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum LicenseStatus {
+  ACTIVE
+  REVOKED // e.g. after a chargeback — added to the signed embedded blocklist
+}
+
+// A one-time ($99) offline-desktop license purchase record. NOT tenant-scoped —
+// a desktop buyer is not a Business; this is a platform-level fulfilment ledger
+// (so it is intentionally excluded from the tenant-isolation guard). The signed
+// license blob itself is the product; the desktop app verifies it offline and
+// never queries this table. `stripeSessionId` is the idempotency key — one paid
+// Checkout session issues exactly one license.
+model License {
+  id              String        @id @default(cuid())
+  sku             String // "vallapos-desktop"
+  stripeSessionId String        @unique // one license per paid Checkout session
+  email           String // buyer email (from the Stripe session) for delivery
+  licenseKey      String // the signed, distributable .vallalicense blob
+  status          LicenseStatus @default(ACTIVE)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([email])
+}
