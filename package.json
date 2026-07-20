@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "dev:local": "NEXT_PUBLIC_VALLA_EDITION=local next dev",
-    "build:local": "NEXT_PUBLIC_VALLA_EDITION=local next build",
+    "dev:local": "cross-env NEXT_PUBLIC_VALLA_EDITION=local next dev",
+    "build:local": "cross-env NEXT_PUBLIC_VALLA_EDITION=local next build",
     "start": "next start",
     "lint": "eslint .",
     "format": "prettier --write .",
@@ -51,6 +51,7 @@
     "@types/node": "22.15.30",
     "@types/react": "19.1.6",
     "@types/react-dom": "19.1.6",
+    "cross-env": "^7.0.3",
     "eslint": "9.28.0",
     "eslint-config-next": "15.5.19",
     "prettier": "3.5.3",
