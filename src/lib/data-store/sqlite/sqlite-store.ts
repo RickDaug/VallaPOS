@@ -38,7 +38,7 @@ import {
   type ResolvedModifier,
 } from "@/features/register/pricing";
 import { reconcile } from "@/features/cash-drawer/reconcile";
-import { hashPin, verifyPin } from "@/features/employees/pin";
+import { hashPinWebcrypto, verifyPinWebcrypto } from "./pin";
 import { LOCAL_BUSINESS_ID } from "@/lib/edition";
 import type { ItemType, OrderStatus, PaymentMethod } from "@prisma/client";
 import type { DataStore } from "../types";
@@ -991,7 +991,7 @@ export class SqliteDataStore implements DataStore {
   }
 
   /**
-   * Verify an operator's PIN against the stored scrypt hash (shared `verifyPin` —
+   * Verify an operator's PIN against the stored PBKDF2 hash (Web Crypto —
    * constant-time, never throws). Returns false for an unknown/inactive operator
    * or any malformed input, so a corrupt row simply fails to match. NOTE: the JS
    * gate is UX only in the desktop build; the Rust license gate (Stage 6) is the
@@ -1005,7 +1005,7 @@ export class SqliteDataStore implements DataStore {
       )
     )[0];
     if (!op) return false;
-    return verifyPin(pin, op.pinHash);
+    return verifyPinWebcrypto(pin, op.pinHash);
   }
 
   /**
@@ -1034,7 +1034,7 @@ export class SqliteDataStore implements DataStore {
       `INSERT INTO order_counter (businessId, lastNumber) VALUES (?, 0)`,
       [businessId],
     );
-    const pinHash = opts?.pin ? hashPin(opts.pin) : null;
+    const pinHash = opts?.pin ? await hashPinWebcrypto(opts.pin) : null;
     await this.sql.execute(
       `INSERT INTO operator (id, businessId, name, pinHash, active, createdAt) VALUES (?, ?, ?, ?, 1, ?)`,
       [newId(), businessId, opts?.operatorName ?? "Owner", pinHash, now],
