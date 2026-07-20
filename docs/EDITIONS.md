@@ -8,8 +8,8 @@ pages converted to client-fetch, route-staging build, SQLite runtime boot, licen
 5b page work + Stage 6a/6b-core), the Rust license **boot-gate** (Stage 6b-shell — the SQLite open
 now verifies via the compiled `check_license` anchor), and the release pipeline + docs (Stage 7a).
 What remains can only run on a machine with Rust + Tauri + code-signing certs: `cargo build` the
-shell, the native printer transport, and the signed release (Stages 5b-runtime / 7b) — plus the
-$99 pipeline's go-live env.
+shell, the signed release (Stages 5b-runtime / 7b), the Windows/serial `print_raw` arms (network
+auto-print already ships), and the $99 pipeline's go-live env.
 
 An **EDITION** is a build-time switch (`"cloud" | "local"`), **not a fork**. The same
 Next.js/TypeScript source, the same pure money/pricing/report/ESC-POS modules, and the
@@ -388,9 +388,15 @@ calls in `src-tauri/src/lib.rs`, `sql:default`/`store:default` capabilities, and
 pinned to the SAME versions (no JS↔Rust skew). So what remains is:
 - `cargo build` / `tauri build` the shell (compiles the already-declared deps); `icons/` already
   generated (`npx tauri icon` was run — android/ios/desktop icons present).
-- Wire auto-print: call `printOrderById` after checkout (auto-print on by default in local) and
-  swap the native transport into `DevicesManager.tsx` (offline receipts currently render via the
-  `/receipt` page for browser/OS printing).
+- ✅ **Auto-print on sale WIRED (SHIPPED, PR `feat/editions-native-autoprint` #158).** The register
+  calls `autoPrintOrder` after a committed cash sale → `getOrderReceipt` → shared escpos formatter →
+  `createTauriPrinter` → Rust `print_raw`, best-effort + non-blocking. A device-local printer config
+  (`printer-config.ts`, a Tauri KV) is edited in Settings → "Receipt printer". Offline receipts also
+  stay printable from the `/receipt` page.
+- **Still needs the toolchain/device:** the Rust `print_raw` **`windows_spooler` + `serial`** arms are
+  still loud "not yet implemented" stubs — only **TCP-9100 (network)** prints today; finishing the
+  Windows RAW-spooler path (`OpenPrinter`/`StartDocPrinter`/`WritePrinter`) is what a USB-attached
+  printer needs. (The peripherals `DevicesManager` WebUSB path is a separate cloud/PWA concern.)
 
 ### Stage 6 — License gate + issuance
 
