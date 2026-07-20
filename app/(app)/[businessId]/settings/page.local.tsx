@@ -272,7 +272,8 @@ export default function LocalSettingsPage() {
             </div>
             <p className="text-muted-foreground text-xs">
               Receipts also stay printable from the Orders screen. Network printers use raw port
-              9100; the Windows and serial transports are still being finished.
+              9100 and Windows printers print through the spooler (RAW); the serial transport is
+              still being finished.
             </p>
           </form>
         </CardContent>
