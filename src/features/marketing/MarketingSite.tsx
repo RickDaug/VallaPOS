@@ -39,10 +39,10 @@ function toggleTheme() {
 }
 
 // Optional Stripe Payment Link URLs. When a real link is set (env or here), the
-// matching "Subscribe" / "Buy" buttons open Stripe's hosted checkout in a new
-// tab. Until then: cloud buttons fall back to the free sign-up flow, and the
-// one-time offline button scrolls to the pricing section (the desktop edition
-// isn't purchasable yet). Swap these for server-created Checkout Sessions later.
+// When a static Stripe Payment Link env is set, the matching "Subscribe"/"Buy"
+// button opens it in a new tab. Otherwise: cloud → the free sign-up flow, and
+// offline → `/desktop/buy` (a server-created one-time Checkout Session; that
+// route redirects back to pricing when Stripe is unset, so it's never broken).
 const BUY_LINKS: Record<string, string> = {
   cloud: process.env.NEXT_PUBLIC_STRIPE_LINK_CLOUD ?? "",
   offline: process.env.NEXT_PUBLIC_STRIPE_LINK_OFFLINE ?? "",
@@ -132,6 +132,10 @@ export default function MarketingSite() {
         el.setAttribute("rel", "noopener");
       } else if (kind === "cloud") {
         el.setAttribute("href", "/sign-up");
+      } else if (kind === "offline") {
+        // No static Payment Link → a server-created one-time Checkout Session
+        // (dormant-safe: /desktop/buy redirects back to pricing when Stripe is unset).
+        el.setAttribute("href", "/desktop/buy");
       }
     });
     // "Start free" in the nav + the navy CTA boxes → free sign-up.
