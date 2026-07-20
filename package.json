@@ -7,7 +7,7 @@
     "dev": "next dev",
     "build": "next build",
     "dev:local": "cross-env NEXT_PUBLIC_VALLA_EDITION=local next dev",
-    "build:local": "cross-env NEXT_PUBLIC_VALLA_EDITION=local next build",
+    "build:local": "node scripts/build-local.mjs",
     "start": "next start",
     "lint": "eslint .",
     "format": "prettier --write .",
