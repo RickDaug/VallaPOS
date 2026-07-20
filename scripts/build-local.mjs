@@ -43,8 +43,6 @@ const EXCLUDE = [
   // (app)/[businessId] pages not yet converted to client-fetch — added to SWAP
   // one at a time as they're done.
   "app/(app)/[businessId]/reports/export", // the CSV route handler (dynamic) — the reports PAGE is swapped
-  "app/(app)/[businessId]/settings",
-  "app/(app)/[businessId]/employees",
   "app/(app)/[businessId]/floor",
   "app/(app)/[businessId]/orders/[orderId]",
 ];
@@ -60,6 +58,8 @@ const SWAP = [
   ["app/(app)/[businessId]/reports/page.tsx", "app/(app)/[businessId]/reports/page.local.tsx"],
   ["app/(app)/[businessId]/drawer/page.tsx", "app/(app)/[businessId]/drawer/page.local.tsx"],
   ["app/(app)/[businessId]/products/page.tsx", "app/(app)/[businessId]/products/page.local.tsx"],
+  ["app/(app)/[businessId]/settings/page.tsx", "app/(app)/[businessId]/settings/page.local.tsx"],
+  ["app/(app)/[businessId]/employees/page.tsx", "app/(app)/[businessId]/employees/page.local.tsx"],
   // Local-only query-param receipt route (no cloud counterpart — cloud uses the
   // dynamic /orders/[orderId]/receipt, which static export can't pre-render).
   ["app/(app)/[businessId]/receipt/page.tsx", "app/(app)/[businessId]/receipt/page.local.tsx"],

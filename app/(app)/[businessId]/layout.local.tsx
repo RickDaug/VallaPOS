@@ -23,6 +23,8 @@ const NAV: ReadonlyArray<readonly [string, string]> = [
   ["Orders", "orders"],
   ["Reports", "reports"],
   ["Drawer", "drawer"],
+  ["Staff", "employees"],
+  ["Settings", "settings"],
 ];
 
 export default function LocalBusinessLayout({ children }: { children: ReactNode }) {
