@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { LOCAL_BUSINESS_ID } from "@/lib/edition";
+import { LocalStoreBootstrap } from "@/lib/data-store/local-bootstrap";
 
 /**
  * Offline-edition app shell (docs/EDITIONS.md §5b). Single-tenant, so NO server
@@ -26,6 +27,7 @@ const NAV: ReadonlyArray<readonly [string, string]> = [
 export default function LocalBusinessLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
+      <LocalStoreBootstrap />
       <header className="sticky top-0 z-10 flex items-center gap-1 border-b border-border bg-card/95 px-4 py-2 backdrop-blur">
         <span className="mr-3 text-lg font-black tracking-tight">VallaPOS</span>
         <nav className="flex gap-1">
