@@ -5,10 +5,11 @@ splitting VallaPOS into two editions from a single codebase. Everything buildabl
 has shipped to `main`, cloud untouched throughout: the data-store seam + SQLite store (Stages
 2–3), local auth/env branch (Stage 4), the full **static-export offline app** — all 8 business
 pages converted to client-fetch, route-staging build, SQLite runtime boot, license gate (Stage
-5b page work + Stage 6a/6b-core), and the release pipeline + docs (Stage 7a). What remains is
-the part that can only run on a machine with Rust + Tauri + code-signing certs: `cargo build`
-the shell, register the `sql`/`store` plugins, the native printer transport, and the signed
-release (Stages 5b-runtime / 6b-shell / 7b).
+5b page work + Stage 6a/6b-core), the Rust license **boot-gate** (Stage 6b-shell — the SQLite open
+now verifies via the compiled `check_license` anchor), and the release pipeline + docs (Stage 7a).
+What remains can only run on a machine with Rust + Tauri + code-signing certs: `cargo build` the
+shell, the native printer transport, and the signed release (Stages 5b-runtime / 7b) — plus the
+$99 pipeline's go-live env.
 
 An **EDITION** is a build-time switch (`"cloud" | "local"`), **not a fork**. The same
 Next.js/TypeScript source, the same pure money/pricing/report/ESC-POS modules, and the
@@ -423,17 +424,24 @@ testable TS the shell + the vallahub signer both call; additive, cloud unchanged
   `LICENSE_SIGNING_SK`-backed signer. Tested end-to-end: issue → store → gate = licensed;
   tamper/expiry/revocation → invalid.
 
-**Stage 6b-shell — the runtime gate + issuance deployment (DEFERRED, needs the running local app +
-the vallahub site).**
-- Boot-gate the SQLite open on the Rust `check_license`; a license entry screen (before the PIN
-  lock) that calls `resolveLicenseState`/`createLicenseStore`; the signed embedded revocation
-  blocklist wired into `verify_license`.
-- `app/(app)/layout.tsx` local branch: replace the `getSession`→`/sign-in` redirect with the
-  license gate → operator PIN lock (gated on `isLocal`).
-- **vallahub.com issuance** (separate site): a `LICENSE_SIGNING_SK` (zod-validated, PKCS#8) →
-  `importEd25519PrivateKey` → the shared `issueLicense`, driven by a one-time Stripe Checkout →
-  `checkout.session.completed` webhook (reuse the `app/api/payments/webhook` pattern) → `License`
-  DB row keyed on `session.id` → Resend delivery + success-page download.
+**Stage 6b-shell — the runtime gate + issuance (MOSTLY SHIPPED).**
+- ✅ **Boot-gate the SQLite open on the Rust `check_license` (SHIPPED, PR `feat/editions-6b-boot-gate`
+  #156).** `src/lib/license/native.ts` bridges the webview to the Rust anchor (`nativeCheckLicense`
+  → dynamic `@tauri-apps/api/core` invoke, returns a verdict, fails closed); `local-bootstrap.tsx`
+  calls it BEFORE `Database.load` and opens the store ONLY on a valid signature. `tauri-kv.ts`
+  extracts the shared `plugin-store` KV so the boot-gate and the UX gate read the same blob.
+- ✅ **License entry screen (SHIPPED, #152)** — `LocalLicenseGate` (`resolveLicenseState`/
+  `createLicenseStore`, baked-in `public-key.ts`) renders the app or a paste-key screen. The JS
+  gate is the UX layer; the Rust boot-gate above is authoritative at the data boundary.
+- ✅ **$99 issuance (SHIPPED in the MAIN app, #141–#144)** — `src/features/desktop-license/*`:
+  `LICENSE_SIGNING_SK` → `loadLicenseSigner` → shared `issueLicense`, driven by a one-time Stripe
+  Checkout (`/desktop/buy`) → webhook (`/api/desktop-license/webhook`) → `License` DB row keyed on
+  `stripeSessionId` → Resend delivery + `/desktop/license` download. (Built in-app, not a separate
+  vallahub site — one codebase.)
+- **Still deferred:** the signed embedded revocation blocklist wired into `verify_license` (empty
+  today); `app/(app)/layout.tsx` local branch to swap the `getSession`→`/sign-in` redirect for the
+  license gate → operator PIN lock (the local layout already uses the gate, so this is cleanup);
+  the go-live env + `License` migration to Neon.
 
 ### Stage 7 — Packaging + signing + release
 
