@@ -395,9 +395,10 @@ pinned to the SAME versions (no JS↔Rust skew). So what remains is:
   stay printable from the `/receipt` page.
 - ✅ **Windows RAW-spooler `print_raw` DONE (SHIPPED, PR `feat/editions-windows-spooler` #160).**
   Hand-written minimal `winspool` Win32 FFI (`Open`/`StartDoc`("RAW")/`StartPage`/`Write`/…/`Close`),
-  `#[cfg(windows)]`-gated with a mac stub; prints to an installed printer by name. NOT cargo-verified
-  in the headless env — needs `cargo build` on the Windows machine. So **TCP-9100 (network) + Windows
-  spooler both print**; only the **`serial`** arm remains a stub. (The peripherals `DevicesManager`
+  `#[cfg(windows)]`-gated with a mac stub; prints to an installed printer by name. **`cargo build`
+  GREEN** (verified on the Windows box 2026-07-19 — cargo 1.97.1 / MSVC, compiles + links,
+  `winspool.lib` resolves). So **TCP-9100 (network) + Windows spooler both print**; only the
+  **`serial`** arm remains a stub. (The peripherals `DevicesManager`
   WebUSB path is a separate cloud/PWA concern.)
 
 ### Stage 6 — License gate + issuance
