@@ -126,6 +126,17 @@ const schema = z.object({
   // PAYMENTS_V2_ENABLED — not here.)
   STRIPE_SUBSCRIPTION_PRICE_ID: optionalStripePriceId,
   STRIPE_SUBSCRIPTION_WEBHOOK_SECRET: optionalStripeWebhookSecret,
+  // Desktop-edition ($99 one-time offline license). ALL OPTIONAL → the feature is
+  // dormant (the "$99 Buy" button no-ops, the webhook 503s) until set.
+  //  - LICENSE_SIGNING_SK: base64 PKCS#8 Ed25519 PRIVATE key that SIGNS licenses
+  //    (the secret half of the app's embedded public key). NEVER commit it.
+  //  - DESKTOP_LICENSE_WEBHOOK_SECRET: the DISTINCT signing secret for the
+  //    /api/desktop-license/webhook endpoint (not the Connect/subscription ones).
+  //  - DESKTOP_DOWNLOAD_URL: where the signed installer lives (a GitHub Release);
+  //    defaults to the repo's releases page.
+  LICENSE_SIGNING_SK: z.string().min(1).optional().catch(undefined),
+  DESKTOP_LICENSE_WEBHOOK_SECRET: optionalStripeWebhookSecret,
+  DESKTOP_DOWNLOAD_URL: z.string().url().optional().catch(undefined),
 });
 
 const parsed = schema.safeParse(process.env);
