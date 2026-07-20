@@ -42,7 +42,6 @@ const EXCLUDE = [
   "app/(app)/start",
   // (app)/[businessId] pages not yet converted to client-fetch — added to SWAP
   // one at a time as they're done.
-  "app/(app)/[businessId]/products",
   "app/(app)/[businessId]/reports/export", // the CSV route handler (dynamic) — the reports PAGE is swapped
   "app/(app)/[businessId]/settings",
   "app/(app)/[businessId]/employees",
@@ -60,6 +59,7 @@ const SWAP = [
   ["app/(app)/[businessId]/register/page.tsx", "app/(app)/[businessId]/register/page.local.tsx"],
   ["app/(app)/[businessId]/reports/page.tsx", "app/(app)/[businessId]/reports/page.local.tsx"],
   ["app/(app)/[businessId]/drawer/page.tsx", "app/(app)/[businessId]/drawer/page.local.tsx"],
+  ["app/(app)/[businessId]/products/page.tsx", "app/(app)/[businessId]/products/page.local.tsx"],
   // Local-only query-param receipt route (no cloud counterpart — cloud uses the
   // dynamic /orders/[orderId]/receipt, which static export can't pre-render).
   ["app/(app)/[businessId]/receipt/page.tsx", "app/(app)/[businessId]/receipt/page.local.tsx"],
@@ -136,6 +136,11 @@ async function main() {
     else execSync("cross-env NEXT_PUBLIC_VALLA_EDITION=local next build", { stdio: "inherit" });
   } finally {
     await restoreAll();
+    // Drop the generated route types: the staged build emits types for local-only
+    // routes (e.g. the query-param receipt) that no longer exist after restore, so
+    // a later `tsc`/cloud build would choke on the dangling reference. Regenerated
+    // by the next build.
+    await rm(join(ROOT, ".next", "types"), { recursive: true, force: true }).catch(() => {});
     console.log("[build-local] restored the tree.");
   }
 }

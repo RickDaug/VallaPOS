@@ -17,6 +17,7 @@ export function generateStaticParams() {
 
 const NAV: ReadonlyArray<readonly [string, string]> = [
   ["Register", "register"],
+  ["Products", "products"],
   ["Orders", "orders"],
   ["Reports", "reports"],
   ["Drawer", "drawer"],

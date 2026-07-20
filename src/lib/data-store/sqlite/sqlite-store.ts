@@ -1008,6 +1008,61 @@ export class SqliteDataStore implements DataStore {
     return verifyPinWebcrypto(pin, op.pinHash);
   }
 
+  // ── Catalog writes (offline edition — cloud uses catalog server actions) ──
+
+  /**
+   * Create a simple sellable product: an Item (PRODUCT, active) + its "Default"
+   * variation at `priceCents`, in one transaction. Tenant-scoped. This is the
+   * minimum the offline register needs — richer catalog editing (categories,
+   * sizes, modifiers) is a follow-up.
+   */
+  async createSimpleItem(
+    businessId: string,
+    input: { name: string; priceCents: number },
+  ): Promise<{ itemId: string }> {
+    const itemId = newId();
+    const now = new Date().toISOString();
+    await this.sql.execute("BEGIN IMMEDIATE");
+    try {
+      await this.sql.execute(
+        `INSERT INTO item (id, businessId, name, type, active, createdAt, updatedAt)
+         VALUES (?, ?, ?, 'PRODUCT', 1, ?, ?)`,
+        [itemId, businessId, input.name, now, now],
+      );
+      await this.sql.execute(
+        `INSERT INTO variation (id, businessId, itemId, name, priceCents, sortOrder)
+         VALUES (?, ?, ?, 'Default', ?, 0)`,
+        [newId(), businessId, itemId, input.priceCents],
+      );
+      await this.sql.execute("COMMIT");
+    } catch (err) {
+      await this.sql.execute("ROLLBACK").catch(() => {});
+      throw err;
+    }
+    return { itemId };
+  }
+
+  /**
+   * Delete an item and everything under it (variations + modifier links),
+   * tenant-scoped. Explicit child deletes so it doesn't depend on the SQLite
+   * `foreign_keys` PRAGMA being on.
+   */
+  async deleteItem(businessId: string, itemId: string): Promise<void> {
+    await this.sql.execute("BEGIN IMMEDIATE");
+    try {
+      await this.sql.execute(`DELETE FROM variation WHERE itemId = ? AND businessId = ?`, [
+        itemId,
+        businessId,
+      ]);
+      await this.sql.execute(`DELETE FROM item_modifier_group WHERE itemId = ?`, [itemId]);
+      await this.sql.execute(`DELETE FROM item WHERE id = ? AND businessId = ?`, [itemId, businessId]);
+      await this.sql.execute("COMMIT");
+    } catch (err) {
+      await this.sql.execute("ROLLBACK").catch(() => {});
+      throw err;
+    }
+  }
+
   /**
    * First-run seed: create the single local business + its first operator (and a
    * zeroed order counter) if the store is empty. Idempotent — returns the existing
