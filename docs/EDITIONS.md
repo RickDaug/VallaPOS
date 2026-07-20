@@ -1,8 +1,14 @@
 # EDITIONS — One Codebase, Two Builds (Cloud + Offline Desktop)
 
-Status: architecture spec (pre-build). This document is the plan of record for splitting
-VallaPOS into two editions from a single codebase. Nothing here has shipped yet; Stage 1
-is the inert scaffold that changes zero cloud behavior.
+Status: **built — awaiting the desktop toolchain.** This document is the plan of record for
+splitting VallaPOS into two editions from a single codebase. Everything buildable headlessly
+has shipped to `main`, cloud untouched throughout: the data-store seam + SQLite store (Stages
+2–3), local auth/env branch (Stage 4), the full **static-export offline app** — all 8 business
+pages converted to client-fetch, route-staging build, SQLite runtime boot, license gate (Stage
+5b page work + Stage 6a/6b-core), and the release pipeline + docs (Stage 7a). What remains is
+the part that can only run on a machine with Rust + Tauri + code-signing certs: `cargo build`
+the shell, register the `sql`/`store` plugins, the native printer transport, and the signed
+release (Stages 5b-runtime / 6b-shell / 7b).
 
 An **EDITION** is a build-time switch (`"cloud" | "local"`), **not a fork**. The same
 Next.js/TypeScript source, the same pure money/pricing/report/ESC-POS modules, and the
@@ -357,17 +363,30 @@ tsc + lint clean.
   for the local build (`NEXT_PUBLIC_VALLA_EDITION=local`); the cloud build (default) is unchanged.
   Added `dev:local`/`build:local` npm scripts (POSIX env-prefix — Windows uses Git Bash/cross-env).
 
-**Stage 5b — the runtime finish (DEFERRED, needs the toolchain + a real device).** These can only
-be done/verified on a machine with Rust + Tauri (and are cloud-render-risky, so they stay gated):
-- `cargo build` the shell (resolves `Cargo.lock`); `npx tauri icon` for `icons/`; add the JS deps
-  `@tauri-apps/api` + `plugin-sql` + `plugin-store` (pinned, with lockfile).
-- Convert the cash-path `page.tsx` shells from server-fetch to CLIENT-fetch through the seam (a
-  static export bans server actions/middleware/request-time RSC) — gated on `isLocal` so the cloud
-  build keeps its server render path. Wire the register to `createLocalDataStore` + call
-  `printOrderById` after checkout (auto-print on by default in local), and swap the native
-  transport into `DevicesManager.tsx`.
-- The real one-liners that inject `@tauri-apps/plugin-sql`'s `Database` and `@tauri-apps/api/core`'s
-  `invoke` into the adapters above.
+**Stage 5b — the static-export offline app (SHIPPED, PRs `feat/editions-build-local`,
+`feat/editions-page-*`, `…-tauri-runtime`, `…-5b-settings-employees` — #145–#153).** The offline
+app builds as a real static export and boots the local store in the Tauri webview. Cloud untouched
+(all conversions are additive `*.local.tsx` variants swapped in only for the local build).
+- **Route-staging build** — `scripts/build-local.mjs` EXCLUDEs cloud-only routes and SWAPs each
+  cloud `page.tsx` for its `*.local.tsx` client variant (manifest-based restore + crash recovery),
+  so a static export never sees server actions / middleware / request-time RSC.
+- **Web Crypto PIN** — `sqlite/pin.ts` PBKDF2 (SubtleCrypto) replaces cloud's `node:crypto` scrypt
+  so operator PINs hash in the webview.
+- **All 8 business pages converted** to client-fetch through the seam (`getLocalStore()`, poll
+  `isLocalStoreReady()`): register (cash checkout), products, orders, receipt (`?order=` query
+  param — export can't pre-render a dynamic `[orderId]`), reports, drawer, staff, settings. Plus
+  the root/group/business `layout.local.tsx` shells + local nav.
+- **Runtime boot** — `LocalStoreBootstrap` dynamic-imports `@tauri-apps/plugin-sql`,
+  `Database.load("sqlite:vallapos.db")` → `createTauriSqlDriver` → `initLocalStore`. JS deps
+  `@tauri-apps/plugin-sql` + `@tauri-apps/plugin-store` installed (pinned, lockfiled).
+
+**Stage 5b-runtime — the native shell finish (DEFERRED, needs the toolchain + a real device).**
+Only runnable on a machine with Rust + Tauri:
+- `cargo build` the shell (resolves `Cargo.lock`); `npx tauri icon` for `icons/`; register the
+  `tauri-plugin-sql` + `tauri-plugin-store` plugins in `src-tauri` (the JS side already calls them).
+- Wire auto-print: call `printOrderById` after checkout (auto-print on by default in local) and
+  swap the native transport into `DevicesManager.tsx` (offline receipts currently render via the
+  `/receipt` page for browser/OS printing).
 
 ### Stage 6 — License gate + issuance
 
