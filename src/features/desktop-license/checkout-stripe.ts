@@ -64,3 +64,27 @@ export function createStripeDesktopCheckoutGateway(): DesktopCheckoutGateway {
     },
   };
 }
+
+/** True when the webhook can verify events: the platform key + its OWN signing secret. */
+export function isDesktopWebhookConfigured(): boolean {
+  return Boolean(env.STRIPE_SECRET_KEY && env.DESKTOP_LICENSE_WEBHOOK_SECRET);
+}
+
+/** Where the signed installer downloads from (a GitHub Release); falls back to the releases page. */
+export function desktopDownloadUrl(): string {
+  return env.DESKTOP_DOWNLOAD_URL ?? "https://github.com/RickDaug/VallaPOS/releases";
+}
+
+/**
+ * Verify a desktop-license webhook over the RAW body via the Stripe SDK, against
+ * the DISTINCT `DESKTOP_LICENSE_WEBHOOK_SECRET` (never the Connect/subscription
+ * secrets). Throws on a bad signature / missing config so the route rejects.
+ */
+export async function constructDesktopEvent(rawBody: string, signature: string) {
+  const secret = env.STRIPE_SECRET_KEY;
+  const whsec = env.DESKTOP_LICENSE_WEBHOOK_SECRET;
+  if (!secret || !whsec) throw new DesktopCheckoutError("Desktop-license webhook is not configured");
+  const { default: Stripe } = await import("stripe");
+  const stripe = new Stripe(secret);
+  return stripe.webhooks.constructEventAsync(rawBody, signature, whsec);
+}
