@@ -667,3 +667,23 @@ describe("SqliteDataStore operators + first-run seed", () => {
     expect(await store.verifyOperatorPin(LOCAL_BUSINESS_ID, op.id, "1234")).toBe(false);
   });
 });
+
+describe("SqliteDataStore catalog writes", () => {
+  it("createSimpleItem adds a sellable item; deleteItem removes it", async () => {
+    const { store } = await makeStore();
+    await store.seedFirstRun(); // creates the LOCAL_BUSINESS_ID business row (FK target)
+
+    const { itemId } = await store.createSimpleItem(LOCAL_BUSINESS_ID, {
+      name: "Latte",
+      priceCents: 350,
+    });
+    const after = await store.getRegisterCatalog(LOCAL_BUSINESS_ID);
+    expect(after).toHaveLength(1);
+    const entry = after[0];
+    if (!entry) throw new Error("expected one item");
+    expect(entry).toMatchObject({ label: "Latte", priceCents: 350, type: "PRODUCT" });
+
+    await store.deleteItem(LOCAL_BUSINESS_ID, itemId);
+    expect(await store.getRegisterCatalog(LOCAL_BUSINESS_ID)).toEqual([]);
+  });
+});
