@@ -42,7 +42,6 @@ const EXCLUDE = [
   "app/(app)/start",
   // (app)/[businessId] pages not yet converted to client-fetch — added to SWAP
   // one at a time as they're done.
-  "app/(app)/[businessId]/register",
   "app/(app)/[businessId]/products",
   "app/(app)/[businessId]/drawer",
   "app/(app)/[businessId]/reports",
@@ -59,6 +58,7 @@ const SWAP = [
   ["app/(app)/layout.tsx", "app/(app)/layout.local.tsx"],
   ["app/(app)/[businessId]/layout.tsx", "app/(app)/[businessId]/layout.local.tsx"],
   ["app/(app)/[businessId]/orders/page.tsx", "app/(app)/[businessId]/orders/page.local.tsx"],
+  ["app/(app)/[businessId]/register/page.tsx", "app/(app)/[businessId]/register/page.local.tsx"],
 ];
 
 const flat = (rel) => rel.replace(/[\\/]/g, "__");
