@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { verifyPin } from "./pin";
 
 // addStaffMember + setMemberPermissions exercised with REAL zod + REAL capability
 // logic, DB + tenant choke point stubbed. We assert: PIN-only staff are created
@@ -67,7 +68,12 @@ describe("addStaffMember", () => {
     // PIN is hashed, never stored/echoed in plaintext
     expect(typeof data.pinHash).toBe("string");
     expect(data.pinHash).toMatch(/^scrypt\$/);
-    expect(data.pinHash).not.toContain("4321");
+    // Hashed + verifiable — never the plaintext PIN. (Asserting the hash string
+    // merely "doesn't contain 4321" was FLAKY: a 128-hex-char scrypt hash can
+    // contain those four digits by chance. Prove it's a real hash instead —
+    // verifyPin recomputes scrypt from the embedded salt, so this is deterministic.)
+    expect(verifyPin("4321", data.pinHash)).toBe(true);
+    expect(verifyPin("0000", data.pinHash)).toBe(false);
   });
 
   it("requires MANAGER+ (a cashier cannot add staff)", async () => {
