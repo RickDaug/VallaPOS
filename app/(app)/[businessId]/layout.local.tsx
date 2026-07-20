@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { LOCAL_BUSINESS_ID } from "@/lib/edition";
 
 /**
@@ -14,9 +15,30 @@ export function generateStaticParams() {
   return [{ businessId: LOCAL_BUSINESS_ID }];
 }
 
+const NAV: ReadonlyArray<readonly [string, string]> = [
+  ["Register", "register"],
+  ["Orders", "orders"],
+  ["Reports", "reports"],
+  ["Drawer", "drawer"],
+];
+
 export default function LocalBusinessLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
+      <header className="sticky top-0 z-10 flex items-center gap-1 border-b border-border bg-card/95 px-4 py-2 backdrop-blur">
+        <span className="mr-3 text-lg font-black tracking-tight">VallaPOS</span>
+        <nav className="flex gap-1">
+          {NAV.map(([label, path]) => (
+            <Link
+              key={path}
+              href={`/${LOCAL_BUSINESS_ID}/${path}`}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              {label}
+            </Link>
+          ))}
+        </nav>
+      </header>
       <main className="flex-1 p-4 md:p-6">{children}</main>
     </div>
   );

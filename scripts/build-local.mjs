@@ -60,6 +60,9 @@ const SWAP = [
   ["app/(app)/[businessId]/register/page.tsx", "app/(app)/[businessId]/register/page.local.tsx"],
   ["app/(app)/[businessId]/reports/page.tsx", "app/(app)/[businessId]/reports/page.local.tsx"],
   ["app/(app)/[businessId]/drawer/page.tsx", "app/(app)/[businessId]/drawer/page.local.tsx"],
+  // Local-only query-param receipt route (no cloud counterpart — cloud uses the
+  // dynamic /orders/[orderId]/receipt, which static export can't pre-render).
+  ["app/(app)/[businessId]/receipt/page.tsx", "app/(app)/[businessId]/receipt/page.local.tsx"],
 ];
 
 const flat = (rel) => rel.replace(/[\\/]/g, "__");
@@ -68,12 +71,15 @@ const stashPath = (rel) => join(STAGE, flat(rel));
 async function restoreAll() {
   if (!existsSync(MANIFEST)) return;
   const { excludes = [], swaps = [] } = JSON.parse(await readFile(MANIFEST, "utf8"));
-  // Undo swaps: remove the copied-in local file, move the stashed cloud file back.
-  for (const cloudRel of swaps) {
+  // Undo swaps: remove the copied-in local file; move the stashed cloud file back
+  // (only if there WAS an original — a local-only route has none to restore).
+  for (const entry of swaps) {
+    const { cloudRel, hadOriginal } =
+      typeof entry === "string" ? { cloudRel: entry, hadOriginal: true } : entry;
     const cloud = join(ROOT, cloudRel);
     const stash = stashPath("swap__" + cloudRel);
-    if (existsSync(stash)) {
-      if (existsSync(cloud)) await rm(cloud, { force: true });
+    if (existsSync(cloud)) await rm(cloud, { force: true });
+    if (hadOriginal && existsSync(stash)) {
       await mkdir(dirname(cloud), { recursive: true });
       await rename(stash, cloud);
     }
@@ -108,9 +114,11 @@ async function apply() {
     const cloud = join(ROOT, cloudRel);
     const local = join(ROOT, localRel);
     if (!existsSync(local)) throw new Error(`SWAP source missing: ${localRel}`);
-    if (existsSync(cloud)) await rename(cloud, stashPath("swap__" + cloudRel));
+    const hadOriginal = existsSync(cloud);
+    if (hadOriginal) await rename(cloud, stashPath("swap__" + cloudRel));
+    else await mkdir(dirname(cloud), { recursive: true }); // local-only route (e.g. the query-param receipt)
     await copyFile(local, cloud);
-    done.swaps.push(cloudRel);
+    done.swaps.push({ cloudRel, hadOriginal });
     await writeFile(MANIFEST, JSON.stringify(done));
   }
   return done;
