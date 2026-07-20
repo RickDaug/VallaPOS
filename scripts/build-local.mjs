@@ -43,8 +43,7 @@ const EXCLUDE = [
   // (app)/[businessId] pages not yet converted to client-fetch — added to SWAP
   // one at a time as they're done.
   "app/(app)/[businessId]/products",
-  "app/(app)/[businessId]/drawer",
-  "app/(app)/[businessId]/reports",
+  "app/(app)/[businessId]/reports/export", // the CSV route handler (dynamic) — the reports PAGE is swapped
   "app/(app)/[businessId]/settings",
   "app/(app)/[businessId]/employees",
   "app/(app)/[businessId]/floor",
@@ -59,6 +58,8 @@ const SWAP = [
   ["app/(app)/[businessId]/layout.tsx", "app/(app)/[businessId]/layout.local.tsx"],
   ["app/(app)/[businessId]/orders/page.tsx", "app/(app)/[businessId]/orders/page.local.tsx"],
   ["app/(app)/[businessId]/register/page.tsx", "app/(app)/[businessId]/register/page.local.tsx"],
+  ["app/(app)/[businessId]/reports/page.tsx", "app/(app)/[businessId]/reports/page.local.tsx"],
+  ["app/(app)/[businessId]/drawer/page.tsx", "app/(app)/[businessId]/drawer/page.local.tsx"],
 ];
 
 const flat = (rel) => rel.replace(/[\\/]/g, "__");
