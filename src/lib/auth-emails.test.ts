@@ -52,3 +52,30 @@ describe("sendPasswordResetEmail — degrades when Resend is unconfigured", () =
     expect(warn).toHaveBeenCalled();
   });
 });
+
+describe("renderVerificationEmail", () => {
+  const URL = "https://app.example.com/api/auth/verify-email?token=tok123";
+
+  it("embeds the verify URL in both the text and html bodies", async () => {
+    const { __test } = await load();
+    const { subject, text, html } = __test.renderVerificationEmail(URL);
+    expect(subject.toLowerCase()).toContain("confirm");
+    expect(text).toContain(URL);
+    expect(html).toContain(URL);
+  });
+
+  it("reassures the user they can keep using the app (non-blocking)", async () => {
+    const { __test } = await load();
+    expect(__test.renderVerificationEmail(URL).text.toLowerCase()).toContain("right away");
+  });
+});
+
+describe("sendVerificationEmail — degrades when Resend is unconfigured", () => {
+  it("returns email_not_configured (never throws) and logs the link", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { sendVerificationEmail } = await load();
+    const result = await sendVerificationEmail("owner@shop.test", "https://app.example.com/x");
+    expect(result).toEqual({ ok: false, reason: "email_not_configured" });
+    expect(warn).toHaveBeenCalled();
+  });
+});

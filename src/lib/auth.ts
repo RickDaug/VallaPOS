@@ -3,7 +3,7 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createSecondaryStorage } from "@/lib/redis";
-import { sendPasswordResetEmail } from "@/lib/auth-emails";
+import { sendPasswordResetEmail, sendVerificationEmail } from "@/lib/auth-emails";
 
 // When Upstash is configured, Better Auth uses Redis as a SHARED, persistent
 // store for the rate limiter (otherwise it's per-instance in-memory and resets
@@ -50,6 +50,19 @@ export const auth = betterAuth({
     // reset never hard-fails — it mirrors the receipt-email optional-env pattern.
     sendResetPassword: async ({ user, url }) => {
       await sendPasswordResetEmail(user.email, url);
+    },
+  },
+  // Email verification is NON-BLOCKING (audit security-S3): we send a "confirm
+  // your email" on sign-up (sendOnSignUp) but deliberately do NOT set
+  // requireEmailVerification, so a new owner keeps landing straight in the
+  // register — sign-up UX is byte-for-byte unchanged. The send degrades to a
+  // logged link when Resend is unconfigured (see auth-emails.ts), so this never
+  // breaks sign-up whether or not email is turned on.
+  emailVerification: {
+    sendOnSignUp: true,
+    autoSignInAfterVerification: true,
+    sendVerificationEmail: async ({ user, url }) => {
+      await sendVerificationEmail(user.email, url);
     },
   },
   session: {

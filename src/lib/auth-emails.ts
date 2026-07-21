@@ -91,5 +91,75 @@ export async function sendPasswordResetEmail(
   }
 }
 
+/** Plain-text + minimal HTML body for the "confirm your email" message. `url` is
+ * the Better Auth verification link (GET /api/auth/verify-email?token=…). */
+function renderVerificationEmail(url: string): { subject: string; text: string; html: string } {
+  const subject = "Confirm your VallaPOS email";
+  const text = [
+    "Welcome to VallaPOS! Please confirm this email address so we can send you",
+    "receipts and account notices.",
+    "",
+    `Confirm it here: ${url}`,
+    "",
+    "You can keep using VallaPOS right away — confirming just verifies we can",
+    "reach you. If you didn't create a VallaPOS account, you can ignore this email.",
+  ].join("\n");
+  const html = [
+    `<div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#1a1d23">`,
+    `<h1 style="font-size:20px;font-weight:800;margin:0 0 16px">Confirm your email</h1>`,
+    `<p style="margin:0 0 16px">Welcome to VallaPOS! Confirm this address so we can send you receipts and account notices.</p>`,
+    `<p style="margin:0 0 24px">`,
+    `<a href="${url}" style="display:inline-block;background:#1f8a8a;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:600">Confirm email</a>`,
+    `</p>`,
+    `<p style="margin:0 0 8px;font-size:14px;color:#5b6472">Or paste this link into your browser:</p>`,
+    `<p style="margin:0 0 24px;font-size:13px;word-break:break-all"><a href="${url}">${url}</a></p>`,
+    `<p style="margin:0;font-size:13px;color:#5b6472">You can keep using VallaPOS right away — confirming just verifies we can reach you.</p>`,
+    `</div>`,
+  ].join("");
+  return { subject, text, html };
+}
+
+/**
+ * Deliver a "confirm your email" message on sign-up. Non-blocking: Better Auth is
+ * configured WITHOUT requireEmailVerification, so a new owner uses VallaPOS
+ * immediately whether or not this sends. Degrades exactly like the reset email —
+ * when Resend isn't configured we log the link server-side and return a typed
+ * result instead of throwing, so sign-up never hard-fails on email.
+ */
+export async function sendVerificationEmail(
+  to: string,
+  url: string,
+): Promise<SendAuthEmailResult> {
+  const apiKey = env.RESEND_API_KEY;
+  if (!apiKey) {
+    console.warn(
+      `[auth] Email verification requested for ${to} but Resend is not configured; ` +
+        `verify link (dev only): ${url}`,
+    );
+    return { ok: false, reason: "email_not_configured" };
+  }
+
+  try {
+    const { Resend } = await import("resend");
+    const resend = new Resend(apiKey);
+    const rendered = renderVerificationEmail(url);
+    const { error } = await resend.emails.send({
+      from: env.RECEIPT_FROM_EMAIL ?? DEFAULT_FROM,
+      to,
+      subject: rendered.subject,
+      text: rendered.text,
+      html: rendered.html,
+    });
+    if (error) {
+      console.error("Resend verification send failed:", error);
+      return { ok: false, reason: "send_failed" };
+    }
+    return { ok: true };
+  } catch (err) {
+    console.error("Resend verification send threw:", err);
+    return { ok: false, reason: "send_failed" };
+  }
+}
+
 // Exported for unit tests (pure body rendering, no network).
-export const __test = { renderResetEmail };
+export const __test = { renderResetEmail, renderVerificationEmail };
