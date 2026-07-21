@@ -182,3 +182,75 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Blog article typography. The markdown renderer emits bare <h2>/<p>/<ul>/<a>
+ * etc. (no utility classes), so long-form reading styles live here, scoped to
+ * .blog-prose and built on the same OKLCH tokens as the rest of the app. */
+.blog-prose {
+  font-size: 1.0625rem;
+  line-height: 1.75;
+  color: var(--color-foreground);
+}
+.blog-prose > * + * {
+  margin-top: 1.25rem;
+}
+.blog-prose h2 {
+  margin-top: 2.5rem;
+  font-size: 1.5rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+.blog-prose h3 {
+  margin-top: 2rem;
+  font-size: 1.2rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.blog-prose p {
+  color: var(--color-foreground);
+}
+.blog-prose a {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.blog-prose a:hover {
+  text-decoration-thickness: 2px;
+}
+.blog-prose strong {
+  font-weight: 650;
+}
+.blog-prose code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  background-color: var(--color-muted);
+  padding: 0.1em 0.35em;
+  border-radius: var(--radius-sm);
+}
+.blog-prose ul,
+.blog-prose ol {
+  padding-left: 1.4rem;
+  color: var(--color-foreground);
+}
+.blog-prose ul {
+  list-style: disc;
+}
+.blog-prose ol {
+  list-style: decimal;
+}
+.blog-prose li {
+  margin-top: 0.5rem;
+  padding-left: 0.25rem;
+}
+.blog-prose li::marker {
+  color: var(--color-muted-foreground);
+}
+.blog-prose blockquote {
+  border-left: 3px solid var(--color-primary);
+  padding: 0.25rem 0 0.25rem 1.25rem;
+  font-size: 1.15rem;
+  line-height: 1.6;
+  font-style: italic;
+  color: var(--color-muted-foreground);
+}
