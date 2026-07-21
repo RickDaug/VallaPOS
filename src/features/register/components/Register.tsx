@@ -637,6 +637,14 @@ export function Register({
           <Button onClick={finishAndLock} size="lg" className="mt-6 w-full">
             New sale
           </Button>
+          {/* Direct path to print/email the receipt (audit func-S3): otherwise the
+              cashier had to hunt for the order under the Orders tab. */}
+          <Link
+            href={`/${businessId}/orders/${receipt.orderId}/receipt`}
+            className="mt-3 inline-block text-sm font-medium text-primary underline"
+          >
+            View receipt
+          </Link>
         </CardContent>
       </Card>
     );

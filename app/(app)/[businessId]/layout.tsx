@@ -19,6 +19,12 @@ import {
 } from "@/features/billing/subscription-access";
 import { SubscriptionRequired } from "@/features/billing/components/SubscriptionRequired";
 import { GraceBanner } from "@/features/billing/components/GraceBanner";
+import type { Metadata } from "next";
+
+// Keep the authenticated per-business app out of search indexes (audit perf-S3):
+// robots.txt can't wildcard the dynamic cuid segment, so noindex the whole tree
+// here as defense-in-depth (anonymous crawlers are already redirected to sign-in).
+export const metadata: Metadata = { robots: { index: false, follow: false } };
 
 export default async function BusinessLayout({
   children,
