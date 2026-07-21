@@ -13,7 +13,7 @@ const eslintConfig = [
     rules: {
       // No silent escape hatches in code that handles money.
       "@typescript-eslint/ban-ts-comment": "error",
-      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-explicit-any": "error",
     },
   },
   {

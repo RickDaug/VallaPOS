@@ -18,8 +18,8 @@
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.21 0.02 250);
 
-  /* Calm teal primary */
-  --primary: oklch(0.58 0.1 195);
+  /* Calm teal primary — L lowered to clear WCAG AA 4.5:1 vs near-white foreground */
+  --primary: oklch(0.5 0.1 195);
   --primary-foreground: oklch(0.99 0.01 200);
 
   --secondary: oklch(0.96 0.01 220);
@@ -32,16 +32,18 @@
   --accent: oklch(0.83 0.12 80);
   --accent-foreground: oklch(0.28 0.05 70);
 
-  --success: oklch(0.6 0.13 155);
+  /* L lowered to clear WCAG AA 4.5:1 vs near-white foreground */
+  --success: oklch(0.52 0.13 155);
   --success-foreground: oklch(0.99 0.01 160);
   --warning: oklch(0.8 0.13 80);
   --warning-foreground: oklch(0.28 0.05 70);
   --destructive: oklch(0.58 0.21 25);
   --destructive-foreground: oklch(0.99 0.01 20);
 
-  --border: oklch(0.9 0.008 240);
-  --input: oklch(0.9 0.008 240);
-  --ring: oklch(0.58 0.1 195);
+  /* Darkened for a stronger boundary cue against the near-white background */
+  --border: oklch(0.85 0.01 240);
+  --input: oklch(0.85 0.01 240);
+  --ring: oklch(0.5 0.1 195);
 
   /* Sidebar (branded dark surface in both themes) */
   --sidebar: oklch(0.21 0.02 250);
@@ -171,6 +173,11 @@
   input,
   select {
     min-height: 44px;
+  }
+  /* Width floor only for buttons; inline/text controls keep their layout width. */
+  button,
+  [role="button"] {
+    min-width: 44px;
   }
 }
 

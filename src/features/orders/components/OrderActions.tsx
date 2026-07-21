@@ -40,6 +40,13 @@ export function OrderActions({
   // re-render, so a fast double-tap could fire two requests before then. This ref
   // blocks the second one immediately.
   const inFlight = useRef(false);
+  // Idempotency key for the CURRENT refund/void attempt. It MUST stay stable
+  // across manual retries: if the response is lost (network drop) and the user
+  // re-submits, sending the SAME key lets the server replay-guard dedupe it —
+  // minting a fresh key on retry would defeat that guard and double-refund.
+  // We rotate to a new key only after a SUCCESSFUL reversal (a genuinely new
+  // action). `null` means "no key yet — mint one for this attempt".
+  const clientUuidRef = useRef<string | null>(null);
 
   // Nothing to do on a terminal order. PARTIALLY_REFUNDED can still be refunded
   // further (until the balance is exhausted) but can't be voided.
@@ -52,13 +59,18 @@ export function OrderActions({
     if (inFlight.current) return; // ignore a re-tap while a refund/void is in flight
     inFlight.current = true;
     setPending(true);
-    // One idempotency key per user action; the server applies it at most once even
-    // if this request is retried or somehow sent twice.
-    const clientUuid = crypto.randomUUID();
+    // Reuse the pending attempt's key on a manual retry; only mint a fresh one
+    // when there's no key in flight. This keeps the idempotency key stable across
+    // retries so the server replay-guard dedupes a re-submit after a lost response
+    // instead of applying a second (double) refund.
+    if (clientUuidRef.current === null) clientUuidRef.current = crypto.randomUUID();
+    const clientUuid = clientUuidRef.current;
     try {
       const res = await action(clientUuid);
       toast(describeRefundVoidResult(res, money));
       if (res.ok) {
+        // Successful reversal → rotate the key so the NEXT action is distinct.
+        clientUuidRef.current = null;
         setPartialOpen(false);
         setPartialAmount("");
         router.refresh();

@@ -23,10 +23,13 @@ import { glob } from "node:fs/promises";
  * quality gate, so a forgotten filter fails CI before it can ship.
  *
  * ── How the check works ──────────────────────────────────────────────────────
- * It is a pragmatic SOURCE-TEXT scan (no AST, no deps beyond node:fs) over:
- *   - src/features/**\/queries.ts
- *   - src/features/**\/actions.ts
+ * It is a pragmatic SOURCE-TEXT scan (no AST, no deps beyond node:fs) over the
+ * whole server-side source surface where tenant-model queries can live:
+ *   - src/lib/**\/*.ts        (shared helpers, e.g. operator.ts)
+ *   - src/features/**\/*.ts   (queries.ts/actions.ts AND non-standard files —
+ *                              resolve-lines.ts, manager-approval.ts, sale-*.ts)
  *   - app/**\/route.ts
+ * Test/spec files are excluded — their mocks/fixtures aren't real call sites.
  *
  * For each Prisma call `db.<model>.<op>(` or `tx.<model>.<op>(` where <model> is
  * a TENANT-OWNED delegate and <op> is a FILTER/BULK operation (one that takes a
@@ -171,18 +174,24 @@ function scanFile(absPath: string): Violation[] {
 }
 
 async function collectTargetFiles(): Promise<string[]> {
+  // Scan the full server-side source surface where tenant-model queries can live
+  // — not just feature queries.ts/actions.ts, but shared helpers under src/lib
+  // (e.g. operator.ts) and non-standard feature files (register/resolve-lines.ts,
+  // */manager-approval.ts, payments/sale-*.ts). Overlapping globs are deduped via
+  // the Set; test/spec files are skipped (their fixtures/mocks aren't call sites).
   const patterns = [
-    "src/features/**/queries.ts",
-    "src/features/**/actions.ts",
+    "src/lib/**/*.ts",
+    "src/features/**/*.ts",
     "app/**/route.ts",
   ];
-  const files: string[] = [];
+  const files = new Set<string>();
   for (const pattern of patterns) {
     for await (const entry of glob(pattern, { cwd: repoRoot })) {
-      files.push(join(repoRoot, entry));
+      if (/\.(test|spec)\.tsx?$/.test(entry)) continue; // skip test fixtures
+      files.add(join(repoRoot, entry));
     }
   }
-  return files.sort();
+  return [...files].sort();
 }
 
 describe("tenant-isolation static guard (Security Audit M-1)", () => {

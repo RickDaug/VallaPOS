@@ -237,8 +237,8 @@ function TaxNudge({ businessId }: { businessId: string }) {
   if (!show) return null;
 
   return (
-    <div className="mb-6 flex items-center gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3">
-      <Percent size={18} className="shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+    <div className="mb-6 flex items-center gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-warning-foreground">
+      <Percent size={18} className="shrink-0" aria-hidden />
       <p className="min-w-0 flex-1 text-sm">
         <span className="font-semibold">Your tax rate is 0%.</span>{" "}
         <span className="text-muted-foreground">

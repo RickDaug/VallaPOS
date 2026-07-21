@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { requireMembership, assertRole } from "@/lib/tenant";
+import { requireMembership, assertRole, ForbiddenError } from "@/lib/tenant";
+import { canGrantRole } from "@/lib/roles";
 import { assertNotLocked, recordFailure, recordSuccess } from "@/lib/pin-throttle";
 import { defaultCapabilitiesFor, sanitizeCapabilities } from "@/lib/capabilities";
 import { setActiveOperator, clearActiveOperator, getActiveOperator } from "@/lib/operator";
@@ -64,6 +65,9 @@ export async function addMember(
   const data = addMemberSchema.parse(input);
   const ctx = await requireMembership(data.businessId);
   assertRole(ctx, "MANAGER");
+  // A caller may not grant a role above their own rank (a MANAGER can't mint an
+  // OWNER — that would be a privilege escalation).
+  if (!canGrantRole(ctx.role, data.role)) throw new ForbiddenError("CANNOT_GRANT_ROLE");
 
   const user = await db.user.findUnique({ where: { email: data.email }, select: { id: true } });
   if (!user) return { error: "no_such_user" };
@@ -96,6 +100,9 @@ export async function addStaffMember(input: AddStaffMemberInput): Promise<{ memb
   const data = addStaffMemberSchema.parse(input);
   const ctx = await requireMembership(data.businessId);
   assertRole(ctx, "MANAGER");
+  // A caller may not grant a role above their own rank (a MANAGER can't mint an
+  // OWNER — that would be a privilege escalation).
+  if (!canGrantRole(ctx.role, data.role)) throw new ForbiddenError("CANNOT_GRANT_ROLE");
 
   const membership = await db.membership.create({
     data: {
@@ -157,6 +164,9 @@ export async function changeMemberRole(input: ChangeRoleInput): Promise<void> {
   const data = changeRoleSchema.parse(input);
   const ctx = await requireMembership(data.businessId);
   assertRole(ctx, "MANAGER");
+  // A caller may not grant a role above their own rank (a MANAGER can't promote
+  // anyone to OWNER — that would be a privilege escalation).
+  if (!canGrantRole(ctx.role, data.role)) throw new ForbiddenError("CANNOT_GRANT_ROLE");
 
   const target = await db.membership.findFirst({
     where: { id: data.membershipId, businessId: ctx.businessId },
@@ -365,15 +375,23 @@ export async function clockIn(input: ClockInput): Promise<{ entryId: string }> {
   // membership from the tenant context, not a client-sent id.
   const membershipId = ctx.membershipId;
 
-  const open = await db.timeEntry.findFirst({
-    where: { businessId: ctx.businessId, membershipId, clockOutAt: null },
-    select: { id: true },
-  });
-  if (open) throw new Error("You are already clocked in.");
+  // Serialize per-membership: without the row lock two concurrent clock-ins both
+  // read no open entry (check-then-create TOCTOU) and each create a TimeEntry,
+  // opening two shifts at once. Locking the Membership row FOR UPDATE makes the
+  // second opener block until the first commits and then see the open entry.
+  const entry = await db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Membership" WHERE id = ${membershipId} FOR UPDATE`;
 
-  const entry = await db.timeEntry.create({
-    data: { businessId: ctx.businessId, membershipId },
-    select: { id: true },
+    const open = await tx.timeEntry.findFirst({
+      where: { businessId: ctx.businessId, membershipId, clockOutAt: null },
+      select: { id: true },
+    });
+    if (open) throw new Error("You are already clocked in.");
+
+    return tx.timeEntry.create({
+      data: { businessId: ctx.businessId, membershipId },
+      select: { id: true },
+    });
   });
   revalidatePath(`/${ctx.businessId}/employees`);
   return { entryId: entry.id };

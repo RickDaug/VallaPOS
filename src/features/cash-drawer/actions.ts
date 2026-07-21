@@ -41,19 +41,28 @@ export async function openDrawer(input: OpenDrawerInput): Promise<OpenDrawerResu
   const data = openDrawerSchema.parse(input);
   const ctx = await requireCapability(data.businessId, "cash_drawer");
 
-  const existing = await db.cashDrawerSession.findFirst({
-    where: { businessId: ctx.businessId, closedAt: null },
-    select: { id: true },
-  });
-  if (existing) throw new Error("A drawer session is already open.");
+  // Serialize per-business: without the row lock two concurrent opens both read
+  // no open session (check-then-create TOCTOU) and each create one, leaving two
+  // OPEN sessions for the same business. Locking the Business row FOR UPDATE
+  // makes the second opener block until the first commits and then see the
+  // existing open session (and reject).
+  const session = await db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Business" WHERE id = ${ctx.businessId} FOR UPDATE`;
 
-  const session = await db.cashDrawerSession.create({
-    data: {
-      businessId: ctx.businessId,
-      openedById: ctx.membershipId,
-      openingFloatCents: data.openingFloatCents,
-    },
-    select: { id: true, openingFloatCents: true, openedAt: true },
+    const existing = await tx.cashDrawerSession.findFirst({
+      where: { businessId: ctx.businessId, closedAt: null },
+      select: { id: true },
+    });
+    if (existing) throw new Error("A drawer session is already open.");
+
+    return tx.cashDrawerSession.create({
+      data: {
+        businessId: ctx.businessId,
+        openedById: ctx.membershipId,
+        openingFloatCents: data.openingFloatCents,
+      },
+      select: { id: true, openingFloatCents: true, openedAt: true },
+    });
   });
 
   revalidatePath(`/${ctx.businessId}/drawer`);

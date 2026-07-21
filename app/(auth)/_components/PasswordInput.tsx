@@ -27,8 +27,7 @@ export function PasswordInput({
       <button
         type="button"
         onClick={() => setVisible((v) => !v)}
-        // Not a submit; sits inside the form but must never trigger it.
-        tabIndex={-1}
+        // type="button" keeps it from submitting; keyboard-reachable via Tab.
         aria-label={visible ? "Hide password" : "Show password"}
         aria-pressed={visible}
         className="absolute inset-y-0 right-0 flex w-12 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"

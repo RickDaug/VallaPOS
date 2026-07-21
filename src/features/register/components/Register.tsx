@@ -1219,7 +1219,7 @@ function CartPanel({
   ];
   return (
     <>
-      <h2 className="mb-4 hidden text-lg font-bold xl:block">Current sale</h2>
+      <h2 className="text-lg font-bold sr-only xl:not-sr-only xl:mb-4 xl:block">Current sale</h2>
       <div className="min-h-32 space-y-2">
         {cart.length === 0 && (
           <p className="rounded-lg bg-muted p-4 text-sm text-muted-foreground">
