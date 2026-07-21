@@ -41,13 +41,20 @@ let html = raw.slice(spriteStart, footerEnd + "</footer>".length);
 
 // --- placeholder + presentation replacements ---
 html = html
+  // Legal/privacy/DMCA contact routes to the company's legal inbox (vallahub.com);
+  // product support stays on the product domain. These run BEFORE the generic
+  // [domain] fill so support@[domain] still becomes support@vallapos.com.
+  .replaceAll("legal@[domain]", "legal@vallahub.com")
+  .replaceAll("privacy@[domain]", "legal@vallahub.com")
+  .replaceAll("dmca@[domain]", "legal@vallahub.com")
   .replaceAll("[domain]", "vallapos.com")
   .replaceAll("[Company legal name]", "VallaPOS")
   .replaceAll("[State of Texas, USA]", "the State of Texas, USA")
   .replaceAll("[DATE]", "July 15, 2026")
-  .replaceAll("[30]", "30");
-// Remaining intentional placeholders (need real values, covered by the on-page
-// template banner): [mailing address], [DMCA Designated Agent name], [request form link]
+  .replaceAll("[30]", "30")
+  // Real legal entity details (provided by the business).
+  .replaceAll("[mailing address]", "1942 W Gray St., Unit #115, Houston, TX 77019")
+  .replaceAll("[DMCA Designated Agent name]", "Attn: DMCA Agent");
 
 // Insert a "Sign in" link before the "Start free" CTA so returning owners have
 // an obvious way back in (the pure-marketing artifact had none).

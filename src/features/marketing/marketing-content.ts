@@ -933,10 +933,6 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
     <div class="wrap">
       <a href="#/" class="eyebrow" style="cursor:pointer"><svg class="icon" style="transform:scaleX(-1)"><use href="#i-arrow"/></svg> Back to home</a>
       <h1 id="legalTitle">Legal</h1>
-      <div class="legal-banner">
-        <svg class="icon"><use href="#i-shield"/></svg>
-        <span>These policies are a starting template provided for convenience and are <strong>not legal advice</strong>. VallaPOS should have qualified counsel review and localize them before publishing. Bracketed items are placeholders to complete.</span>
-      </div>
       <nav class="legal-nav" id="legalNav" aria-label="Legal documents">
         <a href="#/privacy" data-doc="privacy">Privacy Statement</a>
         <a href="#/terms" data-doc="terms">Terms of Use</a>
@@ -949,7 +945,6 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
   <section class="legal-body" style="padding-top:12px">
     <div class="wrap">
       <article class="legal-doc" id="doc-privacy">
-<p class="legal-note">This Privacy Statement is a template provided for your convenience and is not legal advice; VallaPOS should have qualified counsel review and tailor it before publishing.</p>
 <p class="legal-lead">VallaPOS makes point-of-sale software for mobile and local small businesses — food trucks, barbers, salons, lawn-care crews, market vendors, and small cafés and restaurants. This statement explains what data VallaPOS collects, why, and the choices you have. Because we offer two very different products, we spell out how each one handles data.</p>
 
 <h2>Two editions, two very different data pictures</h2>
@@ -988,7 +983,7 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
 <p>VallaPOS Cloud is operated from and hosted in the United States. If you access it from outside the US, you understand your information will be processed in the US, where privacy laws may differ from those where you live.</p>
 
 <h2>Your privacy rights</h2>
-<p>Depending on where you live (including California and other US states with privacy laws), you may have the right to access or know what personal information we hold, request correction, request deletion, and opt out of any sale or sharing. Because we do not sell or share, there is nothing to opt out of, but you may still submit a request. We will not discriminate against you for exercising these rights. To make a request, email <a href="mailto:privacy@vallapos.com">privacy@vallapos.com</a>; we may need to verify your identity before acting.</p>
+<p>Depending on where you live (including California and other US states with privacy laws), you may have the right to access or know what personal information we hold, request correction, request deletion, and opt out of any sale or sharing. Because we do not sell or share, there is nothing to opt out of, but you may still submit a request. We will not discriminate against you for exercising these rights. To make a request, email <a href="mailto:legal@vallahub.com">legal@vallahub.com</a>; we may need to verify your identity before acting.</p>
 
 <h2>Cookies and essential storage</h2>
 <p>VallaPOS Cloud uses only cookies and local/session storage that are essential to sign you in, keep your session secure, and run the app offline as a PWA. We do not use advertising or cross-site tracking cookies.</p>
@@ -997,11 +992,10 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
 <p>We may update this statement from time to time. Material changes will be posted here with a revised effective date, and where appropriate we will notify you.</p>
 
 <h2>Contact</h2>
-<p>Questions or requests: <a href="mailto:privacy@vallapos.com">privacy@vallapos.com</a>, or write to VallaPOS, [mailing address]. This statement is governed by the laws of the State of Texas, USA.</p>
+<p>Questions or requests: <a href="mailto:legal@vallahub.com">legal@vallahub.com</a>, or write to VallaPOS, 1942 W Gray St., Unit #115, Houston, TX 77019. This statement is governed by the laws of the State of Texas, USA.</p>
 <p><strong>Effective date:</strong> July 15, 2026</p>
 </article>
       <article class="legal-doc" id="doc-terms">
-<p class="legal-note">This is a plain-language template provided for convenience only. It is not legal advice and does not create an attorney-client relationship. VallaPOS should have qualified counsel review and adapt this document before publishing or relying on it.</p>
 <p class="legal-lead">These Terms of Use ("Terms") govern your access to and use of VallaPOS, the point-of-sale software offered by VallaPOS ("VallaPOS," "we," "us," or "our"). By creating an account, downloading the Offline edition, entering a license key, or otherwise using VallaPOS, you agree to these Terms. If you do not agree, do not use VallaPOS.</p>
 
 <h2>1. Acceptance of these Terms</h2>
@@ -1069,14 +1063,13 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
 <p>These Terms are governed by the laws of the State of Texas, USA, without regard to conflict-of-laws rules. Dispute resolution, arbitration, and venue are addressed in our <a href="#/disputes">Dispute Policy</a>, which is incorporated into these Terms by reference.</p>
 
 <h2>17. Contact</h2>
-<p>Questions about these Terms: legal@vallapos.com. Product and account support: support@vallapos.com. Mailing address: [mailing address].</p>
+<p>Questions about these Terms: legal@vallahub.com. Product and account support: support@vallapos.com. Mailing address: 1942 W Gray St., Unit #115, Houston, TX 77019.</p>
 </article>
       <article class="legal-doc" id="doc-disputes">
-<p class="legal-note">This is a plain-language template provided for convenience only. It is not legal advice and does not create an attorney-client relationship. VallaPOS should have qualified counsel review and adapt this document — especially the arbitration and class-action sections — for enforceability in your jurisdiction before publishing or relying on it.</p>
 <p class="legal-lead">This Dispute Policy explains how to resolve problems, request refunds, and handle billing disputes for VallaPOS, offered by VallaPOS ("VallaPOS," "we," "us," or "our"). It applies to both the VallaPOS Cloud subscription and the VallaPOS Offline one-time license, and it is part of our Terms of Use. Effective date: July 15, 2026.</p>
 
 <h2>1. Contact us first</h2>
-<p>Most issues are resolved quickly and informally. Before starting a formal dispute, arbitration, or a card chargeback, please contact us so we can help. Email support@vallapos.com for billing, refunds, and product problems, or legal@vallapos.com for legal matters. Tell us your account email or license key, what happened, and the outcome you want. We aim to acknowledge your message within <strong>3 business days</strong> and to work in good faith toward a resolution within <strong>30 days</strong>. This informal step is a required first stage before either of us pursues arbitration.</p>
+<p>Most issues are resolved quickly and informally. Before starting a formal dispute, arbitration, or a card chargeback, please contact us so we can help. Email support@vallapos.com for billing, refunds, and product problems, or legal@vallahub.com for legal matters. Tell us your account email or license key, what happened, and the outcome you want. We aim to acknowledge your message within <strong>3 business days</strong> and to work in good faith toward a resolution within <strong>30 days</strong>. This informal step is a required first stage before either of us pursues arbitration.</p>
 
 <h2>2. Refunds and cancellation</h2>
 <h3>2.1 VallaPOS Cloud (subscription)</h3>
@@ -1096,7 +1089,7 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
 <h3>4.3 Class-action waiver</h3>
 <p><strong>Class-action waiver: you and VallaPOS agree that each may bring claims against the other only in an individual capacity, and not as a plaintiff or class member in any purported class, collective, consolidated, or representative proceeding.</strong> The arbitrator may not consolidate more than one person's claims or preside over any class or representative proceeding. If this class-action waiver is found unenforceable as to a particular claim, that claim (and only that claim) will proceed in court, while all other claims remain in arbitration.</p>
 <h3>4.4 How to opt out</h3>
-<p>You may opt out of this arbitration agreement and class-action waiver. To opt out, email legal@vallapos.com with the subject line "Arbitration Opt-Out," stating your name, account email or license key, and a clear statement that you decline arbitration, within <strong>30 days</strong> of first accepting these terms. Opting out will not affect any other part of your agreement with us, and we will not penalize you for it. If you opt out, disputes will be resolved in the courts identified below.</p>
+<p>You may opt out of this arbitration agreement and class-action waiver. To opt out, email legal@vallahub.com with the subject line "Arbitration Opt-Out," stating your name, account email or license key, and a clear statement that you decline arbitration, within <strong>30 days</strong> of first accepting these terms. Opting out will not affect any other part of your agreement with us, and we will not penalize you for it. If you opt out, disputes will be resolved in the courts identified below.</p>
 
 <h2>5. Governing law and venue</h2>
 <p>This Dispute Policy and any dispute are governed by the laws of the State of Texas, USA, without regard to conflict-of-laws rules. For any dispute not subject to arbitration — including matters within the small-claims exception, an enforced class-waiver carve-out, or claims by anyone who validly opts out — the state and federal courts located in the State of Texas, USA will have exclusive jurisdiction and venue, and you consent to that jurisdiction.</p>
@@ -1105,10 +1098,9 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
 <p>To the fullest extent permitted by law, any claim arising out of or relating to VallaPOS must be filed within <strong>one (1) year</strong> after the claim arose; otherwise it is permanently barred.</p>
 
 <h2>7. Contact</h2>
-<p>Support and refunds: support@vallapos.com. Legal notices, arbitration, and opt-out requests: legal@vallapos.com. Mailing address: [mailing address].</p>
+<p>Support and refunds: support@vallapos.com. Legal notices, arbitration, and opt-out requests: legal@vallahub.com. Mailing address: 1942 W Gray St., Unit #115, Houston, TX 77019.</p>
 </article>
       <article class="legal-doc" id="doc-do-not-sell">
-<p class="legal-note">This notice is a template provided for your convenience and is not legal advice; VallaPOS should have qualified counsel review and tailor it before publishing.</p>
 <p class="legal-lead">This notice explains VallaPOS's practices regarding the "sale" and "sharing" of personal information under the California Consumer Privacy Act as amended by the California Privacy Rights Act (CCPA/CPRA) and similar US state privacy laws.</p>
 
 <h2>We do not sell or share your personal information</h2>
@@ -1130,14 +1122,13 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
 <p>Note that the VallaPOS Offline desktop edition stores your data locally on your own device and sends nothing to us, so for that edition there is generally no personal information for us to disclose, correct, or delete.</p>
 
 <h2>How to submit a request</h2>
-<p>Email <a href="mailto:privacy@vallapos.com">privacy@vallapos.com</a> or use our [request form link]. Please tell us which right you want to exercise and include enough information for us to locate your account. To protect your data, we may need to verify your identity before we act, and we will respond within the timeframe required by applicable law. You may use an authorized agent to submit a request on your behalf where the law allows, subject to verification.</p>
+<p>Email <a href="mailto:legal@vallahub.com">legal@vallahub.com</a> and tell us which right you want to exercise, including enough information for us to locate your account. To protect your data, we may need to verify your identity before we act, and we will respond within the timeframe required by applicable law. You may use an authorized agent to submit a request on your behalf where the law allows, subject to verification.</p>
 
 <h2>Contact</h2>
-<p>VallaPOS, [mailing address]. Questions about this notice: <a href="mailto:privacy@vallapos.com">privacy@vallapos.com</a>. Governed by the laws of the State of Texas, USA.</p>
+<p>VallaPOS, 1942 W Gray St., Unit #115, Houston, TX 77019. Questions about this notice: <a href="mailto:legal@vallahub.com">legal@vallahub.com</a>. Governed by the laws of the State of Texas, USA.</p>
 <p><strong>Effective date:</strong> July 15, 2026</p>
 </article>
       <article class="legal-doc" id="doc-dmca">
-<p class="legal-note">This document is a template, not legal advice. Before publishing, VallaPOS should have qualified counsel review this policy and must formally designate and register a DMCA agent with the U.S. Copyright Office (the safe-harbor protections of 17 U.S.C. § 512 are unavailable until a Designated Agent is registered and the registration is kept current).</p>
 <p class="legal-lead">VallaPOS provides point-of-sale software through our cloud web application at vallapos.com and a downloadable offline desktop edition. Our business customers create and upload their own catalog content, including item names and, in some cases, product images and logos. VallaPOS respects the intellectual property rights of others and expects the businesses that use VallaPOS to do the same. This policy explains how we respond to claims of copyright infringement under the U.S. Digital Millennium Copyright Act ("DMCA"), 17 U.S.C. § 512.</p>
 
 <h2>Our respect for intellectual property</h2>
@@ -1157,12 +1148,12 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
 <h2>Where to send notices</h2>
 <p>Send your takedown notice to our DMCA Designated Agent:</p>
 <ul>
-<li>[DMCA Designated Agent name]</li>
+<li>Attn: DMCA Agent</li>
 <li>VallaPOS</li>
-<li>[mailing address]</li>
-<li>Email: <a href="mailto:dmca@vallapos.com">dmca@vallapos.com</a></li>
+<li>1942 W Gray St., Unit #115, Houston, TX 77019</li>
+<li>Email: <a href="mailto:legal@vallahub.com">legal@vallahub.com</a></li>
 </ul>
-<p>Using email to dmca@vallapos.com is the fastest way to reach us.</p>
+<p>Using email to legal@vallahub.com is the fastest way to reach us.</p>
 
 <h2>What we do when we receive a notice</h2>
 <p>Upon receiving a notification that substantially complies with § 512(c)(3), we will act expeditiously to remove or disable access to the material identified in the notice. We will take reasonable steps to notify the affected business or user that the material has been removed or disabled, and we will provide them a copy of the takedown notice so they may submit a counter-notification if they believe the removal was in error.</p>
