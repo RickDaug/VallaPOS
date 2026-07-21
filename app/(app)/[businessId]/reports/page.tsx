@@ -195,11 +195,11 @@ export default async function ReportsPage({
                         <td className="numeric py-2 text-right font-semibold">{money(t.amountCents)}</td>
                         <td className="py-2 text-right">
                           {t.verification === "verified" ? (
-                            <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                            <span className="inline-flex items-center rounded-full bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
                               Verified · in-drawer
                             </span>
                           ) : (
-                            <span className="inline-flex items-center rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+                            <span className="inline-flex items-center rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning-foreground">
                               Unverified · operator-confirmed
                             </span>
                           )}
@@ -220,7 +220,7 @@ export default async function ReportsPage({
                   />
                 </dl>
                 {report.tenders.unverifiedCollectedCents > 0 && (
-                  <p className="mt-3 rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                  <p className="mt-3 rounded-md bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
                     Unverified tenders (QR, Other) are marked paid by the operator with no cash
                     drawer or payment-processor evidence. Review these against your own records.
                   </p>

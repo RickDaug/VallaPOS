@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import { Store, UtensilsCrossed } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
@@ -23,18 +24,45 @@ export function BusinessTypeSelect({
   mode: BusinessMode;
   onChange: (mode: BusinessMode) => void;
 }) {
+  const btnRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  // ARIA APG radiogroup: single Tab stop + arrow keys move selection and focus.
+  function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    const dir =
+      e.key === "ArrowRight" || e.key === "ArrowDown"
+        ? 1
+        : e.key === "ArrowLeft" || e.key === "ArrowUp"
+          ? -1
+          : 0;
+    if (!dir) return;
+    e.preventDefault();
+    const current = OPTIONS.findIndex((o) => o.value === mode);
+    const next = (current + dir + OPTIONS.length) % OPTIONS.length;
+    onChange(OPTIONS[next]!.value);
+    btnRefs.current[next]?.focus();
+  }
+
   return (
     <div>
       <Label>What kind of business?</Label>
-      <div role="radiogroup" aria-label="Business type" className="grid grid-cols-2 gap-2">
-        {OPTIONS.map(({ value, label, hint, Icon }) => {
+      <div
+        role="radiogroup"
+        aria-label="Business type"
+        onKeyDown={onKeyDown}
+        className="grid grid-cols-2 gap-2"
+      >
+        {OPTIONS.map(({ value, label, hint, Icon }, i) => {
           const selected = mode === value;
           return (
             <button
               key={value}
+              ref={(el) => {
+                btnRefs.current[i] = el;
+              }}
               type="button"
               role="radio"
               aria-checked={selected}
+              tabIndex={selected ? 0 : -1}
               onClick={() => onChange(value)}
               className={cn(
                 "flex min-h-12 flex-col items-start gap-1 rounded-md border px-3 py-2.5 text-left transition-colors",

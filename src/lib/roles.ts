@@ -14,3 +14,13 @@ export const ROLE_RANK: Record<Role, number> = {
 export function roleAtLeast(role: Role, min: Role): boolean {
   return ROLE_RANK[role] >= ROLE_RANK[min];
 }
+
+/**
+ * True if a caller with `callerRole` may grant/assign `targetRole` to a member.
+ * A caller can never grant a role above their own rank — so a MANAGER can grant
+ * CASHIER/MANAGER but NOT OWNER; only an OWNER can grant OWNER. This blocks a
+ * MANAGER→OWNER privilege escalation via the member-management actions.
+ */
+export function canGrantRole(callerRole: Role, targetRole: Role): boolean {
+  return ROLE_RANK[targetRole] <= ROLE_RANK[callerRole];
+}

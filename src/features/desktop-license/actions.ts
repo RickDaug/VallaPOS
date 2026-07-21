@@ -19,7 +19,8 @@ export async function startDesktopCheckout(): Promise<StartDesktopCheckoutResult
       createStripeDesktopCheckoutGateway(),
       env.NEXT_PUBLIC_APP_URL,
     );
-  } catch {
+  } catch (err) {
+    console.error("startDesktopCheckout failed:", err);
     return { error: "unavailable" };
   }
 }

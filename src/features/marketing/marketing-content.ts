@@ -591,8 +591,8 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
           <div class="rl"><span>Al Pastor ×2</span><span>9.00</span></div>
           <div class="rl"><span>Horchata</span><span>3.50</span></div>
           <div class="rl"><span>Chips + Salsa</span><span>4.00</span></div>
-          <div class="rl"><span>Tax</span><span>1.35</span></div>
-          <div class="rl"><span>Total</span><span>17.85</span></div>
+          <div class="rl"><span>Tax</span><span>1.36</span></div>
+          <div class="rl"><span>Total</span><span>17.86</span></div>
         </div>
 
         <div class="reg">
@@ -1200,10 +1200,6 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
           <span>Valla<b>POS</b></span>
         </a>
         <p>The register for people who sell on the move. Fast, offline-ready, and fair — no cut of your sales.</p>
-        <div class="footer__social">
-          <a href="#/" aria-label="Storefront"><svg class="icon"><use href="#i-store"/></svg></a>
-          <a href="#/" aria-label="Contact"><svg class="icon"><use href="#i-globe"/></svg></a>
-        </div>
       </div>
       <div class="fcol">
         <h4>Product</h4>
@@ -1229,7 +1225,7 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
       </div>
     </div>
     <div class="footer__bottom">
-      <span>© <span id="year">2026</span> VallaPOS. VallaPOS is a product of VallaPOS. All rights reserved.</span>
+      <span>© <span id="year">2026</span> VallaPOS. All rights reserved.</span>
       <nav>
         <a href="#/privacy">Privacy</a>
         <a href="#/terms">Terms</a>

@@ -493,6 +493,9 @@ model Payment {
 
   @@index([businessId])
   @@index([orderId])
+  // Z-report / CSV export filter on (businessId, createdAt); mirror Order so the
+  // reporting window is an index range scan, not a businessId scan + filter.
+  @@index([businessId, createdAt])
 }
 
 // Lifecycle of an async, processor-backed sale (Stripe hosted Checkout on the

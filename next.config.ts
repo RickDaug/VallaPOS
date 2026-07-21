@@ -1,15 +1,18 @@
 import type { NextConfig } from "next";
 import withSerwistInit from "@serwist/next";
 
-// The Content-Security-Policy itself is now ENFORCED (R-5) and lives in
-// `middleware.ts`, because it carries a fresh per-request `'nonce-<value>'` for
-// `script-src` and a static `headers()` entry can't be per-request. The only
-// CSP-adjacent piece that stays here is the modern Reporting API endpoint map
-// (`Reporting-Endpoints`), referenced by the `report-to` directive the
-// middleware emits, alongside all the other static security headers.
+// The Content-Security-Policy itself lives in `middleware.ts`, because it
+// carries a fresh per-request `'nonce-<value>'` for `script-src` and a static
+// `headers()` entry can't be per-request. NOTE: in production the CSP is
+// currently served as `Content-Security-Policy-Report-Only` (NOT enforced) —
+// `CSP_ENFORCE = false` in `middleware.ts` gates the switch, which is still
+// pending live-device (installed-PWA) verification (see docs/audit/security.md).
+// The only CSP-adjacent piece that stays here is the modern Reporting API
+// endpoint map (`Reporting-Endpoints`), referenced by the `report-to` directive
+// the middleware emits, alongside all the other static security headers.
 //
 // Same-origin endpoint that collects CSP violations (kept from #59 so
-// violations still report under enforce mode). Wired in `src/lib/csp.ts` via the
+// violations still report in report-only mode). Wired in `src/lib/csp.ts` via the
 // legacy `report-uri` directive AND the modern Reporting API (`report-to` +
 // `Reporting-Endpoints` below), so violations are captured in old and new
 // browsers. The endpoint only logs/no-ops; it does NOT enforce anything.
@@ -29,16 +32,18 @@ const securityHeaders = [
   },
   { key: "X-DNS-Prefetch-Control", value: "on" },
   // Modern Reporting API endpoint map for the `report-to` directive the
-  // middleware emits in the enforced Content-Security-Policy.
+  // middleware emits in the Content-Security-Policy.
   { key: "Reporting-Endpoints", value: `${REPORT_TO_GROUP}="${CSP_REPORT_PATH}"` },
-  // NOTE: the Content-Security-Policy header is ENFORCED and set per-request in
-  // middleware.ts (nonce-based) — it is intentionally NOT listed here.
+  // NOTE: the Content-Security-Policy header is set per-request in middleware.ts
+  // (nonce-based) — it is intentionally NOT listed here. In production it is
+  // currently served report-only (CSP_ENFORCE = false), pending live-device
+  // verification before enforcement is switched on.
 ];
 
 // EDITION BRANCH (docs/EDITIONS.md §5). The LOCAL (offline desktop) build is a
 // STATIC EXPORT bundled into the Tauri shell — it has no Node server, so the
 // cloud-only server features here are incompatible with it: `output: 'export'`
-// forbids `headers()`, middleware (where the enforced CSP lives), and request-time
+// forbids `headers()`, middleware (where the CSP lives), and request-time
 // RSC. The local edition's security model is the native shell, not HTTP headers.
 // Read straight from process.env (set by the `build:local`/`dev:local` scripts) so
 // the config needs no TS import; the CLOUD build (the default) is byte-for-byte

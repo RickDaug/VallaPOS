@@ -22,15 +22,33 @@ export function createSecondaryStorage(): SecondaryStorage | null {
 
   const redis = new Redis({ url, token, automaticDeserialization: false });
 
+  // "Degrade, never crash": a transient Upstash timeout must not throw into the
+  // auth path. On error we log and fall back to cache-miss (get) / no-op
+  // (set/delete) — the same behavior as Upstash being unconfigured.
   return {
-    get: async (key) => (await redis.get<string>(key)) ?? null,
+    get: async (key) => {
+      try {
+        return (await redis.get<string>(key)) ?? null;
+      } catch (err) {
+        console.error("Upstash secondaryStorage get failed:", err);
+        return null;
+      }
+    },
     set: async (key, value, ttl) => {
-      // ttl is in seconds (Better Auth passes it for rate-limit/session expiry).
-      if (ttl) await redis.set(key, value, { ex: ttl });
-      else await redis.set(key, value);
+      try {
+        // ttl is in seconds (Better Auth passes it for rate-limit/session expiry).
+        if (ttl) await redis.set(key, value, { ex: ttl });
+        else await redis.set(key, value);
+      } catch (err) {
+        console.error("Upstash secondaryStorage set failed:", err);
+      }
     },
     delete: async (key) => {
-      await redis.del(key);
+      try {
+        await redis.del(key);
+      } catch (err) {
+        console.error("Upstash secondaryStorage delete failed:", err);
+      }
     },
   };
 }
