@@ -9,7 +9,7 @@ const post: BlogPost = {
   date: "2026-06-30",
   category: "Opinion",
   tags: ["pricing", "fees", "small business", "payments"],
-  body: `Most point-of-sale companies make a quiet bet: the more you sell, the more you pay them. It's the default model, it's rarely questioned, and for a small business it's the wrong deal. I want to walk through why, with actual numbers.
+  body: `Most point-of-sale companies make a quiet bet: the more you sell, the more you pay them. It's the default, and for a small business it's the wrong deal. Here's the math.
 
 ## The fee is a tax on doing well
 
@@ -38,9 +38,9 @@ We split those two things apart on purpose.
 - **The software is a flat price.** VallaPOS Cloud is **$19.99 a month**, whatever you sell. If you'd rather not pay monthly at all, the offline desktop edition is a **one-time $99** — you buy it once and it's yours.
 - **VallaPOS never takes a percentage of your sales.** Not on cash, not on QR, not on anything you ring up. When card processing arrives, the plan is direct: you connect your own payment account, you're the merchant of record, and the processor's fee is between you and them. We don't sit in the middle taking a slice.
 
-At $8,000 a month in sales, flat pricing is about **$20** where a 3% model is about **$240**. That gap is real money — it's a slow month's rent, a new piece of equipment, or just staying in business.
+At $8,000 a month in sales, flat pricing is about **$20** where a 3% model is about **$240**. That gap is real money — a slow week's takings, the reader you've been meaning to replace, the margin between a hard month and one you can't cover.
 
-> A one-person business shouldn't have a software bill that grows every time it has a good day. That's the whole principle.
+> A one-person business shouldn't have a software bill that grows every time it has a good day.
 
 ## The honest counter-argument
 

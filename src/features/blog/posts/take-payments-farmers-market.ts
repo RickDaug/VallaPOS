@@ -9,7 +9,7 @@ const post: BlogPost = {
   date: "2026-06-23",
   category: "How-to",
   tags: ["farmers market", "payments", "cash", "qr", "offline"],
-  body: `The tent next to me at the Saturday market has a hand-lettered sign: "CASH ONLY — Venmo @greenrow." Every third customer squints at it, digs for bills, comes up short, and walks off. That sign is costing them a sale an hour.
+  body: `The tent next to me at the Saturday market has a hand-lettered sign: "CASH ONLY — Venmo @greenrow." Every third customer squints at it, digs for bills, comes up short, and drifts off toward the kettle-corn guy. That sign is quietly costing them sales all morning.
 
 You don't need a fancy setup to fix that. You need three ways to get paid and a plan for when the signal drops. Here's the exact routine I use.
 
@@ -29,23 +29,17 @@ This is the part people skip, and it's a five-minute job:
 
 1. In VallaPOS, open **Settings** and turn on QR payments.
 2. Pick your handle — a PIX key, a UPI id, your Venmo or PayPal.me link, or any payment-link URL.
-3. Save it. From now on, the tender screen shows a **QR** option, and tapping it displays your code at the order's amount so the customer can scan it.
+3. Save it. From now on the tender screen has a **QR** option that puts your code on screen with the order total printed right beside it.
 
-Now when someone says "can I Venmo you?", you tap **QR**, they scan the code on your screen, they pay, they turn the phone around to show you the "sent" screen, and you confirm. No typing your handle out loud over a noisy crowd. No wondering whether the money landed in the right account.
+Now when someone says "can I Venmo you?", you tap **QR**, they scan the code off your screen, punch in the total you're showing them, and pay — then turn the phone around so you can see the "sent" screen. No shouting your handle across a noisy crowd. No spelling it out three times for the person who typed it wrong.
 
-> One honest note: this kind of QR is *confirm-based*. You're eyeballing the customer's payment confirmation, the same as you would today — VallaPOS isn't holding the money or auto-verifying it. What it adds is speed and a clean record of the sale.
+Worth being straight about one thing: this QR carries your *handle*, not the amount, so the customer keys in the total themselves — and you're eyeballing their "sent" screen to confirm it landed, exactly like you would with a hand-lettered sign. What VallaPOS adds isn't a payment processor; it's speed and a clean record of the sale sitting in the same place as everything else you rang up.
 
 ## The move that saves your Saturday: keep selling with no signal
 
 Here's the scenario that ruins mornings. It's 10 a.m., the market's packed, everyone's phone is fighting for the same tower, and your data drops to nothing. A cash-only stall is fine. A stall that depends on a live connection is now taking IOUs.
 
-VallaPOS runs in your browser and keeps working when the connection doesn't. If you lose signal:
-
-- You keep ringing up items and taking **cash** exactly as before.
-- Each sale is saved on your device in a queue.
-- When your signal comes back, the queued sales **sync automatically** and land in your reports — you don't re-enter anything.
-
-The practical upshot: you never stop the line because of a bad connection. You ring the sale, take the cash, hand over the tomatoes, and the bookkeeping catches up on its own when the bars come back.
+VallaPOS runs in your browser and keeps working when the connection doesn't. Lose signal and you keep ringing up items and taking cash exactly as before; each sale is held on your device and syncs into your reports the moment the bars come back. You ring the sale, take the cash, hand over the tomatoes, and the bookkeeping catches up on its own. The line never stops because a tower got crowded. (There's more to how that works — I wrote a whole piece on selling with no signal — but for a market stall, that's the part you need.)
 
 ## A 60-second open-and-count routine
 
