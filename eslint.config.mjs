@@ -23,6 +23,8 @@ const eslintConfig = [
     // just noise (huge minified files, no fixes to make).
     ignores: [
       ".next/**",
+      "out/**",
+      "src-tauri/target/**",
       "node_modules/**",
       "src/generated/**",
       "next-env.d.ts",
