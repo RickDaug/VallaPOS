@@ -134,9 +134,15 @@ const schema = z.object({
   //    /api/desktop-license/webhook endpoint (not the Connect/subscription ones).
   //  - DESKTOP_DOWNLOAD_URL: where the signed installer lives (a GitHub Release);
   //    defaults to the repo's releases page.
+  //  - DESKTOP_PRICE_ID: the catalog Price for the $99 one-time license. Set ⇒ the
+  //    Checkout Session references it, so the Dashboard shows ONE product line for
+  //    the desktop edition and the amount is changeable without a deploy. Unset ⇒
+  //    falls back to the inline DESKTOP_PRICE_CENTS price_data, which mints a fresh
+  //    ad-hoc Product per sale (see checkout-stripe.ts).
   LICENSE_SIGNING_SK: z.string().min(1).optional().catch(undefined),
   DESKTOP_LICENSE_WEBHOOK_SECRET: optionalStripeWebhookSecret,
   DESKTOP_DOWNLOAD_URL: z.string().url().optional().catch(undefined),
+  DESKTOP_PRICE_ID: optionalStripePriceId,
 });
 
 const parsed = schema.safeParse(process.env);
