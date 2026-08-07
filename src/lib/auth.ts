@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createSecondaryStorage } from "@/lib/redis";
 import { sendPasswordResetEmail, sendVerificationEmail } from "@/lib/auth-emails";
+import { buildTrustedOrigins } from "@/lib/trusted-origins";
 
 // When Upstash is configured, Better Auth uses Redis as a SHARED, persistent
 // store for the rate limiter (otherwise it's per-instance in-memory and resets
@@ -28,17 +29,19 @@ export const auth = betterAuth({
   // Allow every origin the app is actually served from. It's reachable on the
   // custom domain AND the *.vercel.app domain, so a single pinned origin made
   // sign-in fail CSRF/CORS on whichever domain didn't match (the auth client
-  // now fetches same-origin — see auth-client.ts). Deduped, falsy dropped.
-  trustedOrigins: Array.from(
-    new Set(
-      [
-        env.BETTER_AUTH_URL,
-        env.NEXT_PUBLIC_APP_URL,
-        "https://vallapos.com",
-        "https://www.vallapos.com",
-      ].filter(Boolean),
-    ),
-  ),
+  // now fetches same-origin — see auth-client.ts). On NON-production deployments
+  // this also trusts Vercel's per-branch preview host, so an auth change can be
+  // exercised before it reaches production. See buildTrustedOrigins.
+  //
+  // VERCEL_* are platform-injected, so they're read from raw process.env rather
+  // than the validated env schema (same convention as BILLING_ENFORCE_GATE).
+  trustedOrigins: buildTrustedOrigins({
+    betterAuthUrl: env.BETTER_AUTH_URL,
+    appUrl: env.NEXT_PUBLIC_APP_URL,
+    vercelEnv: process.env.VERCEL_ENV,
+    vercelBranchUrl: process.env.VERCEL_BRANCH_URL,
+    vercelUrl: process.env.VERCEL_URL,
+  }),
   emailAndPassword: {
     enabled: true,
     // Self-serve password reset (audit R4 #2 — the day-7 lockout fix). Better
