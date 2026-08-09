@@ -23,19 +23,29 @@ const SAMPLE_ITEM_NAME = "Sample item (tap to sell — delete anytime)";
  *  - taxConfigured — a non-zero tax rate is set.
  */
 export async function getFirstRunState(businessId: string): Promise<FirstRunState> {
-  const [realItemCount, saleCount, business] = await Promise.all([
+  // EXISTENCE, not counts. This runs from the app-shell layout on EVERY
+  // navigation, and both results are only ever read as booleans below. `count()`
+  // has to scan every matching row — and `Order` has no (businessId, status)
+  // index — so a busy merchant paid an ever-growing full scan of their order
+  // history to answer "have you made a sale?". `findFirst` stops at the first
+  // match, so the cost is flat forever.
+  const [firstRealItem, firstSale, business] = await Promise.all([
     // Exclude the seeded demo product so a real, merchant-added item is what
     // completes the "Add your first item" step (tenant-scoped by businessId).
-    db.item.count({ where: { businessId, name: { not: SAMPLE_ITEM_NAME } } }),
-    db.order.count({
+    db.item.findFirst({
+      where: { businessId, name: { not: SAMPLE_ITEM_NAME } },
+      select: { id: true },
+    }),
+    db.order.findFirst({
       where: { businessId, status: { in: ["PAID", "REFUNDED", "PARTIALLY_REFUNDED"] } },
+      select: { id: true },
     }),
     db.business.findUnique({ where: { id: businessId }, select: { taxRateBps: true } }),
   ]);
 
   return {
-    hasItems: realItemCount > 0,
-    hasSale: saleCount > 0,
+    hasItems: firstRealItem !== null,
+    hasSale: firstSale !== null,
     taxConfigured: (business?.taxRateBps ?? 0) > 0,
   };
 }

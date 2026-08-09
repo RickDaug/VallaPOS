@@ -311,7 +311,7 @@ function Row({
 }) {
   return (
     <div className="flex items-start gap-2">
-      <Icon size={16} className={cn("mt-0.5 shrink-0", ok ? "text-success" : "text-warning")} aria-hidden />
+      <Icon size={16} className={cn("mt-0.5 shrink-0", ok ? "text-success" : "text-warning-foreground")} aria-hidden />
       <div className="min-w-0">
         <span className="font-medium">{label}</span>
         <p className="text-xs text-muted-foreground">{hint}</p>

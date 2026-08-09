@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cache } from "react";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
@@ -102,8 +103,16 @@ export async function clearActiveOperator(businessId: string): Promise<void> {
  * The current active operator, or null when the device is "locked". Verifies the
  * cookie signature + expiry, then re-loads the membership (active + in business)
  * so attribution/capabilities always reflect live DB state.
+ *
+ * REQUEST-MEMOIZED. Every `pageHasCapability()` call resolves the operator, and
+ * pages routinely ask about several capabilities in a row (settings alone did the
+ * identical lookup four times per render) on top of the app shell's own call.
+ * `cache()` collapses those to one query per request; it does NOT cache across
+ * requests, so a lock/unlock or a permissions change is still seen immediately.
  */
-export async function getActiveOperator(businessId: string): Promise<ActiveOperator | null> {
+export const getActiveOperator = cache(async function getActiveOperator(
+  businessId: string,
+): Promise<ActiveOperator | null> {
   const store = await cookies();
   const raw = store.get(cookieName(businessId))?.value;
   if (!raw) return null;
@@ -123,4 +132,4 @@ export async function getActiveOperator(businessId: string): Promise<ActiveOpera
     permissions: m.permissions,
     name: m.user?.name ?? m.name ?? "Staff",
   };
-}
+});

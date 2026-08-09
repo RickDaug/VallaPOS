@@ -81,9 +81,26 @@ describe("requireMembership — tenant isolation", () => {
     membershipFindUnique.mockResolvedValue({ id: "mem_1", role: "OWNER" });
 
     await requireMembership("biz_42");
-    expect(membershipFindUnique).toHaveBeenCalledWith({
-      where: { userId_businessId: { userId: "user_1", businessId: "biz_42" } },
-    });
+    // The invariant under test is the SCOPING, so assert the `where` rather than
+    // the whole call shape — otherwise tightening the projection breaks it.
+    expect(membershipFindUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId_businessId: { userId: "user_1", businessId: "biz_42" } },
+      }),
+    );
+  });
+
+  it("selects only id + role — never the member's pinHash", async () => {
+    getSession.mockResolvedValue({ user: { id: "user_1" } });
+    membershipFindUnique.mockResolvedValue({ id: "mem_1", role: "OWNER" });
+
+    await requireMembership("biz_42");
+
+    // requireMembership runs on essentially every request, so an unprojected
+    // findUnique pulled the PIN hash into server memory every time for nothing.
+    const [args] = membershipFindUnique.mock.calls[0] as [{ select?: Record<string, boolean> }];
+    expect(args.select).toEqual({ id: true, role: true });
+    expect(args.select).not.toHaveProperty("pinHash");
   });
 });
 

@@ -4,6 +4,7 @@ import { auth, type Session } from "@/lib/auth";
 import { db } from "@/lib/db";
 import type { Role } from "@prisma/client";
 import { roleAtLeast } from "@/lib/roles";
+import { cache } from "react";
 import { authMode, LOCAL_BUSINESS_ID, LOCAL_USER_ID } from "@/lib/edition";
 
 /**
@@ -40,8 +41,18 @@ const LOCAL_CONTEXT: TenantContext = {
   role: "OWNER",
 };
 
-/** Resolve the current session or throw. */
-export async function requireSession() {
+/**
+ * Resolve the current session or throw.
+ *
+ * REQUEST-MEMOIZED. Both this and `requireMembership` are called by the app-shell
+ * layout AND independently by nearly every page beneath it (register, orders,
+ * reports, products, …), and several feature queries call `requireMembership`
+ * again internally. Un-memoized that was a session round trip plus a membership
+ * query repeated 2-4x on every single navigation. `cache()` scopes the result to
+ * one request, so the extra calls are free and nothing is shared across requests
+ * or users.
+ */
+export const requireSession = cache(async function requireSession() {
   // LOCAL: return a minimal fixed session (only `user.id` is read by shared code);
   // the cloud-only auth/payments flows that call this are compiled off in local.
   if (authMode === "pin-only") {
@@ -50,10 +61,15 @@ export async function requireSession() {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new AuthError("UNAUTHENTICATED");
   return session;
-}
+});
 
-/** Confirm the current user is a member of `businessId`; return the scoped context. */
-export async function requireMembership(businessId: string): Promise<TenantContext> {
+/**
+ * Confirm the current user is a member of `businessId`; return the scoped context.
+ * REQUEST-MEMOIZED per businessId — see `requireSession` above.
+ */
+export const requireMembership = cache(async function requireMembership(
+  businessId: string,
+): Promise<TenantContext> {
   // LOCAL: single-operator install — no membership lookup; return the fixed
   // context scoped to the caller's businessId (always LOCAL_BUSINESS_ID in local).
   if (authMode === "pin-only") {
@@ -62,6 +78,9 @@ export async function requireMembership(businessId: string): Promise<TenantConte
   const session = await requireSession();
   const membership = await db.membership.findUnique({
     where: { userId_businessId: { userId: session.user.id, businessId } },
+    // Only these two are read below. Selecting the whole row also pulled the
+    // member's pinHash into server memory on every request, for nothing.
+    select: { id: true, role: true },
   });
   if (!membership) throw new ForbiddenError("NOT_A_MEMBER");
   return {
@@ -70,7 +89,7 @@ export async function requireMembership(businessId: string): Promise<TenantConte
     membershipId: membership.id,
     role: membership.role,
   };
-}
+});
 
 /** Gate an action by minimum role (e.g. refunds require MANAGER). */
 export function assertRole(ctx: TenantContext, min: Role): void {

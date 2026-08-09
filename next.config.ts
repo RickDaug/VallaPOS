@@ -81,9 +81,21 @@ const withSerwist = withSerwistInit({
   swSrc: "app/sw.ts",
   swDest: "public/sw.js",
   disable: process.env.NODE_ENV === "development",
-  // Reload any open tab as soon as a new SW takes control, so a deploy doesn't
-  // leave a cashier on a stale shell.
-  reloadOnOnline: true,
+  // MUST stay false. This flag does NOT do what its name suggests and it does
+  // NOT handle deploy freshness (a new SW taking control is a separate path).
+  // Serwist's client entry registers exactly this:
+  //
+  //   window.addEventListener("online", () => location.reload())
+  //
+  // i.e. a hard reload every time connectivity returns — the single most likely
+  // event on a merchant's phone behind a counter. Only `cart` survives a reload
+  // (Register.tsx persists it); `tendering`, `tenderDollars`, `receipt` and
+  // `queued` do not, so a cashier mid-tender loses the "change due" figure while
+  // the customer is standing there. Worse, `clientUuidRef` — the idempotency key
+  // the whole checkout path is built around — lives only in memory, so a reload
+  // fired while completeSale()'s POST is in flight makes the re-rung cart mint a
+  // FRESH key: a duplicate order and a double charge.
+  reloadOnOnline: false,
 });
 
 export default isLocalBuild ? nextConfig : withSerwist(nextConfig);
