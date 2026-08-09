@@ -787,7 +787,7 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
             <li><svg class="icon"><use href="#i-check"/></svg> Unlimited items &amp; sales</li>
             <li><svg class="icon"><use href="#i-check"/></svg> Unlimited staff PINs</li>
             <li><svg class="icon"><use href="#i-check"/></svg> Cloud reports &amp; backups</li>
-            <li><svg class="icon"><use href="#i-check"/></svg> Free trial to start</li>
+            <li><svg class="icon"><use href="#i-check"/></svg> Cancel anytime &mdash; no contract</li>
           </ul>
           <div class="ed__foot"><a class="btn btn--lg" href="#/#pricing" data-buy="cloud" style="width:100%">Subscribe monthly</a></div>
         </div>
