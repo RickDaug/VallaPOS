@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requireMembership, assertRole, ForbiddenError } from "@/lib/tenant";
+import { authMode } from "@/lib/edition";
 import { canGrantRole } from "@/lib/roles";
 import { assertNotLocked, recordFailure, recordSuccess } from "@/lib/pin-throttle";
 import { defaultCapabilitiesFor, sanitizeCapabilities } from "@/lib/capabilities";
@@ -18,6 +19,7 @@ import {
   clearPinSchema,
   setActiveSchema,
   verifyPinSchema,
+  resetOwnPinSchema,
   businessScopeSchema,
   clockSchema,
   type AddMemberInput,
@@ -29,6 +31,7 @@ import {
   type ClearPinInput,
   type SetActiveInput,
   type VerifyPinInput,
+  type ResetOwnPinInput,
   type BusinessScopeInput,
   type ClockInput,
 } from "./schema";
@@ -332,6 +335,84 @@ export async function becomeSelfOperator(input: BusinessScopeInput): Promise<{ o
   });
   if (!me) return { ok: false };
   if (me.pinHash) return { ok: false, needsPin: true };
+  await setActiveOperator(ctx.businessId, ctx.membershipId);
+  return { ok: true };
+}
+
+/**
+ * RECOVERY: forgot the operator PIN.
+ *
+ * Without this the device is a brick. `becomeSelfOperator` is refused once a PIN
+ * exists, the lock screen renders INSTEAD of the app shell (so Team — where a PIN
+ * is reset — is unreachable), and signing out then back in returns to the same
+ * lock screen. A merchant who forgot their PIN could not sell, and had no route
+ * back in at all.
+ *
+ * The shared-terminal guarantee is preserved by what this asks for. The PIN
+ * exists because the DEVICE session belongs to the owner while many people touch
+ * the device — so recovery re-proves the **account password**, which staff at
+ * that terminal don't have. It deliberately does NOT let the signed-in device
+ * user clear their own PIN unchallenged; that would reopen the exact
+ * "anyone at the device acts as the owner" hole `becomeSelfOperator` closes.
+ *
+ * On success the caller's OWN pinHash is cleared and they become the active
+ * operator, so they're back in and can set a fresh PIN from Team. Only ever the
+ * caller's own membership — never another member's.
+ */
+export async function resetOwnOperatorPin(
+  input: ResetOwnPinInput,
+): Promise<{ ok: boolean; reason?: "unsupported" | "bad_password" | "locked" }> {
+  const data = resetOwnPinSchema.parse(input);
+  const ctx = await requireMembership(data.businessId);
+
+  // LOCAL (pin-only) edition has no account password to re-prove against, so
+  // there is nothing stronger than the PIN to check — refuse rather than hand
+  // out a weaker bypass.
+  if (authMode === "pin-only") return { ok: false, reason: "unsupported" };
+
+  // Same throttle as the PIN pad: this is an unauthenticated-ish guess made at a
+  // device someone is already holding, so it must not become a password oracle.
+  try {
+    await assertNotLocked(ctx.businessId, ctx.membershipId);
+  } catch {
+    return { ok: false, reason: "locked" };
+  }
+
+  const user = await db.user.findUnique({
+    where: { id: ctx.userId },
+    select: { email: true },
+  });
+  if (!user) return { ok: false, reason: "bad_password" };
+
+  // Better Auth owns password hashing, so verification goes through it rather
+  // than re-implementing scrypt here. NOTE: this mints a session row as a side
+  // effect; we never return or set its token — the caller keeps the session they
+  // already had.
+  let verified = false;
+  try {
+    // Imported lazily: @/lib/auth pulls in the validated env, which throws when
+    // the required vars are absent (i.e. under vitest). Keeping it out of the
+    // module graph means actions.ts stays importable in unit tests without every
+    // one of them having to mock auth. Same convention as the Stripe gateways.
+    const { auth } = await import("@/lib/auth");
+    const res = await auth.api.signInEmail({
+      body: { email: user.email, password: data.password },
+    });
+    verified = res?.user?.id === ctx.userId;
+  } catch {
+    verified = false;
+  }
+
+  if (!verified) {
+    await recordFailure(ctx.businessId, ctx.membershipId);
+    return { ok: false, reason: "bad_password" };
+  }
+  await recordSuccess(ctx.businessId, ctx.membershipId);
+
+  await db.membership.update({
+    where: { id: ctx.membershipId },
+    data: { pinHash: null },
+  });
   await setActiveOperator(ctx.businessId, ctx.membershipId);
   return { ok: true };
 }

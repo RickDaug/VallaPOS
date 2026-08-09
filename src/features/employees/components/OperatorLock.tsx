@@ -4,7 +4,8 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Lock, Delete, ArrowLeft, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { enterOperatorPin, becomeSelfOperator } from "@/features/employees/actions";
+import { Input } from "@/components/ui/input";
+import { enterOperatorPin, becomeSelfOperator, resetOwnOperatorPin } from "@/features/employees/actions";
 import { PIN_MAX_LENGTH, PIN_MIN_LENGTH } from "@/features/employees/schema";
 import type { LockScreenMember } from "@/features/employees/queries";
 
@@ -45,6 +46,9 @@ export function OperatorLock({
   const [picked, setPicked] = useState<LockScreenMember | null>(null);
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Forgotten-PIN recovery (see the panel at the bottom of the render).
+  const [recovering, setRecovering] = useState(false);
+  const [password, setPassword] = useState("");
   // Bumped on each wrong PIN to re-trigger the shake animation via `key`.
   const [shakeKey, setShakeKey] = useState(0);
 
@@ -77,6 +81,29 @@ export function OperatorLock({
       } catch {
         setError("Could not sign in.");
         setShakeKey((k) => k + 1);
+      }
+    });
+  }
+
+  function submitRecovery() {
+    startTransition(async () => {
+      try {
+        const res = await resetOwnOperatorPin({ businessId, password });
+        if (!res.ok) {
+          setError(
+            res.reason === "locked"
+              ? "Too many attempts. Wait a moment and try again."
+              : res.reason === "unsupported"
+                ? "PIN reset isn't available on this device."
+                : "That password isn't right.",
+          );
+          setPassword("");
+          return;
+        }
+        // PIN cleared AND we're now the active operator, so the shell renders.
+        router.refresh();
+      } catch {
+        setError("Could not reset your PIN.");
       }
     });
   }
@@ -190,6 +217,68 @@ export function OperatorLock({
           <p className="mt-3 text-center text-sm font-medium text-destructive" role="alert">
             {error}
           </p>
+        )}
+
+        {/*
+          RECOVERY. The lock screen renders INSTEAD of the app shell, so without a
+          way out a forgotten PIN is unrecoverable: Team (where PINs are reset) is
+          unreachable, and signing out then back in returns here. Offered only to
+          the signed-in device user, for their OWN membership, and only once they
+          actually have a PIN to be locked out of.
+        */}
+        {self?.hasPin && !recovering && (
+          <button
+            type="button"
+            onClick={() => {
+              setRecovering(true);
+              setError(null);
+              setPassword("");
+            }}
+            className="mx-auto mt-6 block text-sm font-semibold text-muted-foreground underline underline-offset-4 hover:text-foreground"
+          >
+            Forgot your PIN?
+          </button>
+        )}
+
+        {recovering && (
+          <div className="mt-6 rounded-lg border border-border bg-card p-4">
+            <h2 className="text-sm font-black">Reset your PIN</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Enter the password for {self?.name ?? "your account"} — the one you sign in to VallaPOS
+              with. We ask for it because your co-workers don&apos;t have it. Your PIN is cleared and
+              you can set a new one from Team.
+            </p>
+            <Input
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && password) submitRecovery();
+              }}
+              placeholder="Account password"
+              aria-label="Account password"
+              className="mt-3"
+              disabled={pending}
+            />
+            <div className="mt-3 flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  setRecovering(false);
+                  setPassword("");
+                  setError(null);
+                }}
+                disabled={pending}
+              >
+                Cancel
+              </Button>
+              <Button className="flex-1" onClick={submitRecovery} disabled={pending || !password}>
+                {pending ? "Checking…" : "Reset PIN"}
+              </Button>
+            </div>
+          </div>
         )}
       </div>
     </div>
