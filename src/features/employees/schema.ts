@@ -108,6 +108,19 @@ export const businessScopeSchema = z.object({ businessId: businessIdSchema });
 export type BusinessScopeInput = z.infer<typeof businessScopeSchema>;
 
 /**
+ * Recover from a forgotten operator PIN by re-proving the ACCOUNT password.
+ *
+ * Not `pinSchema` — the input here is the Better Auth password, not a PIN, so it
+ * carries no digit/length shape beyond being non-empty (Better Auth is the
+ * authority on whether it's correct).
+ */
+export const resetOwnPinSchema = z.object({
+  businessId: businessIdSchema,
+  password: z.string().min(1, "Enter your account password."),
+});
+export type ResetOwnPinInput = z.infer<typeof resetOwnPinSchema>;
+
+/**
  * Clock in or clock out. Self-service: the action derives the membership from
  * the authenticated tenant context, so the client only sends the businessId
  * (never a membershipId it could forge to clock someone else in/out).
