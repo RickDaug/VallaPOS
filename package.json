@@ -31,12 +31,12 @@
     "@tauri-apps/plugin-sql": "2.4.0",
     "@tauri-apps/plugin-store": "2.4.4",
     "@upstash/redis": "1.38.0",
-    "better-auth": "1.6.18",
+    "better-auth": "1.6.26",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "idb": "8.0.3",
     "lucide-react": "0.515.0",
-    "next": "15.5.19",
+    "next": "15.5.23",
     "next-themes": "0.4.6",
     "qrcode.react": "4.2.0",
     "react": "19.1.0",
@@ -67,7 +67,9 @@
     "typescript": "5.8.3",
     "vitest": "4.1.8"
   },
+  "//overrides": "Both are TRANSITIVE under next. npm's only offered fix for either is next@16.3.0 — a MAJOR breaking change — so we force the patched lines instead. postcss: <=8.5.22 is GHSA-r28c-9q8g-f849 + GHSA-fxqj-rqcc-2cmp (attacker-controlled sourceMappingURL reads arbitrary .map files); the previous 8.5.15 pin here predates those and had become the vulnerable version itself. sharp: <0.35.0 inherits four libvips CVEs (GHSA-f88m-g3jw-g9cj). Drop each entry once next ships a dependency range that already satisfies it.",
   "overrides": {
-    "postcss": "8.5.15"
+    "postcss": "8.5.26",
+    "sharp": "0.35.3"
   }
 }
