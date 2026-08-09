@@ -8,8 +8,10 @@ import type {
   DesktopCheckoutSession,
 } from "./checkout-gateway";
 
-/** The one-time offline-desktop license price (integer cents). */
-export const DESKTOP_PRICE_CENTS = 9900;
+// Pricing lives in the env-free desktop-price.ts so it stays unit-testable;
+// re-exported here to keep the existing import path working.
+import { desktopLineItem } from "./desktop-price";
+export { DESKTOP_PRICE_CENTS, desktopLineItem } from "./desktop-price";
 
 /**
  * True when the desktop-license checkout can run — i.e. the PLATFORM Stripe key
@@ -24,8 +26,9 @@ export function isDesktopLicenseConfigured(): boolean {
 class DesktopCheckoutError extends Error {}
 
 /**
- * Real Stripe gateway: a ONE-TIME (`mode:"payment"`) $99 Checkout Session with an
- * inline price (no dashboard Price id needed). Stripe collects the buyer email at
+ * Real Stripe gateway: a ONE-TIME (`mode:"payment"`) $99 Checkout Session using the
+ * catalog Price when DESKTOP_PRICE_ID is set, else an inline price (so the feature
+ * still runs with only STRIPE_SECRET_KEY). Stripe collects the buyer email at
  * checkout; the webhook (next slice) reads `customer_details.email` to deliver the
  * license. `metadata.sku` tags the sale as the desktop edition. Uses the same
  * dynamic `import("stripe")` convention as the billing/connect gateways.
@@ -43,16 +46,7 @@ export function createStripeDesktopCheckoutGateway(): DesktopCheckoutGateway {
 
       const session = await stripe.checkout.sessions.create({
         mode: "payment",
-        line_items: [
-          {
-            quantity: 1,
-            price_data: {
-              currency: "usd",
-              unit_amount: DESKTOP_PRICE_CENTS,
-              product_data: { name: "VallaPOS Desktop — Lifetime License (Offline)" },
-            },
-          },
-        ],
+        line_items: [desktopLineItem(env.DESKTOP_PRICE_ID)],
         success_url: input.successUrl,
         cancel_url: input.cancelUrl,
         metadata: { sku: DESKTOP_SKU },
