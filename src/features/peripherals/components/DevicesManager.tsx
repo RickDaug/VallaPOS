@@ -170,7 +170,7 @@ export function DevicesManager({ businessName }: { businessName: string }) {
 
         {!supported && (
           <p className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-warning-foreground">
-            <TriangleAlert size={16} className="mt-0.5 shrink-0 text-warning" />
+            <TriangleAlert size={16} className="mt-0.5 shrink-0 text-warning-foreground" />
             This browser can&apos;t connect USB printers. Use <b>Chrome on Android or Windows</b>, or
             a network (CloudPRNT) printer.
           </p>

@@ -573,7 +573,7 @@ export function Register({
     return (
       <Card className="mx-auto max-w-md text-center">
         <CardContent className="p-8">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-warning/15 text-warning">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-warning/15 text-warning-foreground">
             <CloudOff size={30} />
           </div>
           <h2 className="text-xl font-bold">Sale saved offline</h2>
@@ -1703,7 +1703,7 @@ function OfflineBanner({
         role="status"
         className="flex items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm font-medium text-warning-foreground"
       >
-        <WifiOff size={16} className="shrink-0 text-warning" />
+        <WifiOff size={16} className="shrink-0 text-warning-foreground" />
         <span>
           Offline — sales are saved on this device
           {queuedCount > 0 ? ` (${queuedCount} waiting to sync)` : ""} and sent when you reconnect.
