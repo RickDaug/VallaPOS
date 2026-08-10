@@ -988,6 +988,9 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
 <h2>Cookies and essential storage</h2>
 <p>VallaPOS Cloud uses only cookies and local/session storage that are essential to sign you in, keep your session secure, and run the app offline as a PWA. We do not use advertising or cross-site tracking cookies.</p>
 
+<h2>Website analytics</h2>
+<p>On this website and in VallaPOS Cloud we use Vercel Web Analytics, a privacy-friendly, first-party measurement tool, to count page views and see which pages people find useful. It sets <strong>no cookies</strong>, stores nothing on your device, does not track you across other websites, and does not build a profile of you. It records the page visited, the referring page, and coarse details such as country, browser, and device type; it does not receive your name, your email, or any of your business or sales data. We use it only to understand how the site is used and to improve it. The <strong>Offline edition sends nothing at all</strong> &mdash; see above.</p>
+
 <h2>Changes to this statement</h2>
 <p>We may update this statement from time to time. Material changes will be posted here with a revised effective date, and where appropriate we will notify you.</p>
 
