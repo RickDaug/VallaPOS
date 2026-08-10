@@ -313,6 +313,12 @@ const REVENUE_CRITICAL: ReadonlyArray<{ key: string; value: unknown; impact: str
     impact:
       "No outbound email: password reset silently fails (the user is still told to check their inbox), email verification never arrives, and receipts cannot be emailed.",
   },
+  {
+    key: "LICENSE_SIGNING_SK",
+    value: env.LICENSE_SIGNING_SK,
+    impact:
+      "The $99 desktop licence cannot be signed: a buyer who has ALREADY PAID gets a 503 from the fulfilment webhook and never receives a key.",
+  },
 ];
 
 /**

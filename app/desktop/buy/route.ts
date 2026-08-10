@@ -20,8 +20,13 @@ export const dynamic = "force-dynamic";
  * the page you were on reads as an abandoned product, and it hid a real
  * production outage (a malformed key dropped by env.ts) behind a no-op.
  */
-export async function GET(): Promise<Response> {
-  const unavailable = new URL("/desktop/unavailable", env.NEXT_PUBLIC_APP_URL);
+export async function GET(request: Request): Promise<Response> {
+  // Resolve the fallback against the INCOMING request, not NEXT_PUBLIC_APP_URL.
+  // That env var is a single fixed origin, so a preview deployment would bounce
+  // the visitor onto production mid-purchase — verified doing exactly that. The
+  // Stripe return URLs below deliberately stay on the configured origin (they
+  // come back from an external redirect, so they can't be request-relative).
+  const unavailable = new URL("/desktop/unavailable", new URL(request.url).origin);
   if (!isDesktopLicenseConfigured()) {
     console.error(
       "Desktop-license checkout is unconfigured (no valid STRIPE_SECRET_KEY) — " +
