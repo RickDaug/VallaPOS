@@ -70,7 +70,7 @@ export default function SignInPage() {
     <main className="flex min-h-screen items-center justify-center bg-background p-6">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle className="text-2xl font-black">Sign in</CardTitle>
+          <CardTitle as="h1" className="text-2xl font-black">Sign in</CardTitle>
           <CardDescription>Welcome back.</CardDescription>
         </CardHeader>
         <CardContent>

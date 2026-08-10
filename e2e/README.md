@@ -8,7 +8,36 @@ The first end-to-end coverage for VallaPOS. These drive a **real browser** again
 
 ## What it covers
 
-`smoke.spec.ts`:
+There are **two** specs, and they differ in what they need to run:
+
+| Spec | Needs a DB / login? | Runs in CI? |
+| --- | --- | --- |
+| `public-surface.spec.ts` | **No** — signed-out routes only | **Yes, on every PR** |
+| `smoke.spec.ts` | Yes — seeded Postgres + the demo login | No, manual |
+
+### `public-surface.spec.ts` — the acquisition funnel
+
+Covers the signed-out surface: every public route responds and renders, every
+internal link on the home page resolves, no link is left as an artifact hash
+route, **every money CTA carries a real destination in the server html** (before
+any JS runs), the `$99` buy button either reaches Stripe or lands on a page that
+*says* it can't sell, `/about` is a real route rather than a client-side view
+swap, the legal policies are linked and in the sitemap, `/api/health` answers in
+a readable shape, and the home page doesn't scroll sideways on a phone.
+
+This is the class of defect that a unit suite structurally cannot see: it lives
+in the routing *between* pages. Before it existed, `/about` shipped as a 404 and
+all six Buy/Subscribe CTAs shipped as inert `#/#pricing` fragments — with 1024
+unit tests green.
+
+None of these routes touch the database, so CI just runs `next start` with dummy
+env and points the spec at it. To run it yourself against anything:
+
+```sh
+E2E_BASE_URL=https://vallapos.com npx playwright test e2e/public-surface.spec.ts
+```
+
+### `smoke.spec.ts` — the authenticated critical path
 
 1. **Critical path** — sign in as the seeded owner, bootstrap past the operator
    lock, ring up the seeded **Classic Burger** (choosing its required "Cook"

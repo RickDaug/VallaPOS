@@ -32,7 +32,7 @@ function ResetPasswordForm() {
     return (
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle className="text-2xl font-black">Link expired</CardTitle>
+          <CardTitle as="h1" className="text-2xl font-black">Link expired</CardTitle>
           <CardDescription>This reset link is invalid or has expired.</CardDescription>
         </CardHeader>
         <CardContent>
@@ -77,7 +77,7 @@ function ResetPasswordForm() {
   return (
     <Card className="w-full max-w-sm">
       <CardHeader>
-        <CardTitle className="text-2xl font-black">Set a new password</CardTitle>
+        <CardTitle as="h1" className="text-2xl font-black">Set a new password</CardTitle>
         <CardDescription>Choose a password you&apos;ll remember.</CardDescription>
       </CardHeader>
       <CardContent>

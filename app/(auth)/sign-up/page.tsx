@@ -78,7 +78,7 @@ export default function SignUpPage() {
     <main className="flex min-h-screen items-center justify-center bg-background p-6">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle className="text-2xl font-black">Create account</CardTitle>
+          <CardTitle as="h1" className="text-2xl font-black">Create account</CardTitle>
           <CardDescription>Set up your business in a minute.</CardDescription>
         </CardHeader>
         <CardContent>

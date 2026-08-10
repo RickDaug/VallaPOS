@@ -13,6 +13,7 @@ import {
   assertApprovalNotLocked,
   recordApprovalFailure,
   recordApprovalSuccess,
+  lockoutSecondsFor,
 } from "./pin-throttle";
 
 // MAX_FAILURES in the module is 5: the 5th consecutive failure locks the target.
@@ -115,5 +116,35 @@ describe("pin-throttle — approval namespace", () => {
     }
     await expect(assertNotLocked(businessId, membershipId)).rejects.toThrow();
     await expect(assertApprovalNotLocked(businessId)).resolves.toBeUndefined();
+  });
+});
+
+describe("lockoutSecondsFor (escalating cool-down)", () => {
+  it("does not lock before the failure threshold", () => {
+    for (let i = 0; i < MAX_FAILURES; i++) {
+      expect(lockoutSecondsFor(i)).toBe(0);
+    }
+  });
+
+  it("starts at 60s and doubles with each further failure", () => {
+    expect(lockoutSecondsFor(5)).toBe(60);
+    expect(lockoutSecondsFor(6)).toBe(120);
+    expect(lockoutSecondsFor(7)).toBe(240);
+    expect(lockoutSecondsFor(8)).toBe(480);
+  });
+
+  it("caps the cool-down so a forgotten PIN can't strand a till all day", () => {
+    expect(lockoutSecondsFor(9)).toBe(15 * 60);
+    expect(lockoutSecondsFor(50)).toBe(15 * 60);
+    // No overflow / NaN from a very long-running attack.
+    expect(lockoutSecondsFor(1_000)).toBe(15 * 60);
+  });
+
+  it("throttles a sustained attack to a rate that outlasts a 4-digit PIN space", () => {
+    // The property that matters: guesses-per-hour must collapse once an attacker
+    // is past the threshold. At the cap that is 5 guesses per 15 minutes.
+    const guessesPerHour = (3600 / lockoutSecondsFor(20)) * MAX_FAILURES;
+    expect(guessesPerHour).toBeLessThan(25);
+    // The flat 60s cool-down this replaced allowed ~300/hour.
   });
 });

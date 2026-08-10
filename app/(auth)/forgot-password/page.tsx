@@ -20,12 +20,10 @@ import { Label } from "@/components/ui/label";
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
     setPending(true);
     try {
       const redirectTo =
@@ -49,7 +47,7 @@ export default function ForgotPasswordPage() {
     <main className="flex min-h-screen items-center justify-center bg-background p-6">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle className="text-2xl font-black">Reset password</CardTitle>
+          <CardTitle as="h1" className="text-2xl font-black">Reset password</CardTitle>
           <CardDescription>
             {sent
               ? "Check your inbox."
@@ -82,11 +80,10 @@ export default function ForgotPasswordPage() {
                     onChange={(e) => setEmail(e.target.value)}
                   />
                 </div>
-                {error && (
-                  <p className="text-sm font-medium text-destructive" role="alert">
-                    {error}
-                  </p>
-                )}
+                {/* No error surface by design: any outcome — success, unknown
+                    address, or a transient failure — shows the same neutral
+                    confirmation, so a stranger can't probe which emails are
+                    registered. Failures are logged server-side instead. */}
                 <Button type="submit" disabled={pending} className="w-full">
                   {pending ? "Sending…" : "Send reset link"}
                 </Button>

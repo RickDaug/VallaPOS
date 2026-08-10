@@ -47,3 +47,47 @@ jobs:
           BETTER_AUTH_SECRET: ci0123456789abcdef0123456789abcdef
           BETTER_AUTH_URL: http://localhost:3000
           NEXT_PUBLIC_APP_URL: http://localhost:3000
+
+      # Browser coverage of the SIGNED-OUT surface: the marketing funnel, the
+      # legal routes, /api/health. This is the gap the audit found — 1000+ unit
+      # tests, but nothing looked at the routing BETWEEN pages, so `/about`
+      # shipped as a 404 and every Buy/Subscribe CTA shipped inert until React
+      # hydrated.
+      #
+      # It can run here, on every PR, because none of these routes touch the
+      # database: `next start` with the same dummy env serves them all (verified
+      # — including /sign-in and /sign-up). The authenticated e2e/smoke.spec.ts
+      # still needs a real seeded Postgres and stays manual (see e2e/README.md).
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Start the built app
+        run: |
+          npx next start -p 3000 &
+          # Poll until the server answers AT ALL. Deliberately not `--fail`:
+          # /api/health correctly returns 503 when optional integrations are
+          # unset, which is exactly the case with CI's dummy env.
+          for i in $(seq 1 60); do
+            curl -sS -o /dev/null "http://localhost:3000/api/health" && exit 0
+            sleep 1
+          done
+          echo "app did not start within 60s" >&2
+          exit 1
+        env:
+          DATABASE_URL: postgresql://user:pass@localhost:5432/vallapos
+          BETTER_AUTH_SECRET: ci0123456789abcdef0123456789abcdef
+          BETTER_AUTH_URL: http://localhost:3000
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+
+      - name: Public-surface E2E
+        run: npx playwright test e2e/public-surface.spec.ts
+        env:
+          E2E_BASE_URL: http://localhost:3000
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: .playwright/report
+          retention-days: 7
