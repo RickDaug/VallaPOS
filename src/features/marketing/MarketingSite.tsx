@@ -49,15 +49,12 @@ const BUY_LINKS: Record<string, string> = {
   offline: process.env.NEXT_PUBLIC_STRIPE_LINK_OFFLINE ?? "",
 };
 
-const LEGAL: Record<string, string> = {
-  privacy: "Privacy Statement",
-  terms: "Terms of Use",
-  disputes: "Dispute Policy",
-  "do-not-sell": "Do Not Sell or Share My Personal Information",
-  dmca: "DMCA & Copyright Policy",
-};
-
-const HOME_TITLE = "VallaPOS — Point of sale for people who sell on the move";
+/**
+ * The legal documents, each of which is a real route under `app/`. Used only to
+ * recognise the artifact's legacy `#/privacy`-style hash links and forward them
+ * to the route that owns that content now.
+ */
+const LEGAL_ROUTES = new Set(["privacy", "terms", "disputes", "do-not-sell", "dmca"]);
 
 export default function MarketingSite({ view = "home" }: { view?: MarketingView } = {}) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -161,59 +158,26 @@ export default function MarketingSite({ view = "home" }: { view?: MarketingView 
       });
     };
 
-    /* ---- hash router (home / about / legal) ----
-       Query the live document each call rather than capturing element refs at
-       mount: React can re-process the dangerouslySetInnerHTML subtree, which
-       detaches any nodes we cached, and a stale ref silently no-ops. */
-    const showView = (name: string) => {
-      (["home", "about", "legal"] as const).forEach((k) => {
-        const el = document.getElementById(`view-${k}`);
-        if (el) el.hidden = k !== name;
-      });
-    };
-    const setActiveNav = (route: string) => {
-      $$(".nav__link").forEach((a) => {
-        const n = a.getAttribute("data-nav");
-        a.classList.toggle("is-active", route === "about" && n === "about");
-      });
-    };
+    /* ---- in-page anchors + legacy hash-route redirects ----
+       About and the legal documents are REAL routes now, and htmlForView drops
+       the views this page isn't rendering (they were 61% of the document, resent
+       uncached on every hit). All that's left for the router to do is scroll to
+       an in-page anchor — and forward the artifact's old `#/about` / `#/privacy`
+       links, which may exist in someone's bookmarks or an inbound link, to the
+       route that now owns that content. `replace` rather than `assign` so the
+       dead hash URL doesn't sit in the back button. */
     const route = () => {
       closeMenu();
       const raw = location.hash || "#/";
       const afterSlash = raw.replace(/^#\//, "");
-      let scrollId: string | null = null;
 
-      if (afterSlash.charAt(0) === "#") {
-        showView("home");
-        setActiveNav("home");
-        scrollId = afterSlash.slice(1);
-        document.title = HOME_TITLE;
-      } else if (afterSlash === "") {
-        // No hash: stay on whatever view this ROUTE server-rendered. `/` is home;
-        // `/about` already shipped the About view visible, and re-showing "home"
-        // here would blank it the moment the effect ran.
-        showView(view);
-        setActiveNav(view);
-      } else if (afterSlash === "about") {
-        showView("about");
-        setActiveNav("about");
-        document.title = "About — VallaPOS";
-      } else if (LEGAL[afterSlash]) {
-        showView("legal");
-        setActiveNav("legal");
-        $$(".legal-doc").forEach((d) => d.classList.remove("is-active"));
-        $(`#doc-${afterSlash}`)?.classList.add("is-active");
-        const title = $("#legalTitle");
-        if (title) title.textContent = LEGAL[afterSlash];
-        $$("#legalNav a").forEach((a) =>
-          a.classList.toggle("is-active", a.getAttribute("data-doc") === afterSlash),
-        );
-        document.title = LEGAL[afterSlash] + " — VallaPOS";
-      } else {
-        showView("home");
-        setActiveNav("home");
+      if (afterSlash === "about" || LEGAL_ROUTES.has(afterSlash)) {
+        location.replace(`/${afterSlash}`);
+        return;
       }
 
+      // `#/#pricing` (and a bare `#pricing`) → scroll to that section.
+      const scrollId = afterSlash.charAt(0) === "#" ? afterSlash.slice(1) : null;
       if (scrollId) {
         const el = document.getElementById(scrollId);
         if (el) {
@@ -225,6 +189,12 @@ export default function MarketingSite({ view = "home" }: { view?: MarketingView 
       setupReveal();
     };
     on(window, "hashchange", route);
+
+    // Mark the nav's About link current on /about (the server markup can't know
+    // which route rendered it, and it's the only nav item with an active state).
+    if (view === "about") {
+      $$('.nav__link[data-nav="about"]').forEach((a) => a.classList.add("is-active"));
+    }
 
     /* ---- hero total count-up ---- */
     const countUp = () => {

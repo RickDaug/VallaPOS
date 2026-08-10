@@ -47,7 +47,7 @@ export default function ForgotPasswordPage() {
     <main className="flex min-h-screen items-center justify-center bg-background p-6">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle className="text-2xl font-black">Reset password</CardTitle>
+          <CardTitle as="h1" className="text-2xl font-black">Reset password</CardTitle>
           <CardDescription>
             {sent
               ? "Check your inbox."

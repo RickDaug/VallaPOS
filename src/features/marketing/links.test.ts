@@ -128,22 +128,46 @@ describe("marketing site link integrity", () => {
 });
 
 describe("htmlForView", () => {
-  it("shows exactly the requested view and hides the others", () => {
+  it("keeps exactly the requested view and drops the others", () => {
     for (const view of ["home", "about"] as const) {
       const out = htmlForView(MARKETING_HTML, view);
       const views = [...out.matchAll(/<main class="view" id="view-([a-z]+)"( hidden)?>/g)];
 
-      expect(views.length).toBe(3);
-      for (const [, id, hidden] of views) {
-        expect(Boolean(hidden), `view-${id} visibility for view="${view}"`).toBe(id !== view);
-      }
+      expect(views.map((m) => m[1])).toEqual([view]);
+      // The surviving view must be VISIBLE — `hidden` has to be stripped, or the
+      // page renders blank below the nav.
+      expect(views[0]![2]).toBeUndefined();
     }
   });
 
-  it("changes nothing but the view flags", () => {
+  it("relies on <main> not nesting, so the non-greedy match can't over-capture", () => {
+    // If a future artifact ever nests a <main>, the regex would swallow markup
+    // past the intended close tag. Pin the assumption rather than trust it.
+    expect((MARKETING_HTML.match(/<main\b/g) ?? []).length).toBe(3);
+    expect((MARKETING_HTML.match(/<\/main>/g) ?? []).length).toBe(3);
+  });
+
+  it("keeps the shared nav and footer, which live outside the views", () => {
     const out = htmlForView(MARKETING_HTML, "about");
-    expect(out.length).toBeCloseTo(MARKETING_HTML.length, -2);
-    expect(hrefs(out)).toEqual(hrefs(MARKETING_HTML));
+    expect(out).toContain('href="/sign-in"');
+    expect(out).toContain("<footer");
+    expect(out).toContain("</footer>");
+  });
+
+  it("cuts most of the document weight, which is the point", () => {
+    // The five legal policies alone are >50% of the markup and were shipped
+    // `hidden` on every home-page hit, on a response served `no-store`.
+    const home = htmlForView(MARKETING_HTML, "home");
+    expect(home.length).toBeLessThan(MARKETING_HTML.length * 0.5);
+    expect(htmlForView(MARKETING_HTML, "about").length).toBeLessThan(
+      MARKETING_HTML.length * 0.25,
+    );
+  });
+
+  it("leaves the legal documents extractable from the untouched constant", () => {
+    // The legal ROUTES read MARKETING_HTML directly, so dropping views from a
+    // rendered page must not disturb the source of truth.
+    expect(MARKETING_HTML).toContain('<article class="legal-doc" id="doc-privacy">');
   });
 });
 
