@@ -40,7 +40,11 @@ const jsonLd = {
       "@type": "SoftwareApplication",
       name: "VallaPOS",
       applicationCategory: "BusinessApplication",
-      operatingSystem: "Web, Windows, macOS",
+      // Keep in step with the pricing card: the desktop edition ships a Windows
+      // installer only (desktop-0.1.0 has no macOS asset). Claiming macOS here
+      // would put the machine-readable answer at odds with the visible page —
+      // and this is the copy Google reads for rich results.
+      operatingSystem: "Web, Windows",
       description,
       publisher: { "@id": `${CANONICAL_URL}/#organization` },
       offers: [
