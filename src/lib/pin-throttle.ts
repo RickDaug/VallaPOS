@@ -26,8 +26,29 @@ import { env } from "@/lib/env";
 const MAX_FAILURES = 5;
 /** Sliding window over which failures accumulate (seconds). */
 const WINDOW_SECONDS = 5 * 60;
-/** Cool-down once locked; the membership can't be verified until it elapses (seconds). */
+/** Cool-down for the FIRST lockout; each further failure doubles it (seconds). */
 const LOCKOUT_SECONDS = 60;
+/** Ceiling on the cool-down, so a forgotten PIN can't lock a till out all day. */
+const MAX_LOCKOUT_SECONDS = 15 * 60;
+
+/**
+ * How long to lock after `failures` consecutive bad PINs. PURE.
+ *
+ * A FLAT cool-down barely throttles anything: 5 guesses per 60s is ~300/hour,
+ * which walks a 4-digit PIN (the schema minimum) in well under a day of
+ * unattended physical access — the exact scenario a shared-terminal POS lives
+ * in. Doubling turns that into hours-per-guess almost immediately while costing
+ * a legitimate fat-fingered cashier only the first 60 seconds.
+ *
+ *   5 failures → 60s   6 → 2m   7 → 4m   8 → 8m   9+ → 15m (capped)
+ */
+export function lockoutSecondsFor(failures: number): number {
+  if (failures < MAX_FAILURES) return 0;
+  const doublings = failures - MAX_FAILURES;
+  // Clamp the exponent before shifting so a long-running attack can't overflow.
+  if (doublings >= 32) return MAX_LOCKOUT_SECONDS;
+  return Math.min(LOCKOUT_SECONDS * 2 ** doublings, MAX_LOCKOUT_SECONDS);
+}
 
 function key(businessId: string, membershipId: string): string {
   return `pin-throttle:${businessId}:${membershipId}`;
@@ -146,24 +167,25 @@ async function recordKeyFailure(k: string): Promise<void> {
   const redis = getRedis();
   const now = Date.now();
 
-  if (redis) {
-    const existing = (await redis.get<Entry>(k)) ?? null;
+  // Shared derivation so the Redis and in-memory paths can't drift apart.
+  // NOTE the TTL is what makes escalation stick: it always covers the active
+  // lockout, so an attacker who waits out a long cool-down finds the counter
+  // still there and the NEXT lockout longer again. Only a success clears it.
+  const next = (existing: Entry | null): Entry => {
     const count = (existing?.count ?? 0) + 1;
-    const locked = count >= MAX_FAILURES;
-    const lockedUntil = locked ? now + LOCKOUT_SECONDS * 1000 : (existing?.lockedUntil ?? 0);
-    // TTL covers whichever lasts longer: the failure window or the active lockout.
-    const ttl = locked ? Math.max(WINDOW_SECONDS, LOCKOUT_SECONDS) : WINDOW_SECONDS;
-    const entry: Entry = { count, lockedUntil, expiresAt: now + ttl * 1000 };
-    await redis.set(k, entry, { ex: ttl });
+    const lockSecs = lockoutSecondsFor(count);
+    const lockedUntil = lockSecs > 0 ? now + lockSecs * 1000 : (existing?.lockedUntil ?? 0);
+    const ttl = Math.max(WINDOW_SECONDS, lockSecs);
+    return { count, lockedUntil, expiresAt: now + ttl * 1000 };
+  };
+
+  if (redis) {
+    const entry = next((await redis.get<Entry>(k)) ?? null);
+    await redis.set(k, entry, { ex: Math.ceil((entry.expiresAt - now) / 1000) });
     return;
   }
 
-  const existing = readMem(k);
-  const count = (existing?.count ?? 0) + 1;
-  const locked = count >= MAX_FAILURES;
-  const lockedUntil = locked ? now + LOCKOUT_SECONDS * 1000 : (existing?.lockedUntil ?? 0);
-  const ttl = locked ? Math.max(WINDOW_SECONDS, LOCKOUT_SECONDS) : WINDOW_SECONDS;
-  memStore.set(k, { count, lockedUntil, expiresAt: now + ttl * 1000 });
+  memStore.set(k, next(readMem(k)));
 }
 
 async function recordKeySuccess(k: string): Promise<void> {

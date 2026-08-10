@@ -63,6 +63,47 @@ html = html.replace(
   '<a class="nav__link nav__signin" href="/sign-in">Sign in</a>\n      <a class="btn nav__cta"',
 );
 
+// --- routing: hash-router links -> REAL Next routes (audit U-3/U-4/U-6) ---
+//
+// The artifact is a self-contained hash-routed SPA: every internal link is
+// `#/…` (`#/about`, `#/privacy`, `#/#pricing`). Shipping those verbatim meant
+// (a) `/about` and the legal routes existed but nothing linked to them, so the
+// only way in was client-side JS, (b) `vallapos.com/about` 404'd for anyone who
+// typed or shared the obvious URL, and (c) EVERY link — including all six
+// conversion CTAs — was an inert `#/#pricing` fragment until React hydrated.
+//
+// Rewriting here rather than in the artifact keeps the design source pristine
+// and makes the app's routing an explicit, reviewable transform (same rationale
+// as the "Sign in" insertion above). `src/features/marketing/links.test.ts`
+// asserts the OUTPUT of this step points only at routes that actually exist.
+//
+//   #/            -> /            #/about   -> /about     (real routes)
+//   #/privacy     -> /privacy     #/terms   -> /terms      …etc
+//   #/#pricing    -> /#pricing    (same-page anchor; MarketingSite's hash
+//                                  router still handles the smooth scroll)
+html = html.replace(/href="#\/(#?[a-z-]*)"/g, (_m, rest) => `href="/${rest}"`);
+
+// Conversion CTAs -> their real destinations, SERVER-RENDERED. MarketingSite
+// used to patch these in a useEffect, which left every Buy/Subscribe button a
+// dead anchor during the hydration window (worst on exactly the slow mobile
+// connections this product targets). The effect now only overrides them when a
+// static Stripe Payment Link is configured.
+//   data-buy="cloud"   -> /sign-up      (free sign-up; billing is in-app)
+//   data-buy="offline" -> /desktop/buy  (server-created one-time Checkout)
+const buyHref = { cloud: "/sign-up", offline: "/desktop/buy" };
+html = html.replace(
+  /<a([^>]*?)href="[^"]*"([^>]*?)data-buy="(cloud|offline)"/g,
+  (_m, pre, mid, kind) => `<a${pre}href="${buyHref[kind]}"${mid}data-buy="${kind}"`,
+);
+// The bare "Start free" / "Get started" CTAs (nav pill + the navy CTA boxes)
+// carry no data-buy attribute; they go straight to free sign-up.
+html = html
+  .replace(/<a class="btn nav__cta" href="[^"]*"/g, '<a class="btn nav__cta" href="/sign-up"')
+  .replace(
+    /<a class="btn btn--onNavy btn--lg" href="[^"]*"/g,
+    '<a class="btn btn--onNavy btn--lg" href="/sign-up"',
+  );
+
 // Escape for a JS template literal (backticks, ${}, and lone backslashes).
 const esc = (s) => s.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$\{/g, "\\${");
 

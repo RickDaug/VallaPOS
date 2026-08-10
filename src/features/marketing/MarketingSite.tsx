@@ -18,6 +18,7 @@
 
 import { useEffect, useRef } from "react";
 import { MARKETING_CSS, MARKETING_HTML } from "./marketing-content";
+import { htmlForView, type MarketingView } from "./view";
 
 // Imperative theme toggle that matches the app's next-themes config
 // (attribute="class", storageKey="theme"): flip the .light/.dark class on
@@ -58,7 +59,7 @@ const LEGAL: Record<string, string> = {
 
 const HOME_TITLE = "VallaPOS — Point of sale for people who sell on the move";
 
-export default function MarketingSite() {
+export default function MarketingSite({ view = "home" }: { view?: MarketingView } = {}) {
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -120,28 +121,18 @@ export default function MarketingSite() {
     if (year) year.textContent = String(new Date().getFullYear());
 
     /* ---- purchase / CTA wiring ----
-       data-buy buttons: real Stripe link if configured; else cloud → sign-up,
-       offline → scroll to pricing (default href). Primary "Start free" CTAs go
-       straight to the free sign-up flow. */
+       The default destinations (`/sign-up`, `/desktop/buy`) are now baked into
+       the markup by scripts/marketing/generate.mjs, so every Buy/Subscribe
+       button works from the server HTML — before hydration and with JS off.
+       This effect ONLY overrides them when a static Stripe Payment Link is
+       configured, which is an env-time opt-in the server markup can't know. */
     $$("[data-buy]").forEach((el) => {
-      const kind = el.getAttribute("data-buy") ?? "";
-      const url = BUY_LINKS[kind];
-      if (url) {
-        el.setAttribute("href", url);
-        el.setAttribute("target", "_blank");
-        el.setAttribute("rel", "noopener");
-      } else if (kind === "cloud") {
-        el.setAttribute("href", "/sign-up");
-      } else if (kind === "offline") {
-        // No static Payment Link → a server-created one-time Checkout Session
-        // (dormant-safe: /desktop/buy redirects back to pricing when Stripe is unset).
-        el.setAttribute("href", "/desktop/buy");
-      }
+      const url = BUY_LINKS[el.getAttribute("data-buy") ?? ""];
+      if (!url) return;
+      el.setAttribute("href", url);
+      el.setAttribute("target", "_blank");
+      el.setAttribute("rel", "noopener");
     });
-    // "Start free" in the nav + the navy CTA boxes → free sign-up.
-    $$('.nav__cta, .cta__box a.btn--onNavy').forEach((el) =>
-      el.setAttribute("href", "/sign-up"),
-    );
 
     /* ---- reveal-on-scroll ---- */
     let io: IntersectionObserver | null = null;
@@ -198,9 +189,11 @@ export default function MarketingSite() {
         scrollId = afterSlash.slice(1);
         document.title = HOME_TITLE;
       } else if (afterSlash === "") {
-        showView("home");
-        setActiveNav("home");
-        document.title = HOME_TITLE;
+        // No hash: stay on whatever view this ROUTE server-rendered. `/` is home;
+        // `/about` already shipped the About view visible, and re-showing "home"
+        // here would blank it the moment the effect ran.
+        showView(view);
+        setActiveNav(view);
       } else if (afterSlash === "about") {
         showView("about");
         setActiveNav("about");
@@ -257,14 +250,14 @@ export default function MarketingSite() {
       cleanups.forEach((c) => c());
       io?.disconnect();
     };
-  }, []);
+  }, [view]);
 
   return (
     <div ref={rootRef}>
       {/* CSP: style-src allows 'unsafe-inline'; script-src does not (hence the
           effect above instead of the artifact's inline <script>). */}
       <style dangerouslySetInnerHTML={{ __html: MARKETING_CSS }} />
-      <div dangerouslySetInnerHTML={{ __html: MARKETING_HTML }} />
+      <div dangerouslySetInnerHTML={{ __html: htmlForView(MARKETING_HTML, view) }} />
     </div>
   );
 }
