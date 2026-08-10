@@ -46,7 +46,7 @@ export function CreateBusinessForm() {
     <main className="flex min-h-screen items-center justify-center bg-background p-6">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle className="text-2xl font-black">Create your business</CardTitle>
+          <CardTitle as="h1" className="text-2xl font-black">Create your business</CardTitle>
           <CardDescription>
             You&apos;re signed in but don&apos;t have a business yet. Set one up to start selling.
           </CardDescription>

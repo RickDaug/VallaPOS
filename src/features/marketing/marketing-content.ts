@@ -718,7 +718,7 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
             <li><svg class="icon"><use href="#i-check"/></svg> Fully offline, data on-device</li>
             <li><svg class="icon"><use href="#i-check"/></svg> Native thermal printing &amp; drawer</li>
             <li><svg class="icon"><use href="#i-check"/></svg> No account, no phone-home</li>
-            <li><svg class="icon"><use href="#i-check"/></svg> Windows &amp; macOS</li>
+            <li><svg class="icon"><use href="#i-check"/></svg> Windows <span class="muted">&mdash; macOS coming soon</span></li>
           </ul>
           <div class="ed__foot">
             <a class="btn btn--accent btn--lg" href="/desktop/buy" data-buy="offline" style="width:100%"><svg class="icon"><use href="#i-download"/></svg> Buy now — $99 once</a>
