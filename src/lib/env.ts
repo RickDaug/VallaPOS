@@ -257,3 +257,74 @@ if (process.env.RECEIPT_FROM_EMAIL && !env.RECEIPT_FROM_EMAIL) {
       "falling back to the default sender address.",
   );
 }
+
+// --- Operator-visible config report (audit PE-4) ------------------------------
+//
+// Everything above degrades gracefully and logs. That is the right behaviour for
+// the BUILD — a typo must never brick a running till — but it is the wrong
+// behaviour for OPERATIONS: a malformed STRIPE_SECRET_KEY took both revenue
+// paths offline in production and the only trace was a console.error in a log
+// nobody tails, while the UI just quietly stopped offering the buttons.
+//
+// `configIssues()` makes that state queryable (see app/api/health/route.ts) so
+// "can this deployment actually take money and recover an account?" has an
+// answer you can check, alert on, and put in a smoke test. It reports NAMES and
+// a category only — never a value, so it is safe to expose.
+
+/** A capability that is off because its configuration is absent or unusable. */
+export interface ConfigIssue {
+  /** The environment variable at fault. */
+  key: string;
+  /** `malformed` = set but rejected by shape validation (almost always a paste
+   *  error, and the more urgent case — someone believed they configured it).
+   *  `missing` = never set. */
+  kind: "malformed" | "missing";
+  /** What is broken for a real user while this is unresolved. */
+  impact: string;
+}
+
+/**
+ * Configuration required for the product to take money and let an owner back
+ * into their account. Deliberately NOT every optional var — peripherals, the
+ * QR rail and the desktop signer degrade to "feature off", which is a product
+ * state rather than an outage. These four are the ones whose absence a visitor
+ * or merchant experiences as the product being broken.
+ */
+const REVENUE_CRITICAL: ReadonlyArray<{ key: string; value: unknown; impact: string }> = [
+  {
+    key: "STRIPE_SECRET_KEY",
+    value: env.STRIPE_SECRET_KEY,
+    impact:
+      "No payments: the $99 desktop checkout cannot start and the $19.99/mo Subscribe UI is hidden.",
+  },
+  {
+    key: "STRIPE_SUBSCRIPTION_PRICE_ID",
+    value: env.STRIPE_SUBSCRIPTION_PRICE_ID,
+    impact: "The flat SaaS subscription cannot be sold.",
+  },
+  {
+    key: "STRIPE_SUBSCRIPTION_WEBHOOK_SECRET",
+    value: env.STRIPE_SUBSCRIPTION_WEBHOOK_SECRET,
+    impact: "Subscription webhooks cannot be verified, so paid subscriptions never activate.",
+  },
+  {
+    key: "RESEND_API_KEY",
+    value: env.RESEND_API_KEY,
+    impact:
+      "No outbound email: password reset silently fails (the user is still told to check their inbox), email verification never arrives, and receipts cannot be emailed.",
+  },
+];
+
+/**
+ * Which revenue/recovery capabilities are unavailable in THIS deployment, and
+ * why. Empty array = this deployment can sell and can recover an account.
+ */
+export function configIssues(): ConfigIssue[] {
+  return REVENUE_CRITICAL.filter((c) => c.value === undefined).map(({ key, impact }) => ({
+    key,
+    // The value parsed to undefined. If the RAW variable is nonetheless present,
+    // shape validation rejected it — someone set it and believes it works.
+    kind: process.env[key] ? ("malformed" as const) : ("missing" as const),
+    impact,
+  }));
+}

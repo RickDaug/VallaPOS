@@ -522,21 +522,21 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
 <!-- ====================== top strip ====================== -->
 <div class="strip">
   New — <strong>VallaPOS Offline</strong> is here: own your register for a one-time <strong>$99</strong>.
-  <a href="#/#pricing">See the editions&nbsp;→</a>
+  <a href="/#pricing">See the editions&nbsp;→</a>
 </div>
 
 <!-- ====================== nav ====================== -->
 <header class="nav">
   <div class="wrap nav__row">
-    <a href="#/" class="brand" aria-label="VallaPOS home">
+    <a href="/" class="brand" aria-label="VallaPOS home">
       <span class="brand__mark"><svg class="icon"><use href="#i-logo"/></svg></span>
       <span>Valla<b>POS</b></span>
     </a>
     <nav class="nav__links" aria-label="Primary">
-      <a class="nav__link" href="#/#features" data-nav="features">Features</a>
-      <a class="nav__link" href="#/#editions" data-nav="editions">Editions</a>
-      <a class="nav__link" href="#/#pricing" data-nav="pricing">Pricing</a>
-      <a class="nav__link" href="#/about" data-nav="about">About</a>
+      <a class="nav__link" href="/#features" data-nav="features">Features</a>
+      <a class="nav__link" href="/#editions" data-nav="editions">Editions</a>
+      <a class="nav__link" href="/#pricing" data-nav="pricing">Pricing</a>
+      <a class="nav__link" href="/about" data-nav="about">About</a>
     </nav>
     <div class="nav__spacer"></div>
     <div class="nav__actions">
@@ -545,7 +545,7 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
         <svg class="icon theme-moon"><use href="#i-moon"/></svg>
       </button>
       <a class="nav__link nav__signin" href="/sign-in">Sign in</a>
-      <a class="btn nav__cta" href="#/#pricing"><span class="nav__cta-text">Start free</span><svg class="icon"><use href="#i-arrow"/></svg></a>
+      <a class="btn nav__cta" href="/sign-up"><span class="nav__cta-text">Start free</span><svg class="icon"><use href="#i-arrow"/></svg></a>
       <button class="iconbtn nav__burger" id="menuToggle" aria-label="Menu" aria-expanded="false" aria-controls="navMobile">
         <svg class="icon menu-open"><use href="#i-menu"/></svg>
         <svg class="icon menu-close"><use href="#i-x"/></svg>
@@ -553,13 +553,13 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
     </div>
   </div>
   <div class="nav__mobile" id="navMobile" hidden>
-    <a class="nav__mlink" href="#/#features">Features</a>
-    <a class="nav__mlink" href="#/#editions">Editions</a>
-    <a class="nav__mlink" href="#/#pricing">Pricing</a>
-    <a class="nav__mlink" href="#/about">About</a>
+    <a class="nav__mlink" href="/#features">Features</a>
+    <a class="nav__mlink" href="/#editions">Editions</a>
+    <a class="nav__mlink" href="/#pricing">Pricing</a>
+    <a class="nav__mlink" href="/about">About</a>
     <div class="nav__mrow">
-      <a class="btn" href="#/#pricing" data-buy="cloud" style="flex:1">Subscribe</a>
-      <a class="btn btn--accent" href="#/#pricing" data-buy="offline" style="flex:1">Buy $99</a>
+      <a class="btn" href="/sign-up" data-buy="cloud" style="flex:1">Subscribe</a>
+      <a class="btn btn--accent" href="/desktop/buy" data-buy="offline" style="flex:1">Buy $99</a>
     </div>
   </div>
 </header>
@@ -575,8 +575,8 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
         <h1>Run your register <span class="u">anywhere</span>. Even off the grid.</h1>
         <p class="hero__sub">VallaPOS turns any phone, tablet, or laptop into a fast, friendly register — built for food trucks, barbers, market stalls and small shops. No pricey hardware. No dead zones.</p>
         <div class="hero__cta">
-          <a class="btn btn--lg" href="#/#pricing" data-buy="cloud">Start the monthly plan<svg class="icon"><use href="#i-arrow"/></svg></a>
-          <a class="btn btn--ghost btn--lg" href="#/#pricing" data-buy="offline"><svg class="icon"><use href="#i-download"/></svg> Buy the $99 desktop app</a>
+          <a class="btn btn--lg" href="/sign-up" data-buy="cloud">Start the monthly plan<svg class="icon"><use href="#i-arrow"/></svg></a>
+          <a class="btn btn--ghost btn--lg" href="/desktop/buy" data-buy="offline"><svg class="icon"><use href="#i-download"/></svg> Buy the $99 desktop app</a>
         </div>
         <div class="hero__trust">
           <span><svg class="icon"><use href="#i-check"/></svg> Works fully offline</span>
@@ -702,7 +702,7 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
             <li><svg class="icon"><use href="#i-check"/></svg> <span class="muted">Card payments via Stripe — coming soon</span></li>
           </ul>
           <div class="ed__foot">
-            <a class="btn btn--lg" href="#/#pricing" data-buy="cloud" style="width:100%">Subscribe — $19.99/mo</a>
+            <a class="btn btn--lg" href="/sign-up" data-buy="cloud" style="width:100%">Subscribe — $19.99/mo</a>
             <p class="ed__note">Cancel anytime. Secure checkout by Stripe.</p>
           </div>
         </div>
@@ -721,7 +721,7 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
             <li><svg class="icon"><use href="#i-check"/></svg> Windows &amp; macOS</li>
           </ul>
           <div class="ed__foot">
-            <a class="btn btn--accent btn--lg" href="#/#pricing" data-buy="offline" style="width:100%"><svg class="icon"><use href="#i-download"/></svg> Buy now — $99 once</a>
+            <a class="btn btn--accent btn--lg" href="/desktop/buy" data-buy="offline" style="width:100%"><svg class="icon"><use href="#i-download"/></svg> Buy now — $99 once</a>
             <p class="ed__note">A one-time license, delivered instantly by Stripe.</p>
           </div>
         </div>
@@ -789,7 +789,7 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
             <li><svg class="icon"><use href="#i-check"/></svg> Cloud reports &amp; backups</li>
             <li><svg class="icon"><use href="#i-check"/></svg> Cancel anytime &mdash; no contract</li>
           </ul>
-          <div class="ed__foot"><a class="btn btn--lg" href="#/#pricing" data-buy="cloud" style="width:100%">Subscribe monthly</a></div>
+          <div class="ed__foot"><a class="btn btn--lg" href="/sign-up" data-buy="cloud" style="width:100%">Subscribe monthly</a></div>
         </div>
         <div class="ed ed--feature reveal">
           <span class="ed__tag">Best value</span>
@@ -803,7 +803,7 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
             <li><svg class="icon"><use href="#i-check"/></svg> Your data never leaves the device</li>
             <li><svg class="icon"><use href="#i-check"/></svg> Free updates within the version</li>
           </ul>
-          <div class="ed__foot"><a class="btn btn--accent btn--lg" href="#/#pricing" data-buy="offline" style="width:100%"><svg class="icon"><use href="#i-download"/></svg> Buy &amp; download</a></div>
+          <div class="ed__foot"><a class="btn btn--accent btn--lg" href="/desktop/buy" data-buy="offline" style="width:100%"><svg class="icon"><use href="#i-download"/></svg> Buy &amp; download</a></div>
         </div>
       </div>
       <p style="text-align:center;color:var(--muted-fg);font-size:0.9rem;margin-top:22px">Prices in USD. Card processing, when available, is billed by Stripe at their standard rates — never by us.</p>
@@ -822,7 +822,7 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
         <details class="qa reveal"><summary>What's the difference between Cloud and Offline?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="qa__body"><p><strong>Cloud</strong> is a monthly subscription that syncs across devices and staff, with backups and live reports in the cloud. <strong>Offline</strong> is a one-time $99 desktop app that's cash-only, 100% local, and needs no account. Many owners start on Cloud and add Offline for a fixed second station.</p></div></details>
         <details class="qa reveal"><summary>Do you take a percentage of my sales?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="qa__body"><p>Never. You pay a flat subscription or a one-time price — we don't skim your revenue. When card payments launch, they're processed by Stripe at Stripe's standard rates, paid directly to you as the merchant.</p></div></details>
         <details class="qa reveal"><summary>Can my whole team use one device?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="qa__body"><p>Absolutely. Add each worker with a PIN, and they unlock the register to ring up sales. Every order is attributed to whoever rang it, and sensitive actions like refunds require a manager PIN.</p></div></details>
-        <details class="qa reveal"><summary>Where is my business data stored?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="qa__body"><p>In the Cloud edition, your data is securely hosted in the United States and isolated per business. In the Offline edition, it's stored only on your own device — it never touches our servers. See our <a href="#/privacy">Privacy Statement</a> for details.</p></div></details>
+        <details class="qa reveal"><summary>Where is my business data stored?<svg class="icon"><use href="#i-plus"/></svg></summary><div class="qa__body"><p>In the Cloud edition, your data is securely hosted in the United States and isolated per business. In the Offline edition, it's stored only on your own device — it never touches our servers. See our <a href="/privacy">Privacy Statement</a> for details.</p></div></details>
       </div>
     </div>
   </section>
@@ -834,8 +834,8 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
         <h2>Start selling smarter today</h2>
         <p>Set up your menu, hand out a PIN, and take your first order this afternoon — no contracts, no card reader, no risk.</p>
         <div class="cta__row">
-          <a class="btn btn--onNavy btn--lg" href="#/#pricing">Start free<svg class="icon"><use href="#i-arrow"/></svg></a>
-          <a class="btn btn--ghostNavy btn--lg" href="#/about">Learn our story</a>
+          <a class="btn btn--onNavy btn--lg" href="/sign-up">Start free<svg class="icon"><use href="#i-arrow"/></svg></a>
+          <a class="btn btn--ghostNavy btn--lg" href="/about">Learn our story</a>
         </div>
       </div>
     </div>
@@ -919,8 +919,8 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
         <h2>Come sell with us</h2>
         <p>Join the independents running a smarter register — and keeping every dollar they earn. Get started at <strong>vallapos.com</strong>, or reach the team any time at <a href="mailto:hello@vallapos.com" style="color:var(--accent);font-weight:600">hello@vallapos.com</a>.</p>
         <div class="cta__row">
-          <a class="btn btn--onNavy btn--lg" href="#/#pricing">Get started<svg class="icon"><use href="#i-arrow"/></svg></a>
-          <a class="btn btn--ghostNavy btn--lg" href="#/#features">Explore features</a>
+          <a class="btn btn--onNavy btn--lg" href="/sign-up">Get started<svg class="icon"><use href="#i-arrow"/></svg></a>
+          <a class="btn btn--ghostNavy btn--lg" href="/#features">Explore features</a>
         </div>
       </div>
     </div>
@@ -931,14 +931,14 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
 <main class="view" id="view-legal" hidden>
   <section class="legal-hero">
     <div class="wrap">
-      <a href="#/" class="eyebrow" style="cursor:pointer"><svg class="icon" style="transform:scaleX(-1)"><use href="#i-arrow"/></svg> Back to home</a>
+      <a href="/" class="eyebrow" style="cursor:pointer"><svg class="icon" style="transform:scaleX(-1)"><use href="#i-arrow"/></svg> Back to home</a>
       <h1 id="legalTitle">Legal</h1>
       <nav class="legal-nav" id="legalNav" aria-label="Legal documents">
-        <a href="#/privacy" data-doc="privacy">Privacy Statement</a>
-        <a href="#/terms" data-doc="terms">Terms of Use</a>
-        <a href="#/disputes" data-doc="disputes">Dispute Policy</a>
-        <a href="#/do-not-sell" data-doc="do-not-sell">Do Not Sell My Info</a>
-        <a href="#/dmca" data-doc="dmca">DMCA Policy</a>
+        <a href="/privacy" data-doc="privacy">Privacy Statement</a>
+        <a href="/terms" data-doc="terms">Terms of Use</a>
+        <a href="/disputes" data-doc="disputes">Dispute Policy</a>
+        <a href="/do-not-sell" data-doc="do-not-sell">Do Not Sell My Info</a>
+        <a href="/dmca" data-doc="dmca">DMCA Policy</a>
       </nav>
     </div>
   </section>
@@ -965,7 +965,7 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
 </ul>
 
 <h2>We do not sell your personal information</h2>
-<p>VallaPOS does not sell your personal information, and we do not share it for cross-context behavioral advertising, as those terms are defined under the CCPA/CPRA and similar US state laws. See our <a href="#/do-not-sell">Do Not Sell or Share My Personal Information</a> notice for details.</p>
+<p>VallaPOS does not sell your personal information, and we do not share it for cross-context behavioral advertising, as those terms are defined under the CCPA/CPRA and similar US state laws. See our <a href="/do-not-sell">Do Not Sell or Share My Personal Information</a> notice for details.</p>
 
 <h2>Security</h2>
 <p>We protect data in transit with encryption (TLS). Passwords and PINs are stored only as salted hashes, never in plaintext. Cloud is multi-tenant with tenant isolation so one business cannot access another business's data. No system is perfectly secure, but we work to protect your information using reasonable technical and organizational measures.</p>
@@ -1020,11 +1020,11 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
 <li><strong>Free trial.</strong> If a trial is offered, you will not be charged during the trial. Unless you cancel before the trial ends, your plan converts to a paid subscription and your payment method is charged automatically.</li>
 <li><strong>Renewals.</strong> Subscriptions renew automatically each billing period at the then-current rate.</li>
 <li><strong>Price changes.</strong> We may change subscription prices. We will give you reasonable advance notice, and changes apply at your next renewal. Continued use after a change takes effect means you accept the new price.</li>
-<li><strong>Cancellation.</strong> You may cancel at any time; cancellation stops future renewals and takes effect at the end of your current billing period. Refund posture is described in our <a href="#/disputes">Dispute Policy</a>.</li>
+<li><strong>Cancellation.</strong> You may cancel at any time; cancellation stops future renewals and takes effect at the end of your current billing period. Refund posture is described in our <a href="/disputes">Dispute Policy</a>.</li>
 </ul>
 
 <h2>6. License terms and acceptable use (Offline)</h2>
-<p>The Offline edition is licensed, not sold. Your US$99 purchase grants you a limited, non-exclusive, non-transferable license to use one copy of VallaPOS Offline for a single business. Your license key is <strong>per-business</strong> and personal to you. You may not resell, sublicense, rent, share, or redistribute the software or your license key; remove or alter licensing or copyright notices; or reverse-engineer, decompile, or attempt to derive source code except to the extent applicable law expressly permits. Refund posture for the one-time license is described in our <a href="#/disputes">Dispute Policy</a>.</p>
+<p>The Offline edition is licensed, not sold. Your US$99 purchase grants you a limited, non-exclusive, non-transferable license to use one copy of VallaPOS Offline for a single business. Your license key is <strong>per-business</strong> and personal to you. You may not resell, sublicense, rent, share, or redistribute the software or your license key; remove or alter licensing or copyright notices; or reverse-engineer, decompile, or attempt to derive source code except to the extent applicable law expressly permits. Refund posture for the one-time license is described in our <a href="/disputes">Dispute Policy</a>.</p>
 
 <h2>7. Merchant responsibilities</h2>
 <p>You are solely responsible for how you operate your business through VallaPOS, including:</p>
@@ -1060,7 +1060,7 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
 <p>We may modify, add, or discontinue features, and we may update these Terms from time to time. Material changes will be communicated by reasonable means, such as posting the updated Terms with a new effective date. Your continued use after changes take effect constitutes acceptance.</p>
 
 <h2>16. Governing law</h2>
-<p>These Terms are governed by the laws of the State of Texas, USA, without regard to conflict-of-laws rules. Dispute resolution, arbitration, and venue are addressed in our <a href="#/disputes">Dispute Policy</a>, which is incorporated into these Terms by reference.</p>
+<p>These Terms are governed by the laws of the State of Texas, USA, without regard to conflict-of-laws rules. Dispute resolution, arbitration, and venue are addressed in our <a href="/disputes">Dispute Policy</a>, which is incorporated into these Terms by reference.</p>
 
 <h2>17. Contact</h2>
 <p>Questions about these Terms: legal@vallahub.com. Product and account support: support@vallapos.com. Mailing address: 1942 W Gray St., Unit #115, Houston, TX 77019.</p>
@@ -1186,7 +1186,7 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
   <div class="wrap">
     <div class="footer__top">
       <div class="footer__brand">
-        <a href="#/" class="brand">
+        <a href="/" class="brand">
           <span class="brand__mark"><svg class="icon"><use href="#i-logo"/></svg></span>
           <span>Valla<b>POS</b></span>
         </a>
@@ -1194,35 +1194,35 @@ export const MARKETING_HTML = `<svg width="0" height="0" style="position:absolut
       </div>
       <div class="fcol">
         <h4>Product</h4>
-        <a href="#/#features">Features</a>
-        <a href="#/#editions">Editions</a>
-        <a href="#/#pricing">Pricing</a>
-        <a href="#/#how">How it works</a>
+        <a href="/#features">Features</a>
+        <a href="/#editions">Editions</a>
+        <a href="/#pricing">Pricing</a>
+        <a href="/#how">How it works</a>
       </div>
       <div class="fcol">
         <h4>Company</h4>
-        <a href="#/about">About us</a>
-        <a href="#/#faq">FAQ</a>
+        <a href="/about">About us</a>
+        <a href="/#faq">FAQ</a>
         <a href="mailto:support@vallapos.com">Support</a>
         <a href="mailto:hello@vallapos.com">Contact</a>
       </div>
       <div class="fcol">
         <h4>Legal</h4>
-        <a href="#/privacy">Privacy Statement</a>
-        <a href="#/terms">Terms of Use</a>
-        <a href="#/disputes">Dispute Policy</a>
-        <a href="#/do-not-sell">Do Not Sell My Info</a>
-        <a href="#/dmca">DMCA Policy</a>
+        <a href="/privacy">Privacy Statement</a>
+        <a href="/terms">Terms of Use</a>
+        <a href="/disputes">Dispute Policy</a>
+        <a href="/do-not-sell">Do Not Sell My Info</a>
+        <a href="/dmca">DMCA Policy</a>
       </div>
     </div>
     <div class="footer__bottom">
       <span>© <span id="year">2026</span> VallaPOS. All rights reserved.</span>
       <nav>
-        <a href="#/privacy">Privacy</a>
-        <a href="#/terms">Terms</a>
-        <a href="#/disputes">Disputes</a>
-        <a href="#/do-not-sell">Do Not Sell</a>
-        <a href="#/dmca">DMCA</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+        <a href="/disputes">Disputes</a>
+        <a href="/do-not-sell">Do Not Sell</a>
+        <a href="/dmca">DMCA</a>
       </nav>
     </div>
   </div>
